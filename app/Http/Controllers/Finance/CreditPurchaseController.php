@@ -48,9 +48,9 @@ class CreditPurchaseController extends Controller
         $creditTotals = $credits->mapWithKeys(fn (CreditPurchase $credit) => [
             $credit->id => $this->freePayments->totals($credit),
         ]);
-        $creditorSummaries = $this->creditorSummaries($credits, $creditTotals);
         $currentMonth = now()->startOfMonth();
         $nextMonth = $currentMonth->copy()->addMonth();
+        $creditorSummaries = $this->creditorSummaries($credits, $creditTotals, $currentMonth, $nextMonth);
         $summary = [
             'total' => round($credits->sum(fn (CreditPurchase $credit) => (float) $credit->total_amount), 2),
             'paid' => round($creditTotals->sum('total_paid'), 2),
@@ -486,15 +486,28 @@ class CreditPurchaseController extends Controller
         $this->freePayments->syncCreditStatus($credit);
     }
 
-    private function creditorSummaries($credits, $creditTotals)
+    private function creditorSummaries($credits, $creditTotals, Carbon $currentMonth, Carbon $nextMonth)
     {
         return $credits
             ->groupBy(fn (CreditPurchase $credit) => $credit->account?->name ?: 'Sin acreedor')
-            ->map(function ($group, string $creditorName) use ($creditTotals) {
+            ->map(function ($group, string $creditorName) use ($creditTotals, $currentMonth, $nextMonth) {
                 $style = $this->creditorStyle($creditorName);
                 $items = $group
-                    ->map(function (CreditPurchase $credit) use ($creditTotals, $style, $creditorName) {
+                    ->map(function (CreditPurchase $credit) use ($creditTotals, $style, $creditorName, $currentMonth, $nextMonth) {
                         $totals = $creditTotals[$credit->id] ?? $this->freePayments->totals($credit);
+                        $currentDue = round($credit->installments
+                            ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($currentMonth))
+                            ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2);
+                        $nextDue = round($credit->installments
+                            ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($nextMonth))
+                            ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2);
+                        $installmentPaidThisMonth = $credit->installments
+                            ->filter(fn (CreditInstallment $installment) => $installment->paid_on?->isSameMonth($currentMonth))
+                            ->sum(fn (CreditInstallment $installment) => (float) $installment->paid_amount);
+                        $freePaidThisMonth = $credit->freePayments
+                            ->filter(fn (CreditFreePayment $payment) => $payment->paid_on?->isSameMonth($currentMonth))
+                            ->sum(fn (CreditFreePayment $payment) => (float) $payment->amount_applied);
+                        $paidThisMonth = round($installmentPaidThisMonth + $freePaidThisMonth, 2);
 
                         return [
                             'id' => $credit->id,
@@ -507,6 +520,9 @@ class CreditPurchaseController extends Controller
                             'total' => (float) $credit->total_amount,
                             'paid' => (float) ($totals['total_paid'] ?? 0),
                             'pending' => (float) ($totals['balance_due'] ?? 0),
+                            'current_due' => $currentDue,
+                            'paid_this_month' => $paidThisMonth,
+                            'next_due' => $nextDue,
                         ];
                     })
                     ->sortByDesc('pending')
@@ -520,6 +536,9 @@ class CreditPurchaseController extends Controller
                     'pending' => round($items->sum('pending'), 2),
                     'paid' => round($items->sum('paid'), 2),
                     'total' => round($items->sum('total'), 2),
+                    'current_due' => round($items->sum('current_due'), 2),
+                    'paid_this_month' => round($items->sum('paid_this_month'), 2),
+                    'next_due' => round($items->sum('next_due'), 2),
                     'credits' => $items,
                 ];
             })

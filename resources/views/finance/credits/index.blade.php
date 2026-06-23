@@ -101,13 +101,23 @@
                                 <span class="fw-semibold" style="color: {{ $style['text'] }};">{{ $creditor['name'] }}</span>
                                 <span class="badge" style="background: {{ $style['color'] }}; color: {{ $style['badge_text'] ?? '#111827' }};">{{ $creditor['count'] }}</span>
                             </div>
-                            <div class="mt-3">
-                                <div class="text-muted small">Saldo pendiente</div>
-                                <div class="fs-5 fw-semibold" style="color: {{ $style['text'] }};">{{ $money($creditor['pending']) }}</div>
-                            </div>
-                            <div class="d-flex justify-content-between text-muted small mt-2">
-                                <span>Total {{ $money($creditor['total']) }}</span>
-                                <span>Pagado {{ $money($creditor['paid']) }}</span>
+                            <div class="row g-2 mt-3">
+                                <div class="col-6">
+                                    <div class="text-muted small">Este mes se debe</div>
+                                    <div class="fw-semibold" style="color: {{ $style['text'] }};">{{ $money($creditor['current_due']) }}</div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="text-muted small">Se pagó este mes</div>
+                                    <div class="fw-semibold text-success">{{ $money($creditor['paid_this_month']) }}</div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="text-muted small">Siguiente mes</div>
+                                    <div class="fw-semibold text-warning">{{ $money($creditor['next_due']) }}</div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="text-muted small">Total se le debe</div>
+                                    <div class="fw-semibold" style="color: {{ $style['text'] }};">{{ $money($creditor['pending']) }}</div>
+                                </div>
                             </div>
                         </button>
                         <div class="collapse mt-2" id="{{ $collapseId }}">
@@ -120,7 +130,10 @@
                                         <thead>
                                             <tr>
                                                 <th>Crédito</th>
-                                                <th class="text-end">Saldo</th>
+                                                <th class="text-end">Este mes</th>
+                                                <th class="text-end">Pagado mes</th>
+                                                <th class="text-end">Siguiente</th>
+                                                <th class="text-end">Saldo total</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -136,6 +149,15 @@
                                                                 | {{ $creditItem['notes'] }}
                                                             @endif
                                                         </div>
+                                                    </td>
+                                                    <td class="text-end text-warning">
+                                                        {{ $money($creditItem['current_due']) }}
+                                                    </td>
+                                                    <td class="text-end text-success">
+                                                        {{ $money($creditItem['paid_this_month']) }}
+                                                    </td>
+                                                    <td class="text-end text-warning">
+                                                        {{ $money($creditItem['next_due']) }}
                                                     </td>
                                                     <td class="text-end">
                                                         <span class="text-warning">{{ $money($creditItem['pending']) }}</span>

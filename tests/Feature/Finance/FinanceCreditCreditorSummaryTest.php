@@ -5,11 +5,18 @@ use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\User;
 use App\Services\Finance\FinanceCatalogService;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
+afterEach(function () {
+    Carbon::setTestNow();
+});
+
 it('shows credit debts grouped by creditor with meaningful colors', function () {
+    Carbon::setTestNow('2026-06-23 09:00:00');
+
     $user = User::factory()->create();
     app(FinanceCatalogService::class)->ensureForUser($user);
 
@@ -40,16 +47,23 @@ it('shows credit debts grouped by creditor with meaningful colors', function () 
         'status' => 'active',
     ]);
 
-    CreditInstallment::create([
-        'user_id' => $user->id,
-        'credit_purchase_id' => $nuCredit->id,
-        'period_month' => '2026-07-01',
-        'due_date' => '2026-07-25',
-        'installment_number' => 1,
-        'amount' => 1200,
-        'paid_amount' => 0,
-        'status' => 'pending',
-    ]);
+    foreach ([
+        ['period' => '2026-06-01', 'due' => '2026-06-25', 'number' => 1, 'amount' => 400, 'paid' => 0, 'status' => 'pending', 'paid_on' => null],
+        ['period' => '2026-06-01', 'due' => '2026-06-26', 'number' => 2, 'amount' => 200, 'paid' => 200, 'status' => 'paid', 'paid_on' => '2026-06-22'],
+        ['period' => '2026-07-01', 'due' => '2026-07-25', 'number' => 3, 'amount' => 600, 'paid' => 0, 'status' => 'pending', 'paid_on' => null],
+    ] as $installment) {
+        CreditInstallment::create([
+            'user_id' => $user->id,
+            'credit_purchase_id' => $nuCredit->id,
+            'period_month' => $installment['period'],
+            'due_date' => $installment['due'],
+            'installment_number' => $installment['number'],
+            'amount' => $installment['amount'],
+            'paid_amount' => $installment['paid'],
+            'status' => $installment['status'],
+            'paid_on' => $installment['paid_on'],
+        ]);
+    }
 
     CreditInstallment::create([
         'user_id' => $user->id,
@@ -70,6 +84,14 @@ it('shows credit debts grouped by creditor with meaningful colors', function () 
         ->assertSee('Se le deben estos créditos a MPW')
         ->assertSee('Se debe a NU')
         ->assertSee('Se debe a MPW')
+        ->assertSee('Este mes se debe')
+        ->assertSee('Se pagó este mes')
+        ->assertSee('Siguiente mes')
+        ->assertSee('Total se le debe')
+        ->assertSee('$400.00')
+        ->assertSee('$200.00')
+        ->assertSee('$600.00')
+        ->assertSee('$1,000.00')
         ->assertSee('#7c3aed')
         ->assertSee('#facc15');
 });
