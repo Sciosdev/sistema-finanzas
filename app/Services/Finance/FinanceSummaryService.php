@@ -283,7 +283,7 @@ class FinanceSummaryService
     private function nextPayments(Collection $obligations): Collection
     {
         return $obligations
-            ->where('is_pending', true)
+            ->filter(fn (array $obligation) => $obligation['is_pending'] || $obligation['is_skipped'])
             ->values();
     }
 

@@ -98,6 +98,8 @@ it('shows the improved Spanish login screen', function () {
         ->assertSee('Correo')
         ->assertSee('Contraseña')
         ->assertSee('Entrar')
+        ->assertSee('toggle-password')
+        ->assertSee('Mostrar contraseña')
         ->assertDontSee('test@example.com')
         ->assertDontSee('Sign In');
 });

@@ -36,6 +36,9 @@
             <button class="btn btn-outline-primary" type="submit">
                 <i data-lucide="filter" class="me-1"></i>Filtrar
             </button>
+            <a class="btn btn-outline-success" href="{{ route('finance.movements.export', request()->only(['month', 'type', 'q'])) }}">
+                <i data-lucide="download" class="me-1"></i>Exportar CSV
+            </a>
             @if (request()->filled('q') || request()->filled('type'))
                 <a href="{{ route('finance.movements.index', ['month' => $monthValue]) }}" class="btn btn-outline-secondary" title="Limpiar filtros">
                     <i data-lucide="x"></i>
@@ -105,7 +108,7 @@
                                     <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue]) }}" class="btn btn-sm btn-link text-primary p-0" title="Editar">
                                         <i data-lucide="pencil"></i>
                                     </a>
-                                    <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}">
+                                    <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}" onsubmit="return confirm('¿Eliminar este movimiento? Podrás deshacerlo durante 2 minutos.')">
                                         @csrf
                                         @method('DELETE')
                                         <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Eliminar">

@@ -54,6 +54,7 @@ class FinanceSecurityController extends Controller
         return view('finance.security.index', [
             'backups' => $this->backups->listBackups(),
             'exports' => $this->listExportFiles(),
+            'externalBackupPath' => config('finance.external_backup_path'),
             'snapshots' => DeleteSnapshot::where('user_id', $user->id)
                 ->orderByDesc('created_at')
                 ->limit(20)
@@ -89,6 +90,30 @@ class FinanceSecurityController extends Controller
     public function createFullBackup(Request $request)
     {
         return $this->backupResponse($this->backups->createFullBackup($request->boolean('include_env')), 'full');
+    }
+
+    public function createExternalBackup(Request $request)
+    {
+        $data = $request->validate([
+            'mode' => ['required', 'in:copy_latest,database,full'],
+            'include_env' => ['nullable', 'boolean'],
+        ]);
+
+        $result = match ($data['mode']) {
+            'database' => $this->backups->createDatabaseBackupExternal(),
+            'full' => $this->backups->createFullBackupExternal($request->boolean('include_env')),
+            default => $this->backups->copyLatestBackupToExternal(),
+        };
+
+        if (! ($result['ok'] ?? false)) {
+            $this->failures->report($request->user(), 'backup', 'external', $result['message'] ?? 'No se pudo crear el backup externo.', [
+                'mode' => $data['mode'],
+            ]);
+
+            return back()->with('error', $result['message'] ?? 'No se pudo crear el backup externo.');
+        }
+
+        return back()->with('success', ($result['message'] ?? 'Backup externo creado.') . ' Archivo: ' . $result['name']);
     }
 
     public function downloadBackup(Request $request, string $type, string $filename)

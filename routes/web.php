@@ -9,6 +9,7 @@ use App\Http\Controllers\Finance\FinanceDashboardController;
 use App\Http\Controllers\Finance\FinanceOperationController;
 use App\Http\Controllers\Finance\FinanceReportController;
 use App\Http\Controllers\Finance\FinanceSecurityController;
+use App\Http\Controllers\Finance\HistoricalImportController;
 use App\Http\Controllers\Finance\MovementController;
 use App\Http\Controllers\Finance\PlannedPaymentController;
 use App\Http\Controllers\Finance\ReminderController;
@@ -35,17 +36,23 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
     Route::prefix('finanzas')->name('finance.')->group(function () {
         Route::get('', [FinanceDashboardController::class, 'index'])->name('dashboard');
         Route::get('reportes', [FinanceReportController::class, 'index'])->name('reports.index');
+        Route::get('reportes/exportar', [FinanceReportController::class, 'export'])->name('reports.export');
+        Route::get('importar-historico', [HistoricalImportController::class, 'index'])->name('imports.historical.index');
+        Route::post('importar-historico/vista-previa', [HistoricalImportController::class, 'preview'])->name('imports.historical.preview');
+        Route::post('importar-historico/guardar', [HistoricalImportController::class, 'store'])->name('imports.historical.store');
         Route::get('operacion', [FinanceOperationController::class, 'index'])->name('operations.index');
         Route::get('seguridad', [FinanceSecurityController::class, 'index'])->name('security.index');
         Route::post('seguridad/deshacer/{token}', [FinanceSecurityController::class, 'undoDelete'])->name('security.undo-delete');
         Route::post('seguridad/backups/database', [FinanceSecurityController::class, 'createDatabaseBackup'])->name('security.backups.database');
         Route::post('seguridad/backups/full', [FinanceSecurityController::class, 'createFullBackup'])->name('security.backups.full');
+        Route::post('seguridad/backups/externo', [FinanceSecurityController::class, 'createExternalBackup'])->name('security.backups.external');
         Route::get('seguridad/backups/{type}/{filename}', [FinanceSecurityController::class, 'downloadBackup'])
             ->where(['type' => 'database|full', 'filename' => '[^/]+'])
             ->name('security.backups.download');
         Route::post('seguridad/fallas/{failure}/resolver', [FinanceSecurityController::class, 'resolveFailure'])->name('security.failures.resolve');
 
         Route::get('movimientos', [MovementController::class, 'index'])->name('movements.index');
+        Route::get('movimientos/exportar', [MovementController::class, 'export'])->name('movements.export');
         Route::post('movimientos', [MovementController::class, 'store'])->name('movements.store');
         Route::get('movimientos/{movement}/editar', [MovementController::class, 'edit'])->name('movements.edit');
         Route::put('movimientos/{movement}', [MovementController::class, 'update'])->name('movements.update');

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Finance;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
 use App\Models\Finance\Movement;
+use App\Services\Finance\FinanceCsvExportService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceSummaryService;
@@ -21,6 +22,7 @@ class MovementController extends Controller
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
+        private readonly FinanceCsvExportService $csvExports,
     ) {
     }
 
@@ -69,6 +71,54 @@ class MovementController extends Controller
             'accounts' => $this->accountsFor($user),
             'categories' => $this->categoriesFor($user),
             'people' => $this->peopleFor($user),
+        ]);
+    }
+
+    public function export(Request $request)
+    {
+        $user = $request->user();
+        [$start, $end] = $this->summaryService->monthRange($request->query('month', now()->format('Y-m')));
+
+        $movements = Movement::with(['account', 'category', 'person'])
+            ->where('user_id', $user->id)
+            ->whereBetween('happened_on', [$start->toDateString(), $end->toDateString()])
+            ->when($request->query('type'), fn ($query, $type) => $query->where('movement_type', $type))
+            ->when(trim((string) $request->query('q')) !== '', function ($query) use ($request) {
+                $search = trim((string) $request->query('q'));
+                $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
+                $amount = is_numeric(str_replace([',', '$'], '', $search))
+                    ? round((float) str_replace([',', '$'], '', $search), 2)
+                    : null;
+
+                $query->where(function ($inner) use ($like, $amount) {
+                    $inner->where('description', 'like', $like)
+                        ->orWhere('notes', 'like', $like)
+                        ->orWhereHas('account', fn ($account) => $account->where('name', 'like', $like))
+                        ->orWhereHas('category', fn ($category) => $category->where('name', 'like', $like)->orWhere('group', 'like', $like))
+                        ->orWhereHas('person', fn ($person) => $person->where('name', 'like', $like)->orWhere('alias', 'like', $like));
+
+                    if ($amount !== null) {
+                        $inner->orWhereBetween('amount', [$amount - 0.01, $amount + 0.01]);
+                    }
+                });
+            })
+            ->orderBy('happened_on')
+            ->orderBy('id')
+            ->get();
+
+        $result = $this->csvExports->exportMovements('movimientos-' . $start->format('Y-m'), $movements, [
+            'Reporte' => 'Movimientos',
+            'Mes' => $start->format('Y-m'),
+            'Tipo' => $request->query('type') ?: 'Todos',
+            'Búsqueda' => $request->query('q') ?: 'Sin búsqueda',
+        ]);
+
+        if (! ($result['ok'] ?? false)) {
+            return back()->with('error', $result['message'] ?? 'No se pudo exportar movimientos.');
+        }
+
+        return response()->download($result['absolute_path'], $result['name'], [
+            'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
 

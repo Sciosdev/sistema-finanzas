@@ -203,10 +203,13 @@
                                             <td class="text-end {{ $movement->movement_type === 'expense' ? 'text-danger' : 'text-success' }}">{{ $money($movement->amount) }}</td>
                                             <td class="text-end">
                                                 <div class="d-inline-flex align-items-center gap-2">
+                                                    <a href="{{ route('finance.movements.index', ['month' => $monthValue, 'q' => $movement->description]) }}" class="btn btn-sm btn-outline-secondary" title="Ver movimiento en historial">
+                                                        <i data-lucide="eye" class="me-1"></i>Ver
+                                                    </a>
                                                     <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue]) }}" class="btn btn-sm btn-outline-primary" title="Editar movimiento">
                                                         <i data-lucide="pencil" class="me-1"></i>Editar
                                                     </a>
-                                                    <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}">
+                                                    <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}" onsubmit="return confirm('¿Eliminar este movimiento de San Juan? Podrás deshacerlo durante 2 minutos.')">
                                                         @csrf
                                                         @method('DELETE')
                                                         <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar con deshacer de 2 minutos">
@@ -457,10 +460,13 @@
                                     <td class="text-end {{ $movement->movement_type === 'expense' ? 'text-danger' : 'text-success' }}">{{ $money($movement->amount) }}</td>
                                     <td class="text-end">
                                         <div class="d-inline-flex align-items-center gap-2">
+                                            <a href="{{ route('finance.movements.index', ['month' => $monthValue, 'q' => $movement->description]) }}" class="btn btn-sm btn-outline-secondary" title="Ver movimiento en historial">
+                                                <i data-lucide="eye" class="me-1"></i>Ver
+                                            </a>
                                             <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue]) }}" class="btn btn-sm btn-outline-primary" title="Editar movimiento">
                                                 <i data-lucide="pencil" class="me-1"></i>Editar
                                             </a>
-                                            <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}">
+                                            <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}" onsubmit="return confirm('¿Eliminar este movimiento de San Juan? Podrás deshacerlo durante 2 minutos.')">
                                                 @csrf
                                                 @method('DELETE')
                                                 <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar con deshacer de 2 minutos">

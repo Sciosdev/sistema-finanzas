@@ -89,6 +89,58 @@ class FinanceBackupService
         }
     }
 
+    public function createDatabaseBackupExternal(): array
+    {
+        $backup = $this->createDatabaseBackup();
+
+        if (! ($backup['ok'] ?? false)) {
+            return $backup;
+        }
+
+        return $this->copyBackupPayloadToExternal($backup, 'Backup de BD copiado a ruta externa.');
+    }
+
+    public function createFullBackupExternal(bool $includeEnv = false): array
+    {
+        $backup = $this->createFullBackup($includeEnv);
+
+        if (! ($backup['ok'] ?? false)) {
+            return $backup;
+        }
+
+        return $this->copyBackupPayloadToExternal($backup, 'Backup completo copiado a ruta externa.');
+    }
+
+    public function copyLatestBackupToExternal(): array
+    {
+        try {
+            $latest = collect($this->listBackups()['database'] ?? [])
+                ->merge($this->listBackups()['full'] ?? [])
+                ->sortByDesc('created_at')
+                ->first();
+
+            if (! $latest) {
+                throw new RuntimeException('No hay backups locales para copiar.');
+            }
+
+            $path = $this->downloadPath($latest['type'], $latest['name']);
+
+            return $this->copyBackupPayloadToExternal([
+                'ok' => true,
+                'type' => $latest['type'],
+                'name' => $latest['name'],
+                'absolute_path' => $path,
+                'size' => filesize($path),
+                'created_at' => $latest['created_at'],
+            ], 'Último backup copiado a ruta externa.');
+        } catch (\Throwable $exception) {
+            return [
+                'ok' => false,
+                'message' => 'No se pudo copiar el backup externo: ' . $exception->getMessage(),
+            ];
+        }
+    }
+
     public function listBackups(): array
     {
         return [
@@ -224,6 +276,43 @@ class FinanceBackupService
         ];
     }
 
+    /**
+     * @param array<string, mixed> $backup
+     * @return array<string, mixed>
+     */
+    private function copyBackupPayloadToExternal(array $backup, string $message): array
+    {
+        try {
+            $source = (string) ($backup['absolute_path'] ?? '');
+            if ($source === '' || ! is_file($source)) {
+                throw new RuntimeException('El archivo de backup local no existe.');
+            }
+
+            $targetDirectory = $this->externalBackupDirectory((string) ($backup['type'] ?? 'database'));
+            $target = $targetDirectory . DIRECTORY_SEPARATOR . basename((string) $backup['name']);
+
+            if (! File::copy($source, $target)) {
+                throw new RuntimeException('No se pudo copiar el archivo a la ruta externa.');
+            }
+
+            return [
+                'ok' => true,
+                'type' => $backup['type'],
+                'name' => basename((string) $backup['name']),
+                'absolute_path' => $target,
+                'external_path' => $target,
+                'size' => filesize($target),
+                'created_at' => now(),
+                'message' => $message,
+            ];
+        } catch (\Throwable $exception) {
+            return [
+                'ok' => false,
+                'message' => 'No se pudo guardar el backup externo: ' . $exception->getMessage(),
+            ];
+        }
+    }
+
     private function addProjectFilesToZip(ZipArchive $zip, bool $includeEnv): void
     {
         $directories = ['app', 'bootstrap', 'config', 'database', 'public', 'resources', 'routes'];
@@ -316,5 +405,32 @@ class FinanceBackupService
     private function fullBackupDirectory(): string
     {
         return storage_path('app/private/' . self::BACKUP_ROOT . '/full');
+    }
+
+    private function externalBackupDirectory(string $type): string
+    {
+        $configuredPath = trim((string) config('finance.external_backup_path'));
+
+        if ($configuredPath === '') {
+            throw new RuntimeException('FINANCE_EXTERNAL_BACKUP_PATH no está configurado.');
+        }
+
+        if (! is_dir($configuredPath)) {
+            throw new RuntimeException('La ruta externa configurada no existe.');
+        }
+
+        if (! is_writable($configuredPath)) {
+            throw new RuntimeException('La ruta externa configurada no tiene permisos de escritura.');
+        }
+
+        $safeType = $type === 'full' ? 'full' : 'database';
+        $target = rtrim($configuredPath, DIRECTORY_SEPARATOR . '/\\') . DIRECTORY_SEPARATOR . self::BACKUP_ROOT . DIRECTORY_SEPARATOR . $safeType;
+        File::ensureDirectoryExists($target);
+
+        if (! is_writable($target)) {
+            throw new RuntimeException('La carpeta externa de backups no tiene permisos de escritura.');
+        }
+
+        return $target;
     }
 }

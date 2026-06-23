@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Finance\Category;
 use App\Models\Finance\Movement;
 use App\Services\Finance\FinanceCatalogService;
+use App\Services\Finance\FinanceCsvExportService;
 use App\Services\Finance\FinanceSummaryService;
 use App\Models\User;
 use Carbon\Carbon;
@@ -18,6 +19,7 @@ class FinanceReportController extends Controller
     public function __construct(
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceSummaryService $summaryService,
+        private readonly FinanceCsvExportService $csvExports,
     ) {
     }
 
@@ -55,11 +57,56 @@ class FinanceReportController extends Controller
             'expenseCategoryRows' => $this->expenseCategoryRows($monthExpenseMovements),
             'expenseConceptRows' => $this->expenseConceptRows($monthExpenseMovements, $selectedCategory),
             'importantConceptRows' => $this->importantConceptRows($monthExpenseMovements),
+            'spendingOpportunityRows' => $this->spendingOpportunityRows($monthExpenseMovements),
             'dailyRows' => $this->periodRows($user, $this->dailyPeriods($monthStart, $monthEnd)),
             'weeklyRows' => $this->periodRows($user, $this->weeklyPeriods($monthStart, $monthEnd)),
             'fortnightRows' => $this->periodRows($user, $this->fortnightPeriods($monthStart, $monthEnd)),
             'monthlyRows' => $this->periodRows($user, $this->monthlyPeriods($yearStart)),
             'yearlyRows' => $this->periodRows($user, $this->yearlyPeriods($user, $year)),
+        ]);
+    }
+
+    public function export(Request $request)
+    {
+        $user = $request->user();
+        $this->catalogs->ensureForUser($user);
+
+        $data = $request->validate([
+            'month' => ['nullable', 'date_format:Y-m'],
+            'year' => ['nullable', 'integer', 'min:2000', 'max:2100'],
+            'category_id' => [
+                'nullable',
+                'integer',
+                Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id)),
+            ],
+        ]);
+
+        $monthValue = $data['month'] ?? now()->format('Y-m');
+        [$monthStart, $monthEnd] = $this->summaryService->monthRange($monthValue);
+        $selectedCategory = isset($data['category_id'])
+            ? Category::where('user_id', $user->id)->find($data['category_id'])
+            : null;
+
+        $movements = Movement::with(['account', 'category', 'person'])
+            ->where('user_id', $user->id)
+            ->whereBetween('happened_on', [$monthStart->toDateString(), $monthEnd->toDateString()])
+            ->when($selectedCategory, fn ($query) => $query->where('category_id', $selectedCategory->id))
+            ->orderBy('happened_on')
+            ->orderBy('id')
+            ->get();
+
+        $result = $this->csvExports->exportMovements('reporte-financiero-' . $monthStart->format('Y-m'), $movements, [
+            'Reporte' => 'Reporte financiero',
+            'Mes' => $monthStart->format('Y-m'),
+            'Categoría' => $selectedCategory?->name ?? 'Todas',
+        ]);
+
+        if (! ($result['ok'] ?? false)) {
+            return back()->with('error', $result['message'] ?? 'No se pudo exportar el reporte.');
+        }
+
+        return response()->download($result['absolute_path'], $result['name'], [
+            'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
     }
 
@@ -137,7 +184,7 @@ class FinanceReportController extends Controller
     private function importantConceptRows(Collection $movements): Collection
     {
         $concepts = collect([
-            ['name' => 'Saldo / Telefonia', 'color' => '#06b6d4', 'keywords' => ['saldo', 'telcel', 'weex', 'recarga', 'telefono', 'telefonia']],
+            ['name' => 'Saldo / Telefonía', 'color' => '#06b6d4', 'keywords' => ['saldo', 'telcel', 'weex', 'recarga', 'telefono', 'telefonia']],
             ['name' => 'Comida', 'color' => '#f97316', 'keywords' => ['comida', 'taqueria', 'uber eats', 'uber comida', 'didi comida', 'rappi', 'oxxo', 'starbucks', 'restaurante']],
             ['name' => 'Transporte', 'color' => '#0ea5e9', 'keywords' => ['transporte', 'uber carro', 'didi carro', 'caseta', 'pase', 'taxi']],
             ['name' => 'Gasolina', 'color' => '#ef4444', 'keywords' => ['gasolina', 'costco gasolina', 'gasolina moto', 'gasolina carro']],
@@ -168,6 +215,27 @@ class FinanceReportController extends Controller
             })
             ->filter(fn (array $row) => $row['amount'] > 0)
             ->sortByDesc('amount')
+            ->values();
+    }
+
+    private function spendingOpportunityRows(Collection $movements): Collection
+    {
+        $total = round($movements->sum(fn (Movement $movement) => (float) $movement->amount), 2);
+
+        if ($total <= 0) {
+            return collect();
+        }
+
+        return $this->importantConceptRows($movements)
+            ->take(6)
+            ->map(function (array $row) use ($total) {
+                $suggestedCut = round(((float) $row['amount']) * 0.10, 2);
+
+                return $row + [
+                    'percentage' => round((((float) $row['amount']) / $total) * 100, 1),
+                    'recommendation' => 'Revisa este concepto; bajar 10% liberaría $' . number_format($suggestedCut, 2) . ' este mes.',
+                ];
+            })
             ->values();
     }
 

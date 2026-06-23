@@ -11,13 +11,17 @@ uses(RefreshDatabase::class);
 beforeEach(function () {
     $this->originalDatabaseDefault = config('database.default');
     $this->originalMysqlConnection = config('database.connections.mysql');
+    $this->originalExternalBackupPath = config('finance.external_backup_path');
     File::deleteDirectory(storage_path('app/private/finance-backups'));
+    File::deleteDirectory(storage_path('app/private/testing-external-backups'));
 });
 
 afterEach(function () {
     config()->set('database.default', $this->originalDatabaseDefault);
     config()->set('database.connections.mysql', $this->originalMysqlConnection);
+    config()->set('finance.external_backup_path', $this->originalExternalBackupPath);
     File::deleteDirectory(storage_path('app/private/finance-backups'));
+    File::deleteDirectory(storage_path('app/private/testing-external-backups'));
     Carbon::setTestNow();
 });
 
@@ -179,4 +183,31 @@ it('returns a clear error when mysqldump is missing', function () {
 
     expect($result['ok'])->toBeFalse();
     expect($result['message'])->toContain('mysqldump');
+});
+
+it('copies the latest local backup to the configured external path', function () {
+    $localDirectory = storage_path('app/private/finance-backups/database');
+    $externalDirectory = storage_path('app/private/testing-external-backups');
+    File::ensureDirectoryExists($localDirectory);
+    File::ensureDirectoryExists($externalDirectory);
+    File::put($localDirectory . DIRECTORY_SEPARATOR . 'manual.sql', '-- manual backup');
+    config()->set('finance.external_backup_path', $externalDirectory);
+
+    $result = app(FinanceBackupService::class)->copyLatestBackupToExternal();
+
+    expect($result['ok'])->toBeTrue();
+    expect($result['name'])->toBe('manual.sql');
+    expect(File::exists($externalDirectory . DIRECTORY_SEPARATOR . 'finance-backups' . DIRECTORY_SEPARATOR . 'database' . DIRECTORY_SEPARATOR . 'manual.sql'))->toBeTrue();
+});
+
+it('returns a clear error when external backup path is not configured', function () {
+    $localDirectory = storage_path('app/private/finance-backups/database');
+    File::ensureDirectoryExists($localDirectory);
+    File::put($localDirectory . DIRECTORY_SEPARATOR . 'manual.sql', '-- manual backup');
+    config()->set('finance.external_backup_path', null);
+
+    $result = app(FinanceBackupService::class)->copyLatestBackupToExternal();
+
+    expect($result['ok'])->toBeFalse();
+    expect($result['message'])->toContain('FINANCE_EXTERNAL_BACKUP_PATH');
 });

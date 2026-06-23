@@ -914,8 +914,9 @@ it('shows a unified monthly obligation list for planned payments and credits', f
     expect($nextPaymentNames)->toContain('Pago vencido');
     expect($nextPaymentNames)->toContain('Crédito: Amazon');
     expect($nextPaymentNames)->not->toContain('Pago ya pagado');
-    expect($nextPaymentNames)->not->toContain('Pago no pagado');
+    expect($nextPaymentNames)->toContain('Pago no pagado');
     expect($summary['next_payments']->firstWhere('name', 'Pago vencido')['origin_detail'])->toBe('Vencido pendiente');
+    expect($summary['next_payments']->firstWhere('name', 'Pago no pagado')['amount_due'])->toBe(0.0);
     expect($summary['skipped_obligations']->pluck('name')->all())->toContain('Pago no pagado');
 
     $this->actingAs($user)

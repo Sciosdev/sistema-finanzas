@@ -65,6 +65,42 @@
     <strong>.env contiene credenciales.</strong> Inclúyelo solo si necesitas restaurar el sistema completo.
 </div>
 
+<div class="card">
+    <div class="card-header">
+        <h4 class="card-title mb-0">Backup externo</h4>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ route('finance.security.backups.external') }}" class="row g-3 align-items-end">
+            @csrf
+            <div class="col-xl-4 col-md-6">
+                <label class="form-label">Ruta configurada</label>
+                <input type="text" class="form-control" value="{{ $externalBackupPath ?: 'No configurada: FINANCE_EXTERNAL_BACKUP_PATH' }}" readonly>
+                <div class="form-text">Debe existir y tener permisos de escritura.</div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <label class="form-label">Acción</label>
+                <select name="mode" class="form-select">
+                    <option value="copy_latest">Copiar último backup local</option>
+                    <option value="database">Generar BD y copiar</option>
+                    <option value="full">Generar completo y copiar</option>
+                </select>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" value="1" name="include_env" id="external-include-env">
+                    <label class="form-check-label" for="external-include-env">Incluir .env si es backup completo</label>
+                </div>
+                <div class="form-text">Úsalo solo si necesitas restauración completa.</div>
+            </div>
+            <div class="col-xl-2 col-md-6 d-grid">
+                <button type="submit" class="btn btn-outline-success">
+                    <i data-lucide="hard-drive-upload" class="me-1"></i>Backup externo
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="row g-3">
     <div class="col-xl-6">
         <div class="card h-100">
@@ -78,7 +114,7 @@
                             <tr>
                                 <th>Tipo</th>
                                 <th>Archivo</th>
-                                <th>Tamano</th>
+                                <th>Tamaño</th>
                                 <th>Fecha</th>
                                 <th class="text-end"></th>
                             </tr>
@@ -123,7 +159,7 @@
                         <thead>
                             <tr>
                                 <th>Archivo</th>
-                                <th>Tamano</th>
+                                <th>Tamaño</th>
                                 <th>Fecha</th>
                             </tr>
                         </thead>
@@ -156,7 +192,7 @@
                     <table class="table table-hover mb-0">
                         <thead>
                             <tr>
-                                <th>Modulo</th>
+                                <th>Módulo</th>
                                 <th>Registro</th>
                                 <th>Estado</th>
                                 <th>Expira</th>
@@ -193,7 +229,7 @@
             <div class="card-body border-bottom">
                 <form method="GET" action="{{ route('finance.security.index') }}" class="row g-2 align-items-end">
                     <div class="col-md-3">
-                        <label class="form-label">Modulo</label>
+                        <label class="form-label">Módulo</label>
                         <select name="module" class="form-select">
                             <option value="">Todos</option>
                             @foreach ($failureModules as $module)
@@ -230,8 +266,8 @@
                         <thead>
                             <tr>
                                 <th>Fecha</th>
-                                <th>Modulo</th>
-                                <th>Accion</th>
+                                <th>Módulo</th>
+                                <th>Acción</th>
                                 <th>Mensaje</th>
                                 <th>Estado</th>
                                 <th class="text-end"></th>

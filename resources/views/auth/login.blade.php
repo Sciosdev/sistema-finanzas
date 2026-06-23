@@ -23,14 +23,21 @@
                          <form method="POST" action="{{ route('login') }}" class="authentication-form">
                               @csrf
 
-                              @foreach ($errors->all() as $error)
-                                   <p class="text-danger mb-3">{{ $error }}</p>
-                              @endforeach
+                              @if ($errors->any())
+                                   <div class="alert alert-danger" role="alert">
+                                        <strong>No pudimos iniciar sesión.</strong>
+                                        <ul class="mb-0 ps-3">
+                                             @foreach ($errors->all() as $error)
+                                                  <li>{{ $error }}</li>
+                                             @endforeach
+                                        </ul>
+                                   </div>
+                              @endif
 
                               <div class="mb-4">
                                    <label class="form-label" for="emailaddress">Correo</label>
                                    <div class="position-relative w-100">
-                                        <input class="form-control form-control-lg rounded" type="email" name="email" id="emailaddress" value="{{ old('email') }}" required placeholder="tu@correo.com">
+                                        <input class="form-control form-control-lg rounded @error('email') is-invalid @enderror" type="email" name="email" id="emailaddress" value="{{ old('email') }}" required autofocus autocomplete="email" placeholder="tu@correo.com">
                                         <p class="text-muted p-0 position-absolute end-0 top-50 border-0 fs-4 translate-middle-y me-2 mb-0">
                                              <iconify-icon class="fs-20 mt-1 text-muted" icon="solar:letter-bold-duotone"></iconify-icon>
                                         </p>
@@ -40,8 +47,8 @@
                               <div class="mb-4">
                                    <label class="form-label" for="password">Contraseña</label>
                                    <div class="position-relative w-100">
-                                        <input class="form-control form-control-lg rounded" type="password" required id="password" name="password" placeholder="Tu contraseña">
-                                        <button class="btn text-muted p-0 position-absolute end-0 top-50 border-0 fs-4 translate-middle-y me-2" type="button">
+                                        <input class="form-control form-control-lg rounded pe-5 @error('password') is-invalid @enderror" type="password" required id="password" name="password" autocomplete="current-password" placeholder="Tu contraseña">
+                                        <button class="btn text-muted p-0 position-absolute end-0 top-50 border-0 fs-4 translate-middle-y me-2" type="button" id="toggle-password" aria-label="Mostrar contraseña" aria-pressed="false">
                                              <iconify-icon class="fs-20 mt-1 text-muted" icon="solar:eye-bold-duotone"></iconify-icon>
                                         </button>
                                    </div>
@@ -67,4 +74,28 @@
           </div>
      </div>
 </div>
+@endsection
+
+@section('scripts')
+<script>
+     document.addEventListener('DOMContentLoaded', function () {
+          const toggle = document.getElementById('toggle-password');
+          const password = document.getElementById('password');
+
+          if (! toggle || ! password) {
+               return;
+          }
+
+          toggle.addEventListener('click', function () {
+               const showing = password.type === 'text';
+
+               password.type = showing ? 'password' : 'text';
+               toggle.setAttribute('aria-pressed', showing ? 'false' : 'true');
+               toggle.setAttribute('aria-label', showing ? 'Mostrar contraseña' : 'Ocultar contraseña');
+               toggle.innerHTML = showing
+                    ? '<iconify-icon class="fs-20 mt-1 text-muted" icon="solar:eye-bold-duotone"></iconify-icon>'
+                    : '<iconify-icon class="fs-20 mt-1 text-muted" icon="solar:eye-closed-bold-duotone"></iconify-icon>';
+          });
+     });
+</script>
 @endsection

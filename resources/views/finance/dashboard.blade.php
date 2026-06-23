@@ -873,7 +873,7 @@
                                                 </div>
                                             </td>
                                             <td>
-                                                <span class="badge {{ ($payment['status'] ?? null) === 'overdue' ? 'badge-soft-danger' : 'badge-soft-primary' }}">
+                                                <span class="badge {{ in_array(($payment['status'] ?? null), ['overdue', 'skipped'], true) ? 'badge-soft-danger' : 'badge-soft-primary' }}">
                                                     {{ $payment['origin'] ?? 'Pago' }}
                                                 </span>
                                                 <div class="text-muted small">{{ $payment['origin_detail'] ?? 'Pendiente' }}</div>
@@ -883,7 +883,7 @@
                                                     {{ \App\Support\FinanceLabels::dueLabel($payment['due_date'], $payment['status']) }}
                                                 </span>
                                             </td>
-                                            <td class="text-end">{{ $money($payment['amount_due']) }}</td>
+                                            <td class="text-end">{{ $money($payment['is_skipped'] ? $payment['amount'] : $payment['amount_due']) }}</td>
                                         </tr>
                                     @endforeach
                                 @endif

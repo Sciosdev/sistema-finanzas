@@ -49,6 +49,15 @@
                </li>
 
                <li class="menu-item">
+                    <a class="menu-link" href="{{ route('finance.imports.historical.index') }}">
+                         <span class="nav-icon">
+                              <i data-lucide="file-input"></i>
+                         </span>
+                         <span class="nav-text">Importar histórico</span>
+                    </a>
+               </li>
+
+               <li class="menu-item">
                     <a class="menu-link" href="{{ route('finance.cuts.index') }}">
                          <span class="nav-icon">
                               <i data-lucide="scale"></i>

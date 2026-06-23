@@ -51,6 +51,9 @@
             <button class="btn btn-outline-primary" type="submit">
                 <i data-lucide="calendar-search" class="me-1"></i>Ver
             </button>
+            <a class="btn btn-outline-success" href="{{ route('finance.reports.export', request()->only(['month', 'year', 'category_id'])) }}">
+                <i data-lucide="download" class="me-1"></i>Exportar CSV
+            </a>
         </form>
     </div>
 </div>
@@ -86,6 +89,36 @@
                 <p class="text-muted mb-1">Utilidad anual</p>
                 <h4 class="fw-semibold {{ $netClass($yearTotals['net']) }} mb-0">{{ $money($yearTotals['net']) }}</h4>
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h4 class="card-title mb-0">Dónde bajarle al gasto</h4>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            @forelse ($spendingOpportunityRows as $row)
+                <div class="col-xl-4 col-md-6">
+                    <div class="border rounded p-3 h-100">
+                        <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="rounded-circle d-inline-block" style="width: 12px; height: 12px; background: {{ $row['color'] }}"></span>
+                                <strong>{{ $row['name'] }}</strong>
+                            </div>
+                            <span class="badge badge-soft-secondary">{{ number_format($row['percentage'], 1) }}%</span>
+                        </div>
+                        <h5 class="text-danger mb-1">{{ $money($row['amount']) }}</h5>
+                        <div class="text-muted small mb-2">{{ $row['count'] }} movimiento(s)</div>
+                        <div class="small">{{ $row['recommendation'] }}</div>
+                    </div>
+                </div>
+            @empty
+                <div class="col-12">
+                    <p class="text-muted mb-0">Sin egresos suficientes para sugerir ajustes este mes.</p>
+                </div>
+            @endforelse
         </div>
     </div>
 </div>
