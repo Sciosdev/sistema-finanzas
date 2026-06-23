@@ -1,0 +1,111 @@
+<?php
+
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Finance\CategoryController;
+use App\Http\Controllers\Finance\CreditPurchaseController;
+use App\Http\Controllers\Finance\DailyCutController;
+use App\Http\Controllers\Finance\ExpectedIncomeController;
+use App\Http\Controllers\Finance\FinanceDashboardController;
+use App\Http\Controllers\Finance\FinanceOperationController;
+use App\Http\Controllers\Finance\FinanceReportController;
+use App\Http\Controllers\Finance\FinanceSecurityController;
+use App\Http\Controllers\Finance\MovementController;
+use App\Http\Controllers\Finance\PlannedPaymentController;
+use App\Http\Controllers\Finance\ReminderController;
+use App\Http\Controllers\Finance\SanJuanController;
+use App\Http\Controllers\RoutingController;
+
+/*
+|--------------------------------------------------------------------------
+| Web Routes
+|--------------------------------------------------------------------------
+|
+| Here is where you can register web routes for your application. These
+| routes are loaded by the RouteServiceProvider and all of them will
+| be assigned to the "web" middleware group. Make something great!
+|
+*/
+
+require __DIR__ . '/auth.php';
+
+Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
+    Route::get('', [FinanceDashboardController::class, 'index'])->name('root');
+    Route::get('dashboard/index', [FinanceDashboardController::class, 'index'])->name('dashboard.index');
+
+    Route::prefix('finanzas')->name('finance.')->group(function () {
+        Route::get('', [FinanceDashboardController::class, 'index'])->name('dashboard');
+        Route::get('reportes', [FinanceReportController::class, 'index'])->name('reports.index');
+        Route::get('operacion', [FinanceOperationController::class, 'index'])->name('operations.index');
+        Route::get('seguridad', [FinanceSecurityController::class, 'index'])->name('security.index');
+        Route::post('seguridad/deshacer/{token}', [FinanceSecurityController::class, 'undoDelete'])->name('security.undo-delete');
+        Route::post('seguridad/backups/database', [FinanceSecurityController::class, 'createDatabaseBackup'])->name('security.backups.database');
+        Route::post('seguridad/backups/full', [FinanceSecurityController::class, 'createFullBackup'])->name('security.backups.full');
+        Route::get('seguridad/backups/{type}/{filename}', [FinanceSecurityController::class, 'downloadBackup'])
+            ->where(['type' => 'database|full', 'filename' => '[^/]+'])
+            ->name('security.backups.download');
+        Route::post('seguridad/fallas/{failure}/resolver', [FinanceSecurityController::class, 'resolveFailure'])->name('security.failures.resolve');
+
+        Route::get('movimientos', [MovementController::class, 'index'])->name('movements.index');
+        Route::post('movimientos', [MovementController::class, 'store'])->name('movements.store');
+        Route::get('movimientos/{movement}/editar', [MovementController::class, 'edit'])->name('movements.edit');
+        Route::put('movimientos/{movement}', [MovementController::class, 'update'])->name('movements.update');
+        Route::delete('movimientos/{movement}', [MovementController::class, 'destroy'])->name('movements.destroy');
+
+        Route::get('cortes', [DailyCutController::class, 'index'])->name('cuts.index');
+        Route::post('cortes', [DailyCutController::class, 'store'])->name('cuts.store');
+
+        Route::get('flujo-planeado', [PlannedPaymentController::class, 'index'])->name('planned.index');
+        Route::post('flujo-planeado', [PlannedPaymentController::class, 'store'])->name('planned.store');
+        Route::post('flujo-planeado/copiar', [PlannedPaymentController::class, 'copyMonth'])->name('planned.copy');
+        Route::put('flujo-planeado/{payment}', [PlannedPaymentController::class, 'update'])->name('planned.update');
+        Route::post('flujo-planeado/{payment}/pagado', [PlannedPaymentController::class, 'markPaid'])->name('planned.paid');
+        Route::get('flujo-planeado/{payment}/vincular', [PlannedPaymentController::class, 'link'])->name('planned.link');
+        Route::post('flujo-planeado/{payment}/vincular', [PlannedPaymentController::class, 'linkMovement'])->name('planned.link-movement');
+        Route::post('flujo-planeado/{payment}/registrado', [PlannedPaymentController::class, 'markRegistered'])->name('planned.registered');
+        Route::post('flujo-planeado/{payment}/no-pagado', [PlannedPaymentController::class, 'skip'])->name('planned.skip');
+        Route::delete('flujo-planeado/{payment}', [PlannedPaymentController::class, 'destroy'])->name('planned.destroy');
+
+        Route::get('ingresos-esperados', [ExpectedIncomeController::class, 'index'])->name('expected-incomes.index');
+        Route::post('ingresos-esperados', [ExpectedIncomeController::class, 'store'])->name('expected-incomes.store');
+        Route::post('ingresos-esperados/copiar', [ExpectedIncomeController::class, 'copyMonth'])->name('expected-incomes.copy');
+        Route::put('ingresos-esperados/{income}', [ExpectedIncomeController::class, 'update'])->name('expected-incomes.update');
+        Route::get('ingresos-esperados/{income}/vincular', [ExpectedIncomeController::class, 'link'])->name('expected-incomes.link');
+        Route::post('ingresos-esperados/{income}/vincular', [ExpectedIncomeController::class, 'linkMovement'])->name('expected-incomes.link-movement');
+        Route::post('ingresos-esperados/{income}/desligar', [ExpectedIncomeController::class, 'unlinkMovement'])->name('expected-incomes.unlink-movement');
+        Route::post('ingresos-esperados/{income}/recibido', [ExpectedIncomeController::class, 'markReceived'])->name('expected-incomes.received');
+        Route::post('ingresos-esperados/{income}/registrado', [ExpectedIncomeController::class, 'markRegistered'])->name('expected-incomes.registered');
+        Route::post('ingresos-esperados/{income}/no-recibido', [ExpectedIncomeController::class, 'skip'])->name('expected-incomes.skip');
+        Route::delete('ingresos-esperados/{income}', [ExpectedIncomeController::class, 'destroy'])->name('expected-incomes.destroy');
+
+        Route::get('recordatorios', [ReminderController::class, 'index'])->name('reminders.index');
+        Route::post('recordatorios', [ReminderController::class, 'store'])->name('reminders.store');
+        Route::put('recordatorios/{reminder}', [ReminderController::class, 'update'])->name('reminders.update');
+        Route::post('recordatorios/{reminder}/hecho', [ReminderController::class, 'complete'])->name('reminders.complete');
+        Route::post('recordatorios/{reminder}/omitir', [ReminderController::class, 'skip'])->name('reminders.skip');
+
+        Route::get('creditos', [CreditPurchaseController::class, 'index'])->name('credits.index');
+        Route::post('creditos', [CreditPurchaseController::class, 'store'])->name('credits.store');
+        Route::put('creditos/{credit}', [CreditPurchaseController::class, 'update'])->name('credits.update');
+        Route::delete('creditos/{credit}', [CreditPurchaseController::class, 'destroy'])->name('credits.destroy');
+        Route::put('creditos/mensualidades/{installment}', [CreditPurchaseController::class, 'updateInstallment'])->name('credits.installments.update');
+        Route::delete('creditos/mensualidades/{installment}', [CreditPurchaseController::class, 'destroyInstallment'])->name('credits.installments.destroy');
+        Route::post('creditos/mensualidades/{installment}/pagado', [CreditPurchaseController::class, 'markInstallmentPaid'])->name('credits.installments.paid');
+        Route::post('creditos/mensualidades/{installment}/registrado', [CreditPurchaseController::class, 'markInstallmentRegistered'])->name('credits.installments.registered');
+
+        Route::get('san-juan', [SanJuanController::class, 'index'])->name('san-juan.index');
+        Route::post('san-juan/rentas', [SanJuanController::class, 'storeRentalContract'])->name('san-juan.rentals.store');
+        Route::put('san-juan/rentas/{contract}', [SanJuanController::class, 'updateRentalContract'])->name('san-juan.rentals.update');
+        Route::delete('san-juan/rentas/{contract}', [SanJuanController::class, 'destroyRentalContract'])->name('san-juan.rentals.destroy');
+        Route::post('san-juan/rentas/{contract}/recibido', [SanJuanController::class, 'markRentalReceived'])->name('san-juan.rentals.received');
+
+        Route::get('categorias', [CategoryController::class, 'index'])->name('categories.index');
+        Route::post('categorias', [CategoryController::class, 'store'])->name('categories.store');
+        Route::put('categorias/{category}', [CategoryController::class, 'update'])->name('categories.update');
+        Route::post('categorias/{category}/unificar', [CategoryController::class, 'merge'])->name('categories.merge');
+        Route::delete('categorias/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
+    });
+
+    Route::get('{first}/{second}/{third}', [RoutingController::class, 'thirdLevel'])->name('third');
+    Route::get('{first}/{second}', [RoutingController::class, 'secondLevel'])->name('second');
+    Route::get('{any}', [RoutingController::class, 'root'])->name('any');
+});

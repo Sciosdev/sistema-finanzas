@@ -1,0 +1,32 @@
+//
+// card.scss
+//
+
+.card {
+    margin-bottom: $spacer;
+    box-shadow: $box-shadow;
+
+    .card-header {
+        border-bottom: 1px dashed var(--#{$prefix}border-color);
+    }
+}
+
+.card-link+.card-link {
+    margin-left: $card-spacer-x;
+    margin-right: 0;
+}
+
+.card-full-height {
+    height: calc(100% - #{$spacer});
+}
+
+.card-title {
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.sub-header {
+    font-size: $font-size-base;
+    margin-bottom: $spacer;
+    color: $text-muted;
+}

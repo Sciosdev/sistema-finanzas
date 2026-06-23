@@ -1,0 +1,60 @@
+//
+// _reboot.scss
+//
+
+body {
+    overflow-x: hidden;
+    letter-spacing: 0.01rem;
+}
+
+.row>* {
+    position: relative;
+}
+
+.scroll-hidden {
+    &::-webkit-scrollbar {
+        -webkit-appearance: none;
+        appearance: none;
+    }
+
+    &::-webkit-scrollbar:vertical {
+        width: 0px;
+    }
+}
+
+
+// Iconify
+iconify-icon {
+    display: inline-block;
+    width: 1em;
+    height: 1em;
+}
+
+svg.lucide {
+    width: 1em;
+    height: 1em;
+}
+
+.swiper-button-disabled {
+    i {
+        color: $gray-400 !important;
+    }
+}
+
+.ribbon-box {
+    span {
+        transform: rotate(45deg);
+        width: 100px;
+        top: 19px;
+        right: -21px;
+    }
+}
+
+
+.profile-img-file-input {
+    display: none;
+}
+
+.profile-img-file-input1 {
+    display: none;
+}

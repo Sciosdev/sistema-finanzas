@@ -1,0 +1,94 @@
+//
+// authentication.scss
+//
+
+body {
+
+     .account-pages {
+          align-items: center;
+          display: flex;
+          min-height: 100vh;
+     }
+}
+
+
+
+
+.bg-overlay {
+     position: absolute;
+     left: 0;
+     right: 0;
+     top: 0;
+     bottom: 0;
+     background: linear-gradient(rgba(0, 0, 0, 0), rgb(0 65 106));
+     background-size: cover;
+     background-repeat: no-repeat;
+}
+
+
+.auth-card {
+     .form-control {
+          &::placeholder {
+               font-size: 13px;
+               color: $gray-400;
+          }
+     }
+}
+
+.auth-logo {
+     .logo-dark {
+          display: block;
+     }
+
+     .logo-light {
+          display: none;
+     }
+}
+
+html[data-bs-theme="dark"] {
+     .auth-logo {
+          .logo-dark {
+               display: none;
+          }
+
+          .logo-light {
+               display: block;
+          }
+     }
+}
+
+
+.auth-page-sidebar {
+     padding: 4rem;
+     background-color: $card-bg;
+     border-radius: $border-radius-sm;
+     height: 100%;
+     display: flex;
+     align-items: center;
+     justify-content: center;
+}
+
+
+p.no-span {
+     display: table;
+     white-space: nowrap;
+     padding: 10px 0;
+
+     &::before,
+     &::after {
+          border-top: 1px dashed #{$card-border-color};
+          content: '';
+          display: table-cell;
+          position: relative;
+          top: 0.7em;
+          width: 50%;
+     }
+
+     &::before {
+          right: 1.5%;
+     }
+
+     &::after {
+          left: 1.5%;
+     }
+}

@@ -1,0 +1,36 @@
+// 
+// _variable-custom.scss
+//
+
+// Main Logo Height 
+$logo-lg-height:                                   var(--#{$prefix}logo-lg-height);
+$logo-sm-height:                                   var(--#{$prefix}logo-sm-height);
+
+// Vertical Menu
+$main-nav-width:                                  var(--#{$prefix}main-nav-width);
+$main-nav-width-sm:                               var(--#{$prefix}main-nav-width-sm);
+
+// Main Nav Menu
+$main-menu-item-icon-size:                         var(--#{$prefix}main-menu-item-icon-size);
+$main-menu-item-font-size:                         var(--#{$prefix}main-menu-item-font-size);
+$main-menu-item-padding-x:                         var(--#{$prefix}main-menu-item-padding-x);
+$main-menu-item-padding-y:                         var(--#{$prefix}main-menu-item-padding-y);
+$main-menu-item-margin-y:                         var(--#{$prefix}main-menu-item-margin-y);
+
+// Main Nav Menu
+$main-nav-bg:                                     var(--#{$prefix}main-nav-bg);
+$main-menu-item-color:                             var(--#{$prefix}main-menu-item-color);
+$main-menu-item-hover-bg:                          var(--#{$prefix}main-menu-item-hover-bg);
+$main-menu-item-hover-color:                       var(--#{$prefix}main-menu-item-hover-color);
+$main-nav-border-color:                           var(--#{$prefix}main-nav-border-color);
+
+
+// Topbar
+$topbar-height:                                   var(--#{$prefix}topbar-height);
+$topbar-bg:                                       var(--#{$prefix}topbar-bg);
+$topbar-item-color:                               var(--#{$prefix}topbar-item-color);
+$topbar-search-bg:                                var(--#{$prefix}topbar-search-bg);
+
+// Footer
+$footer-height:                                   var(--#{$prefix}footer-height);
+$footer-color:                                    var(--#{$prefix}link-color);

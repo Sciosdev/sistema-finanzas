@@ -1,0 +1,14 @@
+//
+// _footer.scss
+//
+
+.footer {
+    display: flex;
+    align-items: center;
+    padding: 0 calc(#{$spacer} * 0.5);
+    color: $footer-color;
+    height: $footer-height;
+    // background-color: $card-bg;
+    // box-shadow: $box-shadow;
+    // border-top: $card-border-width solid $card-border-color;
+}

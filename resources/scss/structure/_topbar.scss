@@ -1,0 +1,159 @@
+// 
+// topbar.scss
+// 
+
+.topbar {
+     top: 0;
+     z-index: 999;
+     position: sticky;
+     transition: all 0.3s ease-in-out;
+     height: $topbar-height;
+     background-color: $topbar-bg;
+     padding-left: $main-nav-width;
+     box-shadow: $box-shadow;
+
+     .logo-box {
+          position: fixed;
+          left: 0;
+     }
+
+     .navbar-header {
+          display: flex;
+          margin: 0 auto;
+          align-items: center;
+          padding: 0 28px;
+     }
+
+     // Search
+     .app-search {
+
+          .form-control {
+               border: none;
+               padding-left: 40px;
+               padding-right: 15px;
+               background-color: $topbar-search-bg;
+               box-shadow: none;
+               height: 38px;
+               border-radius: 30px;
+          }
+
+          .search-widget-icon {
+               position: absolute;
+               z-index: 10;
+               left: 11px;
+               top: 50%;
+               color: $topbar-item-color;
+               transform: translateY(-50%);
+               cursor: pointer;
+               height: 18px;
+               width: 18px;
+          }
+
+          .search-widget-icon-close {
+               right: 7px;
+               left: auto !important;
+          }
+     }
+
+     .topbar-item {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          height: $topbar-height;
+
+          .topbar-button {
+               border: none;
+               background-color: transparent;
+               transition: all 0.3s ease-in-out;
+               color: $topbar-item-color;
+               padding: $btn-padding-y $btn-padding-y;
+               position: relative;
+
+               &.show,
+               &.active,
+               &:active,
+               &:hover {
+                    color: $primary;
+               }
+          }
+     }
+
+     .topbar-badge {
+          height: 32px;
+          width: 32px;
+          font-weight: $font-weight-semibold;
+          display: inline-block;
+          line-height: 32px;
+     }
+
+     #light-dark-mode {
+          .light-mode {
+               display: block;
+          }
+
+          .dark-mode {
+               display: none;
+          }
+     }
+
+     .container {
+          padding: 0 16px;
+     }
+}
+
+.topbar-dark {
+
+     // Search
+     .app-search {
+          .form-control {
+               color: $white;
+
+               &::placeholder {
+                    color: $topbar-item-color;
+               }
+
+          }
+     }
+
+     .topbar {
+          .topbar-item {
+
+               .topbar-button {
+
+                    &.show,
+                    &.active,
+                    &:active,
+                    &:hover {
+                         color: $white;
+                    }
+               }
+          }
+     }
+}
+
+[data-bs-theme="dark"] {
+     .topbar {
+          #light-dark-mode {
+               .light-mode {
+                    display: none;
+               }
+
+               .dark-mode {
+                    display: block;
+               }
+          }
+     }
+}
+
+
+@media (max-width: 600px) {
+     .topbar {
+          .dropdown {
+               position: static;
+
+               .dropdown-menu {
+                    width: 100%;
+               }
+          }
+     }
+}

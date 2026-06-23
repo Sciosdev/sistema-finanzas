@@ -1,0 +1,39 @@
+//
+// pagination.scss
+//
+
+.page-link {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    margin-left: 0.35rem !important;
+    border-radius: var(--#{$prefix}border-radius-sm) !important;
+
+    i {
+        vertical-align: middle;
+    }
+}
+
+.pagination-sm {
+    .page-link {
+        height: calc(#{$pagination-padding-y-sm * 2} + #{$btn-line-height}em + #{$border-width * 2});
+        width: calc(#{$pagination-padding-y-sm * 2} + #{$btn-line-height}em + #{$border-width * 2});
+    }
+}
+
+.pagination-lg {
+    .page-link {
+        height: calc(#{$pagination-padding-y-lg * 2} + #{$btn-line-height}em + #{$border-width * 2});
+        width: calc(#{$pagination-padding-y-lg * 2} + #{$btn-line-height}em + #{$border-width * 2});
+    }
+}
+
+// Pagination rounded (Custom)
+.pagination-rounded {
+    .page-link {
+        border-radius: 30px !important;
+        margin: 0 3px;
+        border: none;
+        display: inline;
+    }
+}

@@ -1,0 +1,16 @@
+@font-face {
+    font-family: "FPIcons";
+    src: url('../fonts/fpicons.eot?t=1742206656842'); /* IE9*/
+    src: url('../fonts/fpicons.eot?t=1742206656842#iefix') format('embedded-opentype'), /* IE6-IE8 */
+    url("../fonts/fpicons.woff2?t=1742206656842") format("woff2"),
+    url("../fonts/fpicons.woff?t=1742206656842") format("woff"),
+    url('../fonts/fpicons.ttf?t=1742206656842') format('truetype'), /* chrome, firefox, opera, Safari, Android, iOS 4.2+*/
+    url('../fonts/fpicons.svg?t=1742206656842#fpicons') format('svg'); /* iOS 4.1- */
+    font-display: swap;
+}
+
+
+.fpi-down:before { content: "\ea4e"; font-family: "FPIcons"; font-style: normal;}
+.fpi-up:before { content: "\ea78"; font-family: "FPIcons"; font-style: normal;}
+.fpi-left:before { content: "\ea64"; font-family: "FPIcons"; font-style: normal;}
+.fpi-right:before { content: "\ea6e"; font-family: "FPIcons"; font-style: normal;}
