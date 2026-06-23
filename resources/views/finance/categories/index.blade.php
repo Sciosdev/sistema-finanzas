@@ -64,6 +64,48 @@
     </div>
 </div>
 
+<div class="card">
+    <div class="card-header">
+        <h4 class="card-title mb-0">Resumen por grupo contable</h4>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            @forelse ($categoryGroups as $group)
+                <div class="col-xl-3 col-md-4 col-sm-6">
+                    <div class="border rounded p-3 h-100">
+                        <div class="d-flex justify-content-between gap-2 mb-2">
+                            <div>
+                                <strong>{{ $group['group'] }}</strong>
+                                <div class="text-muted small">
+                                    @if ($group['type'] === 'expense')
+                                        Egreso
+                                    @elseif ($group['type'] === 'income')
+                                        Ingreso
+                                    @else
+                                        Rendimiento
+                                    @endif
+                                </div>
+                            </div>
+                            <span class="badge badge-soft-primary">{{ $group['active_count'] }}/{{ $group['count'] }}</span>
+                        </div>
+                        <div class="d-flex flex-wrap gap-1">
+                            @forelse ($group['colors'] as $color)
+                                <span class="rounded-circle d-inline-block" title="{{ $color }}" style="width: 16px; height: 16px; background: {{ $color }}"></span>
+                            @empty
+                                <span class="text-muted small">Sin color</span>
+                            @endforelse
+                        </div>
+                    </div>
+                </div>
+            @empty
+                <div class="col-12">
+                    <p class="text-muted mb-0">Sin categorías para agrupar.</p>
+                </div>
+            @endforelse
+        </div>
+    </div>
+</div>
+
 <div class="row g-3">
     <div class="col-xl-7">
         <div class="card h-100">
@@ -156,7 +198,7 @@
                         </div>
                         <div class="d-flex flex-wrap gap-2 mt-2">
                             @foreach ($group as $targetCategory)
-                                <form method="POST" action="{{ route('finance.categories.merge', $targetCategory) }}" class="d-inline">
+                                <form method="POST" action="{{ route('finance.categories.merge', $targetCategory) }}" class="d-inline" onsubmit="return confirm('Se moverá el historial a la categoría destino y la categoría origen quedará inactiva. ¿Continuar?')">
                                     @csrf
                                     <input type="hidden" name="confirm_merge" value="1">
                                     @foreach ($group->where('id', '!=', $targetCategory->id) as $sourceCategory)
@@ -179,7 +221,7 @@
                             <span class="badge bg-info-subtle text-info">{{ $pair['right']->name }}</span>
                         </div>
                         <div class="d-flex flex-wrap gap-2 mt-2">
-                            <form method="POST" action="{{ route('finance.categories.merge', $pair['left']) }}" class="d-inline">
+                            <form method="POST" action="{{ route('finance.categories.merge', $pair['left']) }}" class="d-inline" onsubmit="return confirm('Se moverá el historial a la categoría destino y la categoría origen quedará inactiva. ¿Continuar?')">
                                 @csrf
                                 <input type="hidden" name="confirm_merge" value="1">
                                 <input type="hidden" name="source_category_ids[]" value="{{ $pair['right']->id }}">
@@ -187,7 +229,7 @@
                                     Unificar en {{ $pair['left']->name }}
                                 </button>
                             </form>
-                            <form method="POST" action="{{ route('finance.categories.merge', $pair['right']) }}" class="d-inline">
+                            <form method="POST" action="{{ route('finance.categories.merge', $pair['right']) }}" class="d-inline" onsubmit="return confirm('Se moverá el historial a la categoría destino y la categoría origen quedará inactiva. ¿Continuar?')">
                                 @csrf
                                 <input type="hidden" name="confirm_merge" value="1">
                                 <input type="hidden" name="source_category_ids[]" value="{{ $pair['left']->id }}">

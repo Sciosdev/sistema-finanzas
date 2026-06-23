@@ -203,14 +203,14 @@
                                             <td class="text-end {{ $movement->movement_type === 'expense' ? 'text-danger' : 'text-success' }}">{{ $money($movement->amount) }}</td>
                                             <td class="text-end">
                                                 <div class="d-inline-flex align-items-center gap-2">
-                                                    <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue]) }}" class="btn btn-sm btn-link text-primary p-0" title="Editar movimiento">
-                                                        <i data-lucide="pencil"></i>
+                                                    <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue]) }}" class="btn btn-sm btn-outline-primary" title="Editar movimiento">
+                                                        <i data-lucide="pencil" class="me-1"></i>Editar
                                                     </a>
                                                     <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}">
                                                         @csrf
                                                         @method('DELETE')
-                                                        <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Eliminar con deshacer">
-                                                            <i data-lucide="trash-2"></i>
+                                                        <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar con deshacer de 2 minutos">
+                                                            <i data-lucide="trash-2" class="me-1"></i>Eliminar
                                                         </button>
                                                     </form>
                                                 </div>
@@ -288,7 +288,7 @@
                             <input type="number" name="expected_amount" class="form-control" step="0.01" min="0" value="{{ old('expected_amount') }}" required>
                         </div>
                         <div class="col-md-1">
-                            <label class="form-label">Dia</label>
+                            <label class="form-label">Día</label>
                             <input type="number" name="due_day" class="form-control" min="1" max="31" value="{{ old('due_day') }}">
                         </div>
                         <div class="col-md-2">
@@ -328,7 +328,7 @@
                                 <th>Inquilino</th>
                                 <th>Cuarto</th>
                                 <th class="text-end">Renta</th>
-                                <th>Dia cobro</th>
+                                <th>Día cobro</th>
                                 <th>Inicio</th>
                                 <th>Fin</th>
                                 <th>Estado</th>
@@ -457,14 +457,14 @@
                                     <td class="text-end {{ $movement->movement_type === 'expense' ? 'text-danger' : 'text-success' }}">{{ $money($movement->amount) }}</td>
                                     <td class="text-end">
                                         <div class="d-inline-flex align-items-center gap-2">
-                                            <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue]) }}" class="btn btn-sm btn-link text-primary p-0" title="Editar movimiento">
-                                                <i data-lucide="pencil"></i>
+                                            <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue]) }}" class="btn btn-sm btn-outline-primary" title="Editar movimiento">
+                                                <i data-lucide="pencil" class="me-1"></i>Editar
                                             </a>
                                             <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}">
                                                 @csrf
                                                 @method('DELETE')
-                                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Eliminar con deshacer">
-                                                    <i data-lucide="trash-2"></i>
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar con deshacer de 2 minutos">
+                                                    <i data-lucide="trash-2" class="me-1"></i>Eliminar
                                                 </button>
                                             </form>
                                         </div>

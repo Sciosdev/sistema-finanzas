@@ -40,13 +40,13 @@
                 <thead>
                     <tr>
                         <th>Fecha</th>
-                        <th class="text-end">Esperado</th>
+                        <th class="text-end">Saldo proyectado</th>
                         <th class="text-end">Tarjetas</th>
                         <th class="text-end">Efectivo</th>
-                        <th class="text-end">Real</th>
-                        <th class="text-end">Resta</th>
-                        <th class="text-end">Pendiente</th>
-                        <th class="text-end">Cuánto falta</th>
+                        <th class="text-end">Saldo real</th>
+                        <th class="text-end">Diferencia de conciliación</th>
+                        <th class="text-end">Obligaciones pendientes</th>
+                        <th class="text-end">Saldo disponible después de obligaciones</th>
                         <th>Estado</th>
                     </tr>
                 </thead>

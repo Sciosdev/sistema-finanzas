@@ -29,6 +29,95 @@
             return round($x, 2) . ',' . round($y, 2);
         })
         ->implode(' ');
+    $detailKey = request('detail');
+    $dashboardDetailUrl = fn (string $key) => route('finance.dashboard', ['month' => $summary['month_value'], 'detail' => $key]) . '#indicator-detail';
+    $indicatorDetails = [
+        'income-real' => [
+            'title' => 'Ingresos reales',
+            'amount' => $summary['total_income'],
+            'explanation' => 'Suma de ingresos registrados y rendimientos capturados en movimientos del mes.',
+            'items' => [
+                ['label' => 'Ingresos registrados', 'value' => $summary['income']],
+                ['label' => 'Rendimientos registrados', 'value' => $summary['yields']],
+            ],
+            'movements' => $summary['income_movements'],
+        ],
+        'projected-income' => [
+            'title' => 'Ingresos proyectados',
+            'amount' => $summary['projected_total_income'],
+            'explanation' => 'Ingresos reales del mes más ingresos esperados que todavía están pendientes.',
+            'items' => [
+                ['label' => 'Ingresos reales', 'value' => $summary['total_income']],
+                ['label' => 'Ingresos esperados pendientes', 'value' => $summary['pending_expected_income']],
+            ],
+            'expected_incomes' => $summary['next_expected_incomes'],
+        ],
+        'expenses-real' => [
+            'title' => 'Egresos reales',
+            'amount' => $summary['expenses'],
+            'explanation' => 'Suma de egresos registrados en movimientos del mes.',
+            'items' => [
+                ['label' => 'Egresos registrados', 'value' => $summary['expenses']],
+                ['label' => 'Egresos sin identificar (?)', 'value' => $summary['unknown_expenses']],
+            ],
+            'movements' => $summary['expense_movements'],
+        ],
+        'expected-leftover' => [
+            'title' => 'Saldo proyectado antes de obligaciones',
+            'amount' => $summary['expected_leftover'],
+            'explanation' => 'Resultado contable del mes antes de restar pagos pendientes: ingresos reales menos egresos reales.',
+            'items' => [
+                ['label' => 'Ingresos reales', 'value' => $summary['total_income']],
+                ['label' => 'Egresos reales', 'value' => -1 * (float) $summary['expenses']],
+            ],
+        ],
+        'real-total-cut' => [
+            'title' => 'Saldo real del corte',
+            'amount' => $summary['real_total'],
+            'explanation' => 'Dinero real que reportaste en el último corte: tarjetas más efectivo.',
+            'items' => [
+                ['label' => 'Saldo real en tarjetas', 'value' => $summary['latest_cut'] ? $summary['latest_cut']->cards_amount : 0],
+                ['label' => 'Saldo real en efectivo', 'value' => $summary['latest_cut'] ? $summary['latest_cut']->cash_amount : 0],
+            ],
+        ],
+        'cut-difference' => [
+            'title' => 'Diferencia de conciliación',
+            'amount' => $summary['difference'],
+            'explanation' => 'Compara el saldo proyectado antes de obligaciones contra el saldo real del corte. Si queda en 0, tu corte cuadra.',
+            'items' => [
+                ['label' => 'Saldo proyectado antes de obligaciones', 'value' => $summary['expected_leftover']],
+                ['label' => 'Saldo real del corte', 'value' => -1 * (float) $summary['real_total']],
+            ],
+        ],
+        'amount-missing' => [
+            'title' => 'Saldo disponible después de obligaciones',
+            'amount' => $summary['amount_missing'],
+            'explanation' => 'Saldo real del corte menos obligaciones pendientes del mes. Si sale negativo, falta dinero para cubrir lo pendiente.',
+            'items' => [
+                ['label' => 'Saldo real del corte', 'value' => $summary['real_total']],
+                ['label' => 'Obligaciones pendientes', 'value' => -1 * (float) $summary['pending_payments']],
+            ],
+            'obligations' => $summary['next_payments'],
+        ],
+        'san-juan-expenses' => [
+            'title' => 'Egresos San Juan',
+            'amount' => $summary['san_juan_expenses'],
+            'explanation' => 'Egresos marcados como San Juan durante el mes.',
+            'items' => [
+                ['label' => 'Egresos San Juan', 'value' => $summary['san_juan_expenses']],
+            ],
+        ],
+        'san-juan-profit' => [
+            'title' => 'Utilidad San Juan',
+            'amount' => $summary['san_juan_utility'],
+            'explanation' => 'Rentas recibidas menos egresos de San Juan.',
+            'items' => [
+                ['label' => 'Rentas recibidas', 'value' => $summary['rent_income']],
+                ['label' => 'Egresos San Juan', 'value' => -1 * (float) $summary['san_juan_expenses']],
+            ],
+        ],
+    ];
+    $selectedIndicator = $indicatorDetails[$detailKey] ?? null;
 @endphp
 
 <style>
@@ -44,6 +133,14 @@
     .finance-dashboard-grid .dashboard-widget > .card {
         position: relative;
         height: 100%;
+    }
+
+    .finance-dashboard-grid .dashboard-widget > .card .stretched-link {
+        text-decoration: none;
+    }
+
+    .finance-dashboard-grid .dashboard-widget > .card:hover {
+        border-color: rgba(34, 185, 86, .35);
     }
 
     .dashboard-widget-handle {
@@ -140,6 +237,7 @@
                 </div>
                 <i data-lucide="arrow-down-circle" class="fs-32 text-success"></i>
             </div>
+            <a href="{{ $dashboardDetailUrl('income-real') }}" class="stretched-link" aria-label="Ver detalle de ingresos reales"></a>
         </div>
     </div>
 
@@ -153,6 +251,7 @@
                 </div>
                 <i data-lucide="trending-up" class="fs-32 text-success"></i>
             </div>
+            <a href="{{ $dashboardDetailUrl('projected-income') }}" class="stretched-link" aria-label="Ver detalle de ingresos proyectados"></a>
         </div>
     </div>
 
@@ -166,6 +265,7 @@
                 </div>
                 <i data-lucide="arrow-up-circle" class="fs-32 text-danger"></i>
             </div>
+            <a href="{{ $dashboardDetailUrl('expenses-real') }}" class="stretched-link" aria-label="Ver detalle de egresos reales"></a>
         </div>
     </div>
 
@@ -173,12 +273,13 @@
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
-                    <p class="mb-2 card-title">Sobrante esperado</p>
+                    <p class="mb-2 card-title">Saldo proyectado antes de obligaciones</p>
                     <h4 class="fw-bold mb-0">{{ $money($summary['expected_leftover']) }}</h4>
                     <small class="text-muted">Ingresos - egresos</small>
                 </div>
                 <i data-lucide="scale" class="fs-32 text-primary"></i>
             </div>
+            <a href="{{ $dashboardDetailUrl('expected-leftover') }}" class="stretched-link" aria-label="Ver detalle del saldo proyectado"></a>
         </div>
     </div>
 
@@ -186,7 +287,7 @@
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
-                    <p class="mb-2 card-title">Total real corte</p>
+                    <p class="mb-2 card-title">Saldo real del corte</p>
                     <h4 class="fw-bold mb-0">{{ $summary['latest_cut'] ? $money($summary['real_total']) : '-' }}</h4>
                     <small class="{{ $isBalanced ? 'text-success' : 'text-danger' }}">
                         {{ $summary['latest_cut'] ? ($isBalanced ? 'Cuadra' : 'Revisar') : 'Sin corte' }}
@@ -194,28 +295,31 @@
                 </div>
                 <i data-lucide="wallet" class="fs-32 text-primary"></i>
             </div>
+            <a href="{{ $dashboardDetailUrl('real-total-cut') }}" class="stretched-link" aria-label="Ver detalle del saldo real del corte"></a>
         </div>
     </div>
 
     <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="cut-difference">
         <div class="card">
             <div class="card-body">
-                <p class="mb-2 card-title">Resta corte</p>
+                <p class="mb-2 card-title">Diferencia de conciliación</p>
                 <h4 class="fw-bold mb-0 {{ $difference === null ? '' : ($isBalanced ? 'text-success' : 'text-danger') }}">
                     {{ $difference === null ? '-' : $money($difference) }}
                 </h4>
             </div>
+            <a href="{{ $dashboardDetailUrl('cut-difference') }}" class="stretched-link" aria-label="Ver detalle de la diferencia de conciliación"></a>
         </div>
     </div>
 
     <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="amount-missing">
         <div class="card">
             <div class="card-body">
-                <p class="mb-2 card-title">Cuánto me falta</p>
+                <p class="mb-2 card-title">Saldo disponible después de obligaciones</p>
                 <h4 class="fw-bold mb-0 {{ ($summary['amount_missing'] ?? 0) < 0 ? 'text-danger' : 'text-success' }}">
                     {{ $summary['amount_missing'] === null ? '-' : $money($summary['amount_missing']) }}
                 </h4>
             </div>
+            <a href="{{ $dashboardDetailUrl('amount-missing') }}" class="stretched-link" aria-label="Ver detalle del saldo disponible después de obligaciones"></a>
         </div>
     </div>
 
@@ -225,6 +329,7 @@
                 <p class="mb-2 card-title">Egresos San Juan</p>
                 <h4 class="fw-bold mb-0 text-danger">{{ $money($summary['san_juan_expenses']) }}</h4>
             </div>
+            <a href="{{ $dashboardDetailUrl('san-juan-expenses') }}" class="stretched-link" aria-label="Ver detalle de egresos San Juan"></a>
         </div>
     </div>
 
@@ -234,8 +339,124 @@
                 <p class="mb-2 card-title">Utilidad San Juan</p>
                 <h4 class="fw-bold mb-0 {{ $summary['san_juan_utility'] >= 0 ? 'text-success' : 'text-danger' }}">{{ $money($summary['san_juan_utility']) }}</h4>
             </div>
+            <a href="{{ $dashboardDetailUrl('san-juan-profit') }}" class="stretched-link" aria-label="Ver detalle de utilidad San Juan"></a>
         </div>
     </div>
+
+    @if ($selectedIndicator)
+        <div class="col-12 dashboard-widget" data-dashboard-widget="indicator-detail" id="indicator-detail">
+            <div class="card border-primary">
+                <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+                    <div>
+                        <h4 class="card-title mb-1">Detalle del indicador: {{ $selectedIndicator['title'] }}</h4>
+                        <p class="text-muted mb-0">{{ $selectedIndicator['explanation'] }}</p>
+                    </div>
+                    <span class="badge badge-soft-primary fs-6">{{ $selectedIndicator['amount'] === null ? '-' : $money($selectedIndicator['amount']) }}</span>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        @foreach ($selectedIndicator['items'] ?? [] as $item)
+                            <div class="col-md-4">
+                                <div class="border rounded p-3 h-100">
+                                    <p class="text-muted mb-1">{{ $item['label'] }}</p>
+                                    <h5 class="fw-semibold mb-0 {{ (float) $item['value'] < 0 ? 'text-danger' : '' }}">{{ $money($item['value']) }}</h5>
+                                </div>
+                            </div>
+                        @endforeach
+                    </div>
+
+                    @if (! empty($selectedIndicator['movements']) && $selectedIndicator['movements']->isNotEmpty())
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Movimiento</th>
+                                        <th>Cuenta</th>
+                                        <th>Categoría</th>
+                                        <th class="text-end">Monto</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($selectedIndicator['movements'] as $movement)
+                                        <tr>
+                                            <td>{{ $movement->happened_on->format('Y-m-d') }}</td>
+                                            <td>{{ $movement->description }}</td>
+                                            <td>{{ $movement->account?->name ?? '-' }}</td>
+                                            <td>{{ $movement->category?->name ?? '-' }}</td>
+                                            <td class="text-end {{ $movement->movement_type === 'expense' ? 'text-danger' : 'text-success' }}">{{ $money($movement->amount) }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+
+                    @if (! empty($selectedIndicator['expected_incomes']) && $selectedIndicator['expected_incomes']->isNotEmpty())
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Ingreso esperado</th>
+                                        <th>Concepto</th>
+                                        <th>Estado</th>
+                                        <th class="text-end">Pendiente</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($selectedIndicator['expected_incomes']->take(10) as $income)
+                                        <tr>
+                                            <td>{{ $income['due_date']?->format('Y-m-d') ?? '-' }}</td>
+                                            <td>{{ $income['name'] }}</td>
+                                            <td>{{ $income['concept'] }}</td>
+                                            <td>
+                                                <span class="badge {{ \App\Support\FinanceLabels::dueBadgeClass($income['due_date'], $income['status']) }}">
+                                                    {{ \App\Support\FinanceLabels::dueLabel($income['due_date'], $income['status']) }}
+                                                </span>
+                                            </td>
+                                            <td class="text-end text-success">{{ $money($income['amount_due']) }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+
+                    @if (! empty($selectedIndicator['obligations']) && $selectedIndicator['obligations']->isNotEmpty())
+                        <div class="table-responsive mt-3">
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Vence</th>
+                                        <th>Obligación</th>
+                                        <th>Origen</th>
+                                        <th>Estado</th>
+                                        <th class="text-end">Pendiente</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($selectedIndicator['obligations']->take(10) as $obligation)
+                                        <tr>
+                                            <td>{{ $obligation['due_date']?->format('Y-m-d') ?? '-' }}</td>
+                                            <td>{{ $obligation['name'] }}</td>
+                                            <td>{{ $obligation['origin'] }}</td>
+                                            <td>
+                                                <span class="badge {{ \App\Support\FinanceLabels::dueBadgeClass($obligation['due_date'], $obligation['status']) }}">
+                                                    {{ \App\Support\FinanceLabels::dueLabel($obligation['due_date'], $obligation['status']) }}
+                                                </span>
+                                            </td>
+                                            <td class="text-end">{{ $money($obligation['amount_due']) }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
+    @endif
 
     <div class="col-12 dashboard-widget" data-dashboard-widget="payment-obligations-summary">
         <div class="card">
@@ -279,11 +500,47 @@
                     </div>
                     <div class="col-xl col-md-4 col-sm-6">
                         <div class="border rounded p-3 h-100">
-                            <p class="text-muted mb-1">No pagado visible</p>
+                            <p class="text-muted mb-1">Obligaciones no pagadas / pendientes de decisión</p>
                             <h5 class="fw-bold mb-0 text-danger">{{ $money($summary['obligation_totals']['skipped'] ?? 0) }}</h5>
                         </div>
                     </div>
                 </div>
+
+                @if ($summary['skipped_obligations']->isNotEmpty())
+                    <div class="alert alert-warning mt-3 mb-0">
+                        <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2 mb-2">
+                            <div>
+                                <strong>Obligaciones no pagadas / pendientes de decisión</strong>
+                                <div class="small">No se suman como pendiente normal ni como pagado. Quedan visibles para que decidas si se reprograman, se eliminan o se registran después.</div>
+                            </div>
+                            <span class="badge badge-soft-danger">{{ $money($summary['obligation_totals']['skipped'] ?? 0) }}</span>
+                        </div>
+                        <div class="table-responsive">
+                            <table class="table table-sm mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Fecha</th>
+                                        <th>Obligación</th>
+                                        <th>Origen</th>
+                                        <th>Estado</th>
+                                        <th class="text-end">Monto original</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    @foreach ($summary['skipped_obligations']->take(8) as $obligation)
+                                        <tr>
+                                            <td>{{ $obligation['due_date']?->format('Y-m-d') ?? '-' }}</td>
+                                            <td>{{ $obligation['name'] }}</td>
+                                            <td>{{ $obligation['origin'] }}</td>
+                                            <td><span class="badge badge-soft-danger">No pagado / pendiente de decisión</span></td>
+                                            <td class="text-end">{{ $money($obligation['amount']) }}</td>
+                                        </tr>
+                                    @endforeach
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                @endif
             </div>
         </div>
     </div>
@@ -666,8 +923,8 @@
                             <circle cx="{{ round($x, 2) }}" cy="{{ round($y, 2) }}" r="4" fill="#22b956" />
                         @endif
                     @endforeach
-                    <text x="{{ $chartLeft }}" y="172" fill="currentColor" opacity=".65" font-size="13">Dia 1</text>
-                    <text x="{{ $chartWidth - 72 }}" y="172" fill="currentColor" opacity=".65" font-size="13">Dia {{ count($dailyValues) }}</text>
+                    <text x="{{ $chartLeft }}" y="172" fill="currentColor" opacity=".65" font-size="13">Día 1</text>
+                    <text x="{{ $chartWidth - 72 }}" y="172" fill="currentColor" opacity=".65" font-size="13">Día {{ count($dailyValues) }}</text>
                 </svg>
             </div>
         </div>
@@ -795,6 +1052,37 @@
                     </div>
                 @empty
                     <p class="text-muted mb-0">Sin egresos</p>
+                @endforelse
+            </div>
+        </div>
+    </div>
+
+    <div class="col-xl-7 dashboard-widget" data-dashboard-widget="spending-opportunities">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <h4 class="card-title mb-0">Oportunidades de mejora</h4>
+                <a href="{{ route('finance.reports.index', ['month' => $summary['month_value']]) }}" class="btn btn-sm btn-outline-primary">
+                    <i data-lucide="pie-chart" class="me-1"></i>Reportes
+                </a>
+            </div>
+            <div class="card-body">
+                @forelse ($summary['spending_opportunities'] as $opportunity)
+                    <div class="border rounded p-3 mb-2">
+                        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-1">
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="rounded-circle d-inline-block" style="width: 12px; height: 12px; background: {{ $opportunity['color'] }}"></span>
+                                <strong>{{ $opportunity['name'] }}</strong>
+                                <span class="badge badge-soft-secondary">{{ $opportunity['count'] }} movs</span>
+                            </div>
+                            <div class="text-end">
+                                <strong class="text-danger">{{ $money($opportunity['amount']) }}</strong>
+                                <div class="small text-muted">{{ $opportunity['percentage'] }}% de tus egresos</div>
+                            </div>
+                        </div>
+                        <div class="small text-muted">{{ $opportunity['suggestion'] }}</div>
+                    </div>
+                @empty
+                    <p class="text-muted mb-0">Sin egresos suficientes para detectar focos de gasto este mes.</p>
                 @endforelse
             </div>
         </div>

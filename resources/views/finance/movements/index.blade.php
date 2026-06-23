@@ -26,11 +26,13 @@
                 <option value="expense" @selected(request('type') === 'expense')>Egresos</option>
                 <option value="yield" @selected(request('type') === 'yield')>Rendimientos</option>
             </select>
-            <select name="per_page" class="form-select" style="max-width: 160px" title="Resultados por página">
+            <select class="form-select" style="max-width: 160px" title="Resultados por página" onchange="this.form.per_page.value = this.value">
+                <option value="{{ $perPage }}" @selected(! in_array(($perPage ?? 30), [30, 50, 100, 200], true))>Personalizado</option>
                 @foreach ([30, 50, 100, 200] as $size)
                     <option value="{{ $size }}" @selected(($perPage ?? 30) === $size)>{{ $size }} por página</option>
                 @endforeach
             </select>
+            <input type="number" name="per_page" class="form-control" style="max-width: 135px" min="10" max="500" value="{{ $perPage ?? 30 }}" title="Cantidad personalizada de resultados por página">
             <button class="btn btn-outline-primary" type="submit">
                 <i data-lucide="filter" class="me-1"></i>Filtrar
             </button>
@@ -57,7 +59,7 @@
         <h4 class="card-title mb-0">Historial</h4>
         <div class="d-flex flex-wrap align-items-center gap-2">
             @if (request()->filled('q'))
-                <span class="badge badge-soft-primary">Busqueda: {{ request('q') }}</span>
+                <span class="badge badge-soft-primary">Búsqueda: {{ request('q') }}</span>
             @endif
             <span class="badge badge-soft-secondary">{{ $movements->total() }} movimientos</span>
         </div>

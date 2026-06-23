@@ -37,6 +37,7 @@ class CategoryController extends Controller
 
         return view('finance.categories.index', [
             'categories' => $categories,
+            'categoryGroups' => $this->categoryGroups($categories),
             'categorySuggestions' => $this->categorySuggestions($categories),
             'duplicateCategoryGroups' => $this->duplicateCategoryGroups($categories),
             'similarCategoryPairs' => $this->similarCategoryPairs($categories),
@@ -230,11 +231,35 @@ class CategoryController extends Controller
             || CreditPurchase::where('category_id', $category->id)->exists();
     }
 
+    private function categoryGroups(Collection $categories): Collection
+    {
+        return $categories
+            ->groupBy(fn (Category $category) => ($category->type ?: 'expense') . ':' . ($category->group ?: 'Sin grupo'))
+            ->map(function (Collection $rows) {
+                $first = $rows->first();
+
+                return [
+                    'type' => $first->type,
+                    'group' => $first->group ?: 'Sin grupo',
+                    'count' => $rows->count(),
+                    'active_count' => $rows->where('is_active', true)->count(),
+                    'colors' => $rows
+                        ->pluck('color')
+                        ->filter()
+                        ->unique()
+                        ->take(5)
+                        ->values(),
+                ];
+            })
+            ->sortBy(fn (array $row) => $row['type'] . ':' . $row['group'])
+            ->values();
+    }
+
     private function categorySuggestions(Collection $categories): Collection
     {
         return collect([
             ['name' => 'Comida', 'type' => 'expense', 'group' => 'Comida', 'color' => '#f97316', 'keywords' => 'comida,taqueria,restaurant,uber eats,didi comida,rappi,oxxo'],
-            ['name' => 'Saldo / Telefonia', 'type' => 'expense', 'group' => 'Servicios', 'color' => '#06b6d4', 'keywords' => 'saldo,telcel,weex,recarga,telefono,telefonia'],
+            ['name' => 'Saldo / Telefonía', 'type' => 'expense', 'group' => 'Servicios', 'color' => '#06b6d4', 'keywords' => 'saldo,telcel,weex,recarga,telefono,telefonia'],
             ['name' => 'Gasolina', 'type' => 'expense', 'group' => 'Transporte', 'color' => '#ef4444', 'keywords' => 'gasolina,costco gasolina,gasolina carro'],
             ['name' => 'Gasolina de moto', 'type' => 'expense', 'group' => 'Transporte', 'color' => '#f59e0b', 'keywords' => 'gasolina moto,gasolina de moto,moto'],
             ['name' => 'Ropa', 'type' => 'expense', 'group' => 'Personal', 'color' => '#ec4899', 'keywords' => 'ropa,zapato,playera,pantalon,tenis,shein,zara'],

@@ -39,6 +39,8 @@ it('shows the finance dashboard to authenticated users', function () {
         ->get('/finanzas')
         ->assertOk()
         ->assertSee('Finanzas')
+        ->assertSee('Saldo proyectado antes de obligaciones')
+        ->assertSee('Oportunidades de mejora')
         ->assertSee('Nuevo movimiento')
         ->assertSee('Corte diario');
 });
@@ -126,10 +128,11 @@ it('lets users search movement history', function () {
     ]);
 
     $this->actingAs($user)
-        ->get('/finanzas/movimientos?month=2026-06&q=Uber')
+        ->get('/finanzas/movimientos?month=2026-06&q=Uber&per_page=77')
         ->assertOk()
-        ->assertSee('Busqueda: Uber')
-        ->assertSee('30 por página')
+        ->assertSee('Búsqueda: Uber')
+        ->assertSee('Personalizado')
+        ->assertSee('value="77"', false)
         ->assertSee('Mostrando 1 a 1 de 1 movimientos')
         ->assertSee('Uber Carro')
         ->assertDontSee('Taqueria');
@@ -808,7 +811,7 @@ it('shows planned flow totals for the selected month', function () {
         ->assertSee('$500.00')
         ->assertSee('Pendiente por pagar')
         ->assertSee('$700.00')
-        ->assertSee('No pagado')
+        ->assertSee('Obligaciones no pagadas / pendientes de decisión')
         ->assertSee('$100.00');
 });
 
@@ -913,6 +916,7 @@ it('shows a unified monthly obligation list for planned payments and credits', f
     expect($nextPaymentNames)->not->toContain('Pago ya pagado');
     expect($nextPaymentNames)->not->toContain('Pago no pagado');
     expect($summary['next_payments']->firstWhere('name', 'Pago vencido')['origin_detail'])->toBe('Vencido pendiente');
+    expect($summary['skipped_obligations']->pluck('name')->all())->toContain('Pago no pagado');
 
     $this->actingAs($user)
         ->get('/finanzas?month=2026-06')
@@ -926,13 +930,21 @@ it('shows a unified monthly obligation list for planned payments and credits', f
         ->assertSee('Compra a meses: Amazon')
         ->assertSee('Crédito: Amazon')
         ->assertDontSee('Pago ya pagado')
-        ->assertDontSee('Pago no pagado');
+        ->assertSee('Pago no pagado')
+        ->assertSee('No pagado / pendiente de decisión');
+
+    $this->actingAs($user)
+        ->get('/finanzas?month=2026-06&detail=amount-missing')
+        ->assertOk()
+        ->assertSee('Detalle del indicador: Saldo disponible después de obligaciones')
+        ->assertSee('Saldo real del corte')
+        ->assertSee('Obligaciones pendientes');
 
     $this->actingAs($user)
         ->get('/finanzas/flujo-planeado?month=2026-06')
         ->assertOk()
         ->assertSee('Pago no pagado')
-        ->assertSee('No pagado')
+        ->assertSee('No pagado / pendiente de decisión')
         ->assertSee('Pagado/vinculado');
 
     Carbon::setTestNow();

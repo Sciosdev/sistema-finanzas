@@ -264,7 +264,7 @@
                     <table class="table table-hover mb-0">
                         <thead>
                             <tr>
-                                <th>Dia</th>
+                                <th>Día</th>
                                 <th>Rango</th>
                                 <th class="text-end">Ingresos</th>
                                 <th class="text-end">Egresos</th>

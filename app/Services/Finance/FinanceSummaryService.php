@@ -51,6 +51,20 @@ class FinanceSummaryService
             ->orderByDesc('id')
             ->limit(12)
             ->get();
+        $incomeMovements = (clone $movementQuery)
+            ->with(['account', 'category', 'person'])
+            ->whereIn('movement_type', ['income', 'yield'])
+            ->orderByDesc('happened_on')
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get();
+        $expenseMovements = (clone $movementQuery)
+            ->with(['account', 'category', 'person'])
+            ->where('movement_type', 'expense')
+            ->orderByDesc('happened_on')
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get();
 
         $allExpenses = (clone $movementQuery)
             ->with('category')
@@ -86,16 +100,21 @@ class FinanceSummaryService
             'car_gasoline_expenses' => $gasoline['car'],
             'motorcycle_gasoline_expenses' => $gasoline['motorcycle'],
             'recent_movements' => $movements,
+            'income_movements' => $incomeMovements,
+            'expense_movements' => $expenseMovements,
             'expenses_by_category' => $this->expensesByCategory($allExpenses),
             'weekly_expenses' => $this->weeklyExpenses($allExpenses),
             'overdue_payments' => $this->overduePayments($user),
             'payment_obligations' => $paymentObligations,
             'obligation_totals' => $obligationTotals,
             'next_payments' => $this->nextPayments($paymentObligations),
+            'skipped_obligations' => $paymentObligations->where('is_skipped', true)->values(),
             'next_expected_incomes' => $nextExpectedIncomes,
             'pending_expected_income' => $pendingExpectedIncome,
             'overdue_expected_income' => $overdueExpectedIncome,
             'projected_total_income' => $this->money($income + $yields + $pendingExpectedIncome),
+            'important_expense_concepts' => $this->importantExpenseConcepts($allExpenses),
+            'spending_opportunities' => $this->spendingOpportunities($allExpenses, $expenses),
             'daily_income_chart' => $this->dailyIncomeChart($user, $start, $end),
             'monthly_income_chart' => $this->monthlyIncomeChart($user, $start),
         ];
@@ -354,7 +373,7 @@ class FinanceSummaryService
     private function originDetail(string $status, bool $linked): string
     {
         if ($status === 'skipped') {
-            return 'No pagado';
+            return 'No pagado / pendiente de decisión';
         }
 
         if ($status === 'paid') {
@@ -532,5 +551,85 @@ class FinanceSummaryService
     private function money(float $value): float
     {
         return round($value, 2);
+    }
+
+    private function importantExpenseConcepts(Collection $expenses): Collection
+    {
+        $concepts = collect([
+            ['name' => 'Saldo / Telefonía', 'color' => '#06b6d4', 'keywords' => ['saldo', 'telcel', 'weex', 'recarga', 'telefono', 'telefonia']],
+            ['name' => 'Comida', 'color' => '#f97316', 'keywords' => ['comida', 'taqueria', 'uber eats', 'uber comida', 'didi comida', 'rappi', 'oxxo', 'starbucks', 'restaurante']],
+            ['name' => 'Transporte', 'color' => '#0ea5e9', 'keywords' => ['transporte', 'uber carro', 'didi carro', 'caseta', 'pase', 'taxi']],
+            ['name' => 'Gasolina', 'color' => '#ef4444', 'keywords' => ['gasolina', 'costco gasolina', 'gasolina moto', 'gasolina carro']],
+            ['name' => 'Servicios', 'color' => '#6366f1', 'keywords' => ['japam', 'luz', 'agua', 'internet', 'totalplay', 'telmex', 'google one', 'youtube', 'amazon music', 'servicio']],
+            ['name' => 'Ropa', 'color' => '#ec4899', 'keywords' => ['ropa', 'zapato', 'playera', 'pantalon', 'shein', 'zara', 'tenis']],
+            ['name' => 'Casa', 'color' => '#64748b', 'keywords' => ['casa', 'limpieza', 'cloro', 'jabon', 'escoba', 'artemias', 'mandado']],
+            ['name' => 'Créditos / tarjetas', 'color' => '#7c3aed', 'keywords' => ['credito', 'creditos', 'tarjeta', 'nu credito', 'didi credito', 'mpw credito', 'mercado libre']],
+            ['name' => 'San Juan', 'color' => '#dc3545', 'keywords' => ['san juan', 'snj', 'japam', 'jorge']],
+        ]);
+
+        return $concepts
+            ->map(function (array $concept) use ($expenses) {
+                $rows = $expenses->filter(function (Movement $movement) use ($concept) {
+                    if ($concept['name'] === 'San Juan' && $movement->is_san_juan) {
+                        return true;
+                    }
+
+                    return $this->matchesAny($this->movementSearchText($movement), $concept['keywords']);
+                });
+
+                return [
+                    'name' => $concept['name'],
+                    'color' => $concept['color'],
+                    'amount' => $this->money($rows->sum(fn (Movement $movement) => (float) $movement->amount)),
+                    'count' => $rows->count(),
+                ];
+            })
+            ->filter(fn (array $row) => $row['amount'] > 0)
+            ->sortByDesc('amount')
+            ->values();
+    }
+
+    private function spendingOpportunities(Collection $expenses, float $totalExpenses): Collection
+    {
+        if ($totalExpenses <= 0) {
+            return collect();
+        }
+
+        return $this->importantExpenseConcepts($expenses)
+            ->take(5)
+            ->map(function (array $row) use ($totalExpenses) {
+                $suggestedCut = $this->money(((float) $row['amount']) * 0.10);
+
+                return $row + [
+                    'percentage' => round((((float) $row['amount']) / $totalExpenses) * 100, 1),
+                    'suggestion' => $suggestedCut > 0
+                        ? 'Si bajas 10% este concepto podrías liberar ' . '$' . number_format($suggestedCut, 2) . ' este mes.'
+                        : 'Sigue vigilando este concepto para mantener controlado el egreso.',
+                ];
+            })
+            ->values();
+    }
+
+    private function movementSearchText(Movement $movement): string
+    {
+        return Str::lower(implode(' ', array_filter([
+            $movement->description,
+            $movement->notes,
+            $movement->category?->name,
+            $movement->category?->group,
+            $movement->category?->keywords,
+            $movement->person?->name,
+        ])));
+    }
+
+    private function matchesAny(string $text, array $keywords): bool
+    {
+        foreach ($keywords as $keyword) {
+            if (Str::contains($text, Str::lower($keyword))) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

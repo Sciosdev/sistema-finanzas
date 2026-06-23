@@ -30,8 +30,9 @@ class MovementController extends Controller
         $this->catalogs->ensureForUser($user);
 
         [$start, $end] = $this->summaryService->monthRange($request->query('month', now()->format('Y-m')));
-        $perPage = (int) $request->query('per_page', 30);
-        $perPage = in_array($perPage, [30, 50, 100, 200], true) ? $perPage : 30;
+        $requestedPerPage = $request->query('per_page', 30);
+        $perPage = is_numeric($requestedPerPage) ? (int) $requestedPerPage : 30;
+        $perPage = max(10, min(500, $perPage));
 
         $movements = Movement::with(['account', 'category', 'person'])
             ->where('user_id', $user->id)

@@ -27,7 +27,7 @@
         <div class="col-md-3">
             <label class="form-label">Tipo</label>
             <select name="movement_type" class="form-select" required>
-                <option value="expense" @selected($typeValue === 'expense')>Gasto</option>
+                <option value="expense" @selected($typeValue === 'expense')>Egreso</option>
                 <option value="income" @selected($typeValue === 'income')>Ingreso</option>
                 <option value="yield" @selected($typeValue === 'yield')>Rendimiento</option>
                 <option value="transfer" @selected($typeValue === 'transfer')>Transferencia</option>

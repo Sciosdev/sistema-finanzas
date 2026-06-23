@@ -7,7 +7,7 @@ class FinanceLabels
     public static function movementType(?string $type): string
     {
         return match ($type) {
-            'expense' => 'Gasto',
+            'expense' => 'Egreso',
             'income' => 'Ingreso',
             'yield' => 'Rendimiento',
             'transfer' => 'Transferencia',
@@ -19,7 +19,7 @@ class FinanceLabels
     public static function categoryType(?string $type): string
     {
         return match ($type) {
-            'expense' => 'Gasto',
+            'expense' => 'Egreso',
             'income' => 'Ingreso',
             'yield' => 'Rendimiento',
             default => 'Sin tipo',
@@ -44,7 +44,7 @@ class FinanceLabels
         }
 
         if ($status === 'skipped') {
-            return 'No pagado';
+            return 'No pagado / pendiente de decisión';
         }
 
         if (! $dueDate) {

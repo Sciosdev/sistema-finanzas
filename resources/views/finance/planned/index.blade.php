@@ -55,7 +55,7 @@
     <div class="col-xl-3 col-md-6">
         <div class="card mb-0 h-100">
             <div class="card-body">
-                <p class="text-muted mb-1">No pagado</p>
+                <p class="text-muted mb-1">Obligaciones no pagadas / pendientes de decisión</p>
                 <h4 class="fw-semibold text-danger mb-0">{{ $money($paymentTotals['skipped'] ?? 0) }}</h4>
             </div>
         </div>
@@ -181,7 +181,7 @@
                                 );
                             $displayStatus = $overdue ? 'overdue' : $payment->status;
                             $originLabel = match (true) {
-                                $payment->status === 'skipped' => 'No pagado',
+                                $payment->status === 'skipped' => 'No pagado / pendiente de decisión',
                                 $payment->status === 'paid' && (bool) $payment->movement_id => 'Pagado/vinculado',
                                 $payment->status === 'paid' => 'Pagado/registrado',
                                 $overdue => 'Vencido pendiente',
@@ -211,7 +211,7 @@
                             </td>
                             <td>
                                 <span class="badge {{ $payment->status === 'paid' ? 'badge-soft-success' : ($overdue || $payment->status === 'skipped' ? 'badge-soft-danger' : 'badge-soft-warning') }}">
-                                    {{ $payment->status === 'paid' ? 'Pagado' : ($payment->status === 'skipped' ? 'No pagado' : ($overdue ? 'Vencido' : 'Pendiente')) }}
+                                    {{ $payment->status === 'paid' ? 'Pagado' : ($payment->status === 'skipped' ? 'No pagado / pendiente de decisión' : ($overdue ? 'Vencido' : 'Pendiente')) }}
                                 </span>
                             </td>
                             <td>
@@ -235,7 +235,7 @@
                                         </a>
                                         <form method="POST" action="{{ route('finance.planned.skip', $payment) }}">
                                             @csrf
-                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="No pagado">
+                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="No pagado / pendiente de decisión">
                                                 <i data-lucide="x"></i>
                                             </button>
                                         </form>
@@ -374,7 +374,7 @@
                                 );
                             $displayStatus = $overdue ? 'overdue' : $installment->status;
                             $originLabel = match (true) {
-                                $installment->status === 'skipped' => 'No pagado',
+                                $installment->status === 'skipped' => 'No pagado / pendiente de decisión',
                                 $installment->status === 'paid' && (bool) $installment->movement_id => 'Pagado/vinculado',
                                 $installment->status === 'paid' => 'Pagado/registrado',
                                 $overdue => 'Crédito vencido',
@@ -398,8 +398,8 @@
                                 </span>
                             </td>
                             <td>
-                                <span class="badge {{ $installment->status === 'paid' ? 'badge-soft-success' : ($overdue ? 'badge-soft-danger' : 'badge-soft-warning') }}">
-                                    {{ $installment->status === 'paid' ? 'Pagado' : ($overdue ? 'Vencido' : 'Pendiente') }}
+                                <span class="badge {{ $installment->status === 'paid' ? 'badge-soft-success' : ($overdue || $installment->status === 'skipped' ? 'badge-soft-danger' : 'badge-soft-warning') }}">
+                                    {{ $installment->status === 'paid' ? 'Pagado' : ($installment->status === 'skipped' ? 'No pagado / pendiente de decisión' : ($overdue ? 'Vencido' : 'Pendiente')) }}
                                 </span>
                             </td>
                             <td>
