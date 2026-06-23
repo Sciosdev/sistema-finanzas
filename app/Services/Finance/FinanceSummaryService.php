@@ -75,7 +75,7 @@ class FinanceSummaryService
         $nextExpectedIncomes = $this->nextExpectedIncomes($user, $start, $end);
         $pendingExpectedIncome = $this->money($nextExpectedIncomes->sum('amount_due'));
         $overdueExpectedIncome = $this->money($nextExpectedIncomes
-            ->where('status', 'overdue')
+            ->where('is_overdue', true)
             ->sum('amount_due'));
 
         return [
@@ -389,10 +389,10 @@ class FinanceSummaryService
 
     private function nextExpectedIncomes(User $user, Carbon $start, Carbon $end): Collection
     {
-        $expectedIncomes = ExpectedIncome::with(['category', 'person'])
+        $expectedIncomes = ExpectedIncome::with(['category', 'person', 'payments'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
-            ->whereIn('status', ['pending', 'overdue'])
+            ->whereIn('status', ['pending', 'partial', 'overdue'])
             ->get();
 
         $manualRentPersonIds = ExpectedIncome::query()
@@ -411,13 +411,19 @@ class FinanceSummaryService
                     return null;
                 }
 
+                $isOverdue = $income->due_date
+                    && $income->due_date->copy()->startOfDay()->lt(today()->startOfDay());
+
                 return [
                     'id' => $income->id,
                     'due_date' => $income->due_date,
                     'name' => $income->person?->name ?? $income->name,
                     'concept' => $income->person ? $income->name : ($income->category?->name ?? 'Ingreso esperado'),
-                    'status' => $income->status,
+                    'status' => $isOverdue ? 'overdue' : $income->status,
                     'amount_due' => $amountDue,
+                    'received_amount' => $this->money((float) $income->received_amount),
+                    'payment_count' => $income->payments->count(),
+                    'is_overdue' => $isOverdue,
                     'account_id' => $income->account_id,
                     'source' => 'manual',
                 ];
@@ -470,6 +476,9 @@ class FinanceSummaryService
                     'concept' => $contract->room ? 'Renta cuarto ' . $contract->room : 'Renta San Juan',
                     'status' => $dueDate->lt(today()->startOfDay()) ? 'overdue' : 'pending',
                     'amount_due' => $amountDue,
+                    'received_amount' => $this->money((float) $paidAmount),
+                    'payment_count' => $paidAmount > 0 ? 1 : 0,
+                    'is_overdue' => $dueDate->lt(today()->startOfDay()),
                     'source' => 'rental-contract',
                 ];
             })

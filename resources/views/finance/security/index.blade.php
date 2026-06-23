@@ -75,7 +75,7 @@
             <div class="col-xl-4 col-md-6">
                 <label class="form-label">Ruta configurada</label>
                 <input type="text" class="form-control" value="{{ $externalBackupPath ?: 'No configurada: FINANCE_EXTERNAL_BACKUP_PATH' }}" readonly>
-                <div class="form-text">Debe existir y tener permisos de escritura.</div>
+                <div class="form-text">Debe existir y tener permisos de escritura. Ejemplo: FINANCE_EXTERNAL_BACKUP_PATH="C:/Users/axelg/OneDrive/BackupsFinanzas"</div>
             </div>
             <div class="col-xl-3 col-md-6">
                 <label class="form-label">Acción</label>

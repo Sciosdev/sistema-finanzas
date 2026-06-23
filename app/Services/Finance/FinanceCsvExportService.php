@@ -5,6 +5,10 @@ namespace App\Services\Finance;
 use App\Models\Finance\Movement;
 use App\Support\FinanceLabels;
 use Illuminate\Support\Facades\File;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Style\Alignment;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class FinanceCsvExportService
 {
@@ -85,6 +89,90 @@ class FinanceCsvExportService
             return [
                 'ok' => false,
                 'message' => 'No se pudo exportar CSV: ' . $exception->getMessage(),
+            ];
+        }
+    }
+
+    /**
+     * @param iterable<Movement> $movements
+     * @param array<string, string> $metadata
+     * @return array<string, mixed>
+     */
+    public function exportMovementsXlsx(string $prefix, iterable $movements, array $metadata = []): array
+    {
+        $filename = $this->safeFilename($prefix) . '-' . now()->format('Ymd-His') . '.xlsx';
+        $directory = $this->exportDirectory();
+        $path = $directory . DIRECTORY_SEPARATOR . $filename;
+
+        try {
+            File::ensureDirectoryExists($directory);
+
+            $spreadsheet = new Spreadsheet();
+            $sheet = $spreadsheet->getActiveSheet();
+            $sheet->setTitle('Movimientos');
+
+            $row = 1;
+            foreach ($metadata as $label => $value) {
+                $sheet->setCellValue("A{$row}", $label);
+                $sheet->setCellValue("B{$row}", $value);
+                $row++;
+            }
+
+            if ($metadata !== []) {
+                $row++;
+            }
+
+            $headers = ['Fecha', 'Tipo', 'Cuenta', 'Categoría', 'Persona', 'Descripción', 'Monto', 'Notas'];
+            $headerRow = $row;
+            $sheet->fromArray($headers, null, "A{$row}");
+            $row++;
+
+            foreach ($movements as $movement) {
+                $sheet->fromArray([
+                    $movement->happened_on?->format('Y-m-d'),
+                    FinanceLabels::movementType($movement->movement_type),
+                    $movement->account?->name ?? '',
+                    $movement->category?->name ?? '',
+                    $movement->person?->name ?? '',
+                    $movement->description,
+                    (float) $movement->amount,
+                    $movement->notes ?? '',
+                ], null, "A{$row}");
+                $row++;
+            }
+
+            $sheet->getStyle("A{$headerRow}:H{$headerRow}")->applyFromArray([
+                'font' => ['bold' => true, 'color' => ['rgb' => 'FFFFFF']],
+                'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['rgb' => '1F4E78']],
+                'alignment' => ['horizontal' => Alignment::HORIZONTAL_CENTER],
+            ]);
+            $sheet->getStyle("A1:B" . max(1, $headerRow - 2))->getFont()->setBold(true);
+            $sheet->getStyle("A" . ($headerRow + 1) . ":A" . max($row, $headerRow + 1))->getNumberFormat()->setFormatCode('yyyy-mm-dd');
+            $sheet->getStyle("G" . ($headerRow + 1) . ":G" . max($row, $headerRow + 1))->getNumberFormat()->setFormatCode('"$"#,##0.00');
+            $sheet->freezePane("A" . ($headerRow + 1));
+
+            foreach (range('A', 'H') as $column) {
+                $sheet->getColumnDimension($column)->setAutoSize(true);
+            }
+
+            (new Xlsx($spreadsheet))->save($path);
+            $spreadsheet->disconnectWorksheets();
+
+            return [
+                'ok' => true,
+                'name' => $filename,
+                'absolute_path' => $path,
+                'size' => filesize($path),
+                'message' => 'Exportación XLSX creada.',
+            ];
+        } catch (\Throwable $exception) {
+            if (is_file($path)) {
+                @unlink($path);
+            }
+
+            return [
+                'ok' => false,
+                'message' => 'No se pudo exportar XLSX: ' . $exception->getMessage(),
             ];
         }
     }

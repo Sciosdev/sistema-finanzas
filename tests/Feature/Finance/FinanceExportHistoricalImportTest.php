@@ -8,6 +8,7 @@ use App\Services\Finance\FinanceCatalogService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 
 uses(RefreshDatabase::class);
 
@@ -98,6 +99,38 @@ it('exports report movements filtered by category', function () {
     expect($content)->not->toContain('Casa prueba');
 });
 
+it('exports movements to a real xlsx file with Spanish headers and currency values', function () {
+    $user = User::factory()->create();
+    app(FinanceCatalogService::class)->ensureForUser($user);
+
+    $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $category = Category::where('user_id', $user->id)->where('name', 'Saldo / Telefonia')->firstOrFail();
+
+    Movement::create([
+        'user_id' => $user->id,
+        'happened_on' => '2026-06-20',
+        'movement_type' => 'expense',
+        'amount' => 50,
+        'description' => 'Saldo Telcel',
+        'account_id' => $account->id,
+        'category_id' => $category->id,
+        'source' => 'manual',
+    ]);
+
+    $response = $this->actingAs($user)
+        ->get(route('finance.movements.export', ['month' => '2026-06', 'format' => 'xlsx']));
+
+    $response->assertOk()->assertHeader('content-disposition');
+
+    $spreadsheet = IOFactory::load($response->baseResponse->getFile()->getPathname());
+    $sheet = $spreadsheet->getActiveSheet();
+
+    expect($sheet->getCell('A6')->getValue())->toBe('Fecha');
+    expect($sheet->getCell('D6')->getValue())->toBe('Categoría');
+    expect($sheet->getCell('F7')->getValue())->toBe('Saldo Telcel');
+    expect((float) $sheet->getCell('G7')->getValue())->toBe(50.0);
+});
+
 it('previews and stores historical CSV movements after review', function () {
     $user = User::factory()->create();
     app(FinanceCatalogService::class)->ensureForUser($user);
@@ -134,4 +167,46 @@ it('previews and stores historical CSV movements after review', function () {
         'amount' => 50,
         'source' => 'historical_import',
     ]);
+});
+
+it('keeps historical rows with non-zero reconciliation difference in review', function () {
+    $user = User::factory()->create();
+
+    $csv = implode("\n", [
+        'fecha,tipo,descripcion,monto,diferencia_conciliacion',
+        '2025-12-31,egreso,Movimiento descuadrado,50,1',
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('finance.imports.historical.preview'), [
+            'file' => UploadedFile::fake()->createWithContent('historico.csv', $csv),
+        ])
+        ->assertRedirect(route('finance.imports.historical.index'));
+
+    $this->actingAs($user)
+        ->get(route('finance.imports.historical.index'))
+        ->assertOk()
+        ->assertSee('Diferencia de conciliación distinta de 0');
+
+    $this->actingAs($user)
+        ->post(route('finance.imports.historical.store'))
+        ->assertRedirect(route('finance.movements.index'));
+
+    $this->assertDatabaseMissing('finance_movements', [
+        'user_id' => $user->id,
+        'description' => 'Movimiento descuadrado',
+    ]);
+});
+
+it('downloads the historical import CSV template', function () {
+    $user = User::factory()->create();
+
+    $response = $this->actingAs($user)
+        ->get(route('finance.imports.historical.template'));
+
+    $response->assertOk()
+        ->assertHeader('content-disposition');
+
+    expect($response->getContent())->toContain('fecha,tipo,descripcion,monto');
+    expect($response->getContent())->toContain('diferencia_conciliacion');
 });

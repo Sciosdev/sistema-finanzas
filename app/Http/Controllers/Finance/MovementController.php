@@ -106,19 +106,25 @@ class MovementController extends Controller
             ->orderBy('id')
             ->get();
 
-        $result = $this->csvExports->exportMovements('movimientos-' . $start->format('Y-m'), $movements, [
+        $metadata = [
             'Reporte' => 'Movimientos',
             'Mes' => $start->format('Y-m'),
             'Tipo' => $request->query('type') ?: 'Todos',
             'Búsqueda' => $request->query('q') ?: 'Sin búsqueda',
-        ]);
+        ];
+        $format = $request->query('format') === 'xlsx' ? 'xlsx' : 'csv';
+        $result = $format === 'xlsx'
+            ? $this->csvExports->exportMovementsXlsx('movimientos-' . $start->format('Y-m'), $movements, $metadata)
+            : $this->csvExports->exportMovements('movimientos-' . $start->format('Y-m'), $movements, $metadata);
 
         if (! ($result['ok'] ?? false)) {
             return back()->with('error', $result['message'] ?? 'No se pudo exportar movimientos.');
         }
 
         return response()->download($result['absolute_path'], $result['name'], [
-            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Type' => $format === 'xlsx'
+                ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                : 'text/csv; charset=UTF-8',
         ]);
     }
 

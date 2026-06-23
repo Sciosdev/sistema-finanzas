@@ -28,7 +28,7 @@
     <div class="col-xl-4 col-md-6">
         <div class="card mb-0 h-100">
             <div class="card-body">
-                <p class="text-muted mb-1">Ingresos esperados seran estos</p>
+                <p class="text-muted mb-1">Ingresos esperados serán estos</p>
                 <h4 class="fw-semibold text-primary mb-0">{{ $money($incomeTotals['expected'] ?? 0) }}</h4>
             </div>
         </div>
@@ -36,7 +36,7 @@
     <div class="col-xl-4 col-md-6">
         <div class="card mb-0 h-100">
             <div class="card-body">
-                <p class="text-muted mb-1">Por cobrar todavia</p>
+                <p class="text-muted mb-1">Por cobrar todavía</p>
                 <h4 class="fw-semibold text-warning mb-0">{{ $money($incomeTotals['pending'] ?? 0) }}</h4>
             </div>
         </div>
@@ -165,6 +165,8 @@
                         <th>Persona</th>
                         <th class="text-end">Monto</th>
                         <th class="text-end">Recibido</th>
+                        <th class="text-end">Saldo</th>
+                        <th class="text-end">Abonos</th>
                         <th>Pronto cobro</th>
                         <th>Estado</th>
                         <th>Movimiento</th>
@@ -174,11 +176,14 @@
                 <tbody>
                     @forelse ($incomeRows as $income)
                         @php
-                            $overdue = $income['status'] === 'pending'
+                            $overdue = in_array($income['status'], ['pending', 'partial', 'overdue'], true)
                                 && $income['due_date']
-                                && $income['due_date']->copy()->startOfDay()->lt(today()->startOfDay());
-                            $remaining = max(0, (float) $income['amount'] - (float) $income['received_amount']);
-                            $isLinked = ! empty($income['movement_id']);
+                                && $income['due_date']->copy()->startOfDay()->lt(today()->startOfDay())
+                                && (float) ($income['amount_due'] ?? 0) > 0;
+                            $remaining = (float) ($income['amount_due'] ?? max(0, (float) $income['amount'] - (float) $income['received_amount']));
+                            $paymentCount = (int) ($income['payment_count'] ?? 0);
+                            $payments = $income['payments'] ?? collect();
+                            $isLinked = $paymentCount > 0;
                             $movement = $income['movement'] ?? null;
                             $displayStatus = $income['status'] === 'received' ? 'paid' : ($overdue ? 'overdue' : $income['status']);
                         @endphp
@@ -197,6 +202,8 @@
                             <td>{{ $income['person'] }}</td>
                             <td class="text-end">{{ $money($income['amount']) }}</td>
                             <td class="text-end">{{ $money($income['received_amount']) }}</td>
+                            <td class="text-end {{ $remaining > 0 ? 'text-warning' : 'text-success' }}">{{ $money($remaining) }}</td>
+                            <td class="text-end">{{ $paymentCount }}</td>
                             <td>
                                 <span class="badge {{ \App\Support\FinanceLabels::dueBadgeClass($income['due_date'], $displayStatus) }}">
                                     {{ \App\Support\FinanceLabels::dueLabel($income['due_date'], $displayStatus) }}
@@ -204,14 +211,29 @@
                             </td>
                             <td>
                                 <span class="badge {{ $income['status'] === 'received' ? 'badge-soft-success' : ($overdue || $income['status'] === 'skipped' ? 'badge-soft-danger' : 'badge-soft-warning') }}">
-                                    {{ $income['status'] === 'received' ? 'Recibido' : ($income['status'] === 'skipped' ? 'No recibido' : ($overdue ? 'Vencido' : 'Pendiente')) }}
+                                    {{ $income['status'] === 'received' ? 'Recibido' : ($income['status'] === 'skipped' ? 'No recibido' : ($income['status'] === 'partial' ? ($overdue ? 'Parcial vencido' : 'Parcial') : ($overdue ? 'Vencido' : 'Pendiente'))) }}
                                 </span>
                                 @if ($isLinked)
                                     <span class="badge badge-soft-primary ms-1">Ligado</span>
+                                    <span class="badge badge-soft-info ms-1">{{ $paymentCount }} abono(s)</span>
                                 @endif
                             </td>
                             <td>
-                                @if ($movement)
+                                @if ($payments->isNotEmpty())
+                                    @foreach ($payments->take(2) as $payment)
+                                        <div>
+                                            {{ $payment->paid_on?->format('Y-m-d') ?? '-' }} · {{ $money($payment->amount_applied) }}
+                                            @if ($payment->movement)
+                                                <span class="text-muted small">{{ $payment->movement->description }}</span>
+                                            @else
+                                                <span class="badge badge-soft-warning">Sin movimiento ligado</span>
+                                            @endif
+                                        </div>
+                                    @endforeach
+                                    @if ($payments->count() > 2)
+                                        <div class="text-muted small">+{{ $payments->count() - 2 }} abono(s) más</div>
+                                    @endif
+                                @elseif ($movement)
                                     <div>{{ $movement->happened_on->format('Y-m-d') }} · {{ $money($movement->amount) }}</div>
                                     <div class="text-muted small">{{ $movement->description }}</div>
                                 @elseif ($isLinked)
@@ -221,7 +243,7 @@
                                 @endif
                             </td>
                             <td class="text-end">
-                                @if (in_array($income['status'], ['pending', 'overdue'], true))
+                                @if (in_array($income['status'], ['pending', 'partial', 'overdue'], true))
                                     <div class="d-flex flex-column flex-xxl-row align-items-end gap-2">
                                         @if ($income['kind'] === 'expected')
                                             <a href="{{ route('finance.expected-incomes.index', ['month' => $monthValue, 'edit' => $income['id']]) }}" class="btn btn-sm btn-outline-primary" title="Editar">
@@ -306,7 +328,7 @@
                         </tr>
                         @if ($income['kind'] === 'expected' && $editIncomeId === $income['id'])
                             <tr>
-                                <td colspan="10" class="bg-light-subtle">
+                                <td colspan="12" class="bg-light-subtle">
                                     <form method="POST" action="{{ route('finance.expected-incomes.update', $income['id']) }}" class="p-2">
                                         @csrf
                                         @method('PUT')
@@ -382,7 +404,7 @@
                         @endif
                     @empty
                         <tr>
-                            <td colspan="10" class="text-center text-muted py-4">Sin ingresos esperados</td>
+                            <td colspan="12" class="text-center text-muted py-4">Sin ingresos esperados</td>
                         </tr>
                     @endforelse
                 </tbody>

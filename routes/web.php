@@ -38,6 +38,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::get('reportes', [FinanceReportController::class, 'index'])->name('reports.index');
         Route::get('reportes/exportar', [FinanceReportController::class, 'export'])->name('reports.export');
         Route::get('importar-historico', [HistoricalImportController::class, 'index'])->name('imports.historical.index');
+        Route::get('importar-historico/plantilla', [HistoricalImportController::class, 'template'])->name('imports.historical.template');
         Route::post('importar-historico/vista-previa', [HistoricalImportController::class, 'preview'])->name('imports.historical.preview');
         Route::post('importar-historico/guardar', [HistoricalImportController::class, 'store'])->name('imports.historical.store');
         Route::get('operacion', [FinanceOperationController::class, 'index'])->name('operations.index');
@@ -82,6 +83,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::post('ingresos-esperados/{income}/recibido', [ExpectedIncomeController::class, 'markReceived'])->name('expected-incomes.received');
         Route::post('ingresos-esperados/{income}/registrado', [ExpectedIncomeController::class, 'markRegistered'])->name('expected-incomes.registered');
         Route::post('ingresos-esperados/{income}/no-recibido', [ExpectedIncomeController::class, 'skip'])->name('expected-incomes.skip');
+        Route::delete('ingresos-esperados/abonos/{payment}', [ExpectedIncomeController::class, 'destroyPayment'])->name('expected-incomes.payments.destroy');
         Route::delete('ingresos-esperados/{income}', [ExpectedIncomeController::class, 'destroy'])->name('expected-incomes.destroy');
 
         Route::get('recordatorios', [ReminderController::class, 'index'])->name('reminders.index');

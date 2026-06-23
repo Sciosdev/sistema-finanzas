@@ -22,6 +22,20 @@ class HistoricalImportController extends Controller
         ]);
     }
 
+    public function template()
+    {
+        $content = "\xEF\xBB\xBF" . implode("\n", [
+            'fecha,tipo,descripcion,monto,cuenta,categoria,persona,notas,san_juan,renta,desconocido,diferencia_conciliacion',
+            '2025-12-31,egreso,Saldo Telcel,50,NU,Servicios,,Ejemplo conciliado,0,0,0,0',
+            '2026-06-27,ingreso,Renta Cesar,2200,NU,Rentas San Juan,Cesar,Renta mensual,1,1,0,0',
+        ]);
+
+        return response($content, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="plantilla-importacion-historica.csv"',
+        ]);
+    }
+
     public function preview(Request $request)
     {
         $request->validate([
@@ -218,7 +232,7 @@ class HistoricalImportController extends Controller
 
         $conciliation = $this->parseAmount($this->value($raw, $headerMap, 'diferencia_conciliacion'), true);
         if ($conciliation !== null && abs($conciliation) > 0.01) {
-            $warnings[] = 'El reporte histórico indica diferencia de conciliación distinta de 0.';
+            $errors[] = 'Diferencia de conciliación distinta de 0; requiere revisión antes de importar.';
         }
 
         $importKey = 'historico:' . hash('sha256', implode('|', [

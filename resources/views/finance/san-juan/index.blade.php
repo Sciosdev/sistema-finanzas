@@ -91,17 +91,22 @@
                                 <th class="text-end">Esperado</th>
                                 <th class="text-end">Recibido</th>
                                 <th class="text-end">Pendiente</th>
+                                <th class="text-end">Abonos</th>
                                 <th>Relacionado</th>
                             </tr>
                         </thead>
                         <tbody>
                             @forelse ($rentalDetailRows as $row)
+                                @php
+                                    $paymentDisplayCount = ($row['payment_count'] ?? 0) ?: $row['related_movements']->count();
+                                @endphp
                                 <tr>
                                     <td>{{ $row['person'] }}</td>
                                     <td>{{ $row['room'] ?? '-' }}</td>
                                     <td class="text-end">{{ $money($row['expected']) }}</td>
                                     <td class="text-end text-success">{{ $money($row['received']) }}</td>
                                     <td class="text-end {{ $row['pending'] > 0 ? 'text-warning' : 'text-success' }}">{{ $money($row['pending']) }}</td>
+                                    <td class="text-end">{{ $paymentDisplayCount }}</td>
                                     <td>
                                         @if ($row['related_movements']->isNotEmpty())
                                             <span class="badge badge-soft-success">{{ $row['related_movements']->count() }} movimiento(s)</span>
@@ -115,7 +120,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="6" class="text-center text-muted py-4">Sin rentas activas</td>
+                                    <td colspan="7" class="text-center text-muted py-4">Sin rentas activas</td>
                                 </tr>
                             @endforelse
                         </tbody>

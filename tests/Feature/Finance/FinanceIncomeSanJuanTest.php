@@ -100,7 +100,7 @@ it('links and unlinks expected incomes with real income movements', function () 
     $this->actingAs($user)
         ->get(route('finance.expected-incomes.link', $income))
         ->assertOk()
-        ->assertSee('Vincular ingreso esperado')
+        ->assertSee('Vincular abonos al ingreso esperado')
         ->assertSee('Deposito ITTLA')
         ->assertSee('Monto coincide');
 
@@ -134,6 +134,123 @@ it('links and unlinks expected incomes with real income movements', function () 
     expect((float) $income->received_amount)->toBe(0.0);
     expect($income->received_on)->toBeNull();
     expect($income->movement_id)->toBeNull();
+});
+
+it('registers multiple partial payments for one expected income', function () {
+    Carbon::setTestNow('2026-06-22 12:00:00');
+    $user = User::factory()->create();
+    app(FinanceCatalogService::class)->ensureForUser($user);
+
+    $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+
+    $income = ExpectedIncome::create([
+        'user_id' => $user->id,
+        'period_month' => '2026-06-01',
+        'due_date' => '2026-06-20',
+        'name' => 'Renta junio',
+        'amount' => 3000,
+        'status' => 'pending',
+        'account_id' => $account->id,
+        'is_rent' => true,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('finance.expected-incomes.received', $income), [
+            'received_on' => '2026-06-20',
+            'amount' => 1500,
+            'account_id' => $account->id,
+        ])
+        ->assertRedirect()
+        ->assertSessionHas('success', 'Abono registrado como ingreso real.');
+
+    $income->refresh();
+
+    expect($income->status)->toBe('partial');
+    expect((float) $income->received_amount)->toBe(1500.0);
+    expect($income->payments()->count())->toBe(1);
+
+    $this->actingAs($user)
+        ->get(route('finance.dashboard', ['month' => '2026-06']))
+        ->assertOk()
+        ->assertSee('Renta junio')
+        ->assertSee('$1,500.00')
+        ->assertSee('1 abono');
+
+    $this->actingAs($user)
+        ->post(route('finance.expected-incomes.received', $income), [
+            'received_on' => '2026-06-25',
+            'amount' => 1500,
+            'account_id' => $account->id,
+        ])
+        ->assertRedirect();
+
+    $income->refresh();
+
+    expect($income->status)->toBe('received');
+    expect((float) $income->received_amount)->toBe(3000.0);
+    expect($income->payments()->count())->toBe(2);
+    expect(Movement::where('user_id', $user->id)->where('source', 'expected_income_payment')->count())->toBe(2);
+});
+
+it('registers San Juan rent partial payments against one monthly expected rent', function () {
+    Carbon::setTestNow('2026-06-22 12:00:00');
+    $user = User::factory()->create();
+    app(FinanceCatalogService::class)->ensureForUser($user);
+
+    $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $cesar = Person::where('user_id', $user->id)->where('name', 'Cesar')->firstOrFail();
+
+    $contract = RentalContract::where('user_id', $user->id)
+        ->where('person_id', $cesar->id)
+        ->firstOrFail();
+    $contract->update([
+        'room' => '4',
+        'expected_amount' => 3000,
+        'due_day' => 20,
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('finance.san-juan.rentals.received', $contract), [
+            'month' => '2026-06',
+            'received_on' => '2026-06-20',
+            'amount' => 1500,
+            'account_id' => $account->id,
+        ])
+        ->assertRedirect()
+        ->assertSessionHas('success', 'Abono de renta registrado.');
+
+    $income = ExpectedIncome::where('user_id', $user->id)
+        ->where('import_key', 'rental-contract:' . $contract->id . ':2026-06')
+        ->firstOrFail();
+
+    expect($income->status)->toBe('partial');
+    expect((float) $income->amount)->toBe(3000.0);
+    expect((float) $income->received_amount)->toBe(1500.0);
+    expect($income->payments()->count())->toBe(1);
+
+    $this->actingAs($user)
+        ->post(route('finance.san-juan.rentals.received', $contract), [
+            'month' => '2026-06',
+            'received_on' => '2026-06-25',
+            'amount' => 1500,
+            'account_id' => $account->id,
+        ])
+        ->assertRedirect();
+
+    $income->refresh();
+
+    expect(ExpectedIncome::where('user_id', $user->id)->where('import_key', $income->import_key)->count())->toBe(1);
+    expect($income->status)->toBe('received');
+    expect((float) $income->received_amount)->toBe(3000.0);
+    expect($income->payments()->count())->toBe(2);
+
+    $this->actingAs($user)
+        ->get(route('finance.san-juan.index', ['month' => '2026-06']))
+        ->assertOk()
+        ->assertSee('Cesar')
+        ->assertSee('$3,000.00')
+        ->assertSee('2');
 });
 
 it('shows San Juan rent detail expense concepts and movement actions', function () {

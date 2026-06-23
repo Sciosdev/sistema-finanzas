@@ -7,6 +7,7 @@ use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\DeleteSnapshot;
 use App\Models\Finance\ExpectedIncome;
+use App\Models\Finance\ExpectedIncomePayment;
 use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
 use App\Models\Finance\Person;
@@ -159,6 +160,15 @@ class FinanceDeletionSnapshotService
         }
 
         $movementMissing = false;
+        $payments = $snapshot->relations_payload['payments'] ?? [];
+        $paymentIds = collect($payments)->pluck('id')->filter()->all();
+
+        if ($paymentIds !== [] && ExpectedIncomePayment::query()->whereIn('id', $paymentIds)->exists()) {
+            return [
+                'ok' => false,
+                'message' => 'No se pudo restaurar porque un abono ya existe.',
+            ];
+        }
 
         if (! empty($payload['movement_id']) && ! Movement::query()
             ->where('user_id', $user->id)
@@ -169,6 +179,18 @@ class FinanceDeletionSnapshotService
         }
 
         ExpectedIncome::query()->insert($payload);
+
+        foreach ($payments as $payment) {
+            if (! empty($payment['movement_id']) && ! Movement::query()
+                ->where('user_id', $user->id)
+                ->whereKey($payment['movement_id'])
+                ->exists()) {
+                $payment['movement_id'] = null;
+                $movementMissing = true;
+            }
+
+            ExpectedIncomePayment::query()->insert($payment);
+        }
 
         return [
             'ok' => true,
@@ -342,6 +364,26 @@ class FinanceDeletionSnapshotService
                     ->where('movement_id', $model->getKey())
                     ->pluck('id')
                     ->all(),
+                'expected_income_ids' => ExpectedIncome::where('user_id', $user->id)
+                    ->where('movement_id', $model->getKey())
+                    ->pluck('id')
+                    ->all(),
+                'expected_income_payment_ids' => ExpectedIncomePayment::where('user_id', $user->id)
+                    ->where('movement_id', $model->getKey())
+                    ->pluck('id')
+                    ->all(),
+            ];
+        }
+
+        if ($entityType === 'expected_income' && $model instanceof ExpectedIncome) {
+            return [
+                'payments' => ExpectedIncomePayment::where('user_id', $user->id)
+                    ->where('expected_income_id', $model->getKey())
+                    ->orderBy('paid_on')
+                    ->orderBy('id')
+                    ->get()
+                    ->map(fn (ExpectedIncomePayment $payment) => $payment->getAttributes())
+                    ->all(),
             ];
         }
 
@@ -403,12 +445,20 @@ class FinanceDeletionSnapshotService
 
         $plannedPaymentIds = $snapshot->relations_payload['planned_payment_ids'] ?? [];
 
-        if ($plannedPaymentIds === []) {
-            return;
+        if ($plannedPaymentIds !== []) {
+            PlannedPayment::where('user_id', $user->id)
+                ->whereIn('id', $plannedPaymentIds)
+                ->whereNull('movement_id')
+                ->update(['movement_id' => $snapshot->entity_id]);
         }
 
-        PlannedPayment::where('user_id', $user->id)
-            ->whereIn('id', $plannedPaymentIds)
+        ExpectedIncome::where('user_id', $user->id)
+            ->whereIn('id', $snapshot->relations_payload['expected_income_ids'] ?? [])
+            ->whereNull('movement_id')
+            ->update(['movement_id' => $snapshot->entity_id]);
+
+        ExpectedIncomePayment::where('user_id', $user->id)
+            ->whereIn('id', $snapshot->relations_payload['expected_income_payment_ids'] ?? [])
             ->whereNull('movement_id')
             ->update(['movement_id' => $snapshot->entity_id]);
     }

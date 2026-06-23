@@ -753,7 +753,14 @@
                                 <tr>
                                     <td>{{ $income['due_date']?->format('Y-m-d') ?? '-' }}</td>
                                     <td>{{ $income['name'] }}</td>
-                                    <td>{{ $income['concept'] }}</td>
+                                    <td>
+                                        {{ $income['concept'] }}
+                                        @if (($income['payment_count'] ?? 0) > 0)
+                                            <div class="text-muted small">
+                                                Recibido: {{ $money($income['received_amount'] ?? 0) }} · {{ $income['payment_count'] }} abono(s)
+                                            </div>
+                                        @endif
+                                    </td>
                                     <td>
                                         <span class="badge {{ \App\Support\FinanceLabels::dueBadgeClass($income['due_date'], $income['status']) }}">
                                             {{ \App\Support\FinanceLabels::dueLabel($income['due_date'], $income['status']) }}

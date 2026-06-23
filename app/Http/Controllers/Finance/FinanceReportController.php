@@ -95,18 +95,24 @@ class FinanceReportController extends Controller
             ->orderBy('id')
             ->get();
 
-        $result = $this->csvExports->exportMovements('reporte-financiero-' . $monthStart->format('Y-m'), $movements, [
+        $metadata = [
             'Reporte' => 'Reporte financiero',
             'Mes' => $monthStart->format('Y-m'),
             'Categoría' => $selectedCategory?->name ?? 'Todas',
-        ]);
+        ];
+        $format = $request->query('format') === 'xlsx' ? 'xlsx' : 'csv';
+        $result = $format === 'xlsx'
+            ? $this->csvExports->exportMovementsXlsx('reporte-financiero-' . $monthStart->format('Y-m'), $movements, $metadata)
+            : $this->csvExports->exportMovements('reporte-financiero-' . $monthStart->format('Y-m'), $movements, $metadata);
 
         if (! ($result['ok'] ?? false)) {
             return back()->with('error', $result['message'] ?? 'No se pudo exportar el reporte.');
         }
 
         return response()->download($result['absolute_path'], $result['name'], [
-            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Type' => $format === 'xlsx'
+                ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                : 'text/csv; charset=UTF-8',
         ]);
     }
 

@@ -12,6 +12,7 @@ use App\Models\Finance\RentalContract;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceSummaryService;
+use App\Services\Finance\ExpectedIncomePaymentService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -24,6 +25,7 @@ class SanJuanController extends Controller
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
+        private readonly ExpectedIncomePaymentService $incomePayments,
     ) {
     }
 
@@ -72,21 +74,33 @@ class SanJuanController extends Controller
 
         $rentalDetailRows = $rentalContracts
             ->where('is_active', true)
-            ->map(function (RentalContract $contract) use ($rentMovements) {
-                $relatedMovements = $rentMovements
-                    ->filter(fn (Movement $movement) => $movement->person_id === $contract->person_id)
-                    ->sortByDesc('happened_on')
-                    ->values();
-                $received = round($relatedMovements->sum(fn (Movement $movement) => (float) $movement->amount), 2);
+            ->map(function (RentalContract $contract) use ($rentMovements, $start, $user) {
+                $expectedIncome = ExpectedIncome::with('payments.movement')
+                    ->where('user_id', $user->id)
+                    ->where('import_key', "rental-contract:{$contract->id}:{$start->format('Y-m')}")
+                    ->first();
+                $relatedPayments = $expectedIncome?->payments ?? collect();
+                $relatedMovements = $relatedPayments->isNotEmpty()
+                    ? $relatedPayments->pluck('movement')->filter()->sortByDesc('happened_on')->values()
+                    : $rentMovements
+                        ->filter(fn (Movement $movement) => $movement->person_id === $contract->person_id)
+                        ->sortByDesc('happened_on')
+                        ->values();
+                $received = $expectedIncome
+                    ? round((float) $expectedIncome->received_amount, 2)
+                    : round($relatedMovements->sum(fn (Movement $movement) => (float) $movement->amount), 2);
                 $expected = round((float) $contract->expected_amount, 2);
 
                 return [
                     'contract' => $contract,
+                    'expected_income' => $expectedIncome,
                     'person' => $contract->person?->name ?? 'Sin inquilino',
                     'room' => $contract->room,
                     'expected' => $expected,
                     'received' => $received,
                     'pending' => round(max(0, $expected - $received), 2),
+                    'payment_count' => $relatedPayments->count(),
+                    'related_payments' => $relatedPayments,
                     'related_movements' => $relatedMovements,
                 ];
             })
@@ -317,15 +331,6 @@ class SanJuanController extends Controller
         $amount = round((float) ($data['amount'] ?? $contract->expected_amount), 2);
         $importKey = "rental-contract:{$contract->id}:{$periodMonth->format('Y-m')}";
 
-        $income = ExpectedIncome::firstOrNew([
-            'user_id' => $user->id,
-            'import_key' => $importKey,
-        ]);
-
-        if ($income->exists && $income->status === 'received' && $income->movement_id) {
-            return back()->with('success', 'Esa renta ya estaba registrada.');
-        }
-
         $category = Category::firstOrCreate(
             ['user_id' => $user->id, 'name' => 'Rentas San Juan', 'type' => 'income'],
             [
@@ -339,38 +344,58 @@ class SanJuanController extends Controller
 
         $accountId = $data['account_id'] ?? Account::where('user_id', $user->id)->where('name', 'NU')->value('id');
         $personName = $contract->person?->name ?? 'Renta';
-        $description = 'Renta recibida: ' . $personName;
+        $description = $contract->room ? 'Renta cuarto ' . $contract->room : 'Renta San Juan';
 
-        $movement = Movement::create([
-            'user_id' => $user->id,
-            'happened_on' => $receivedOn->toDateString(),
-            'movement_type' => 'income',
-            'amount' => $amount,
-            'description' => $description,
-            'account_id' => $accountId,
-            'category_id' => $category->id,
-            'person_id' => $contract->person_id,
-            'is_san_juan' => true,
-            'is_rent' => true,
-            'source' => 'rental_contract',
-        ]);
+        $income = ExpectedIncome::firstOrCreate(
+            [
+                'user_id' => $user->id,
+                'import_key' => $importKey,
+            ],
+            [
+                'period_month' => $periodMonth->toDateString(),
+                'due_date' => $periodMonth->copy()->day(min((int) ($contract->due_day ?: 1), $periodMonth->daysInMonth))->toDateString(),
+                'name' => $description,
+                'amount' => round((float) $contract->expected_amount, 2),
+                'received_amount' => 0,
+                'status' => 'pending',
+                'account_id' => $accountId,
+                'category_id' => $category->id,
+                'person_id' => $contract->person_id,
+                'is_rent' => true,
+                'notes' => 'Renta mensual generada desde contrato de San Juan',
+            ]
+        );
 
-        $income->fill([
-            'period_month' => $periodMonth->toDateString(),
-            'due_date' => $periodMonth->copy()->day(min((int) ($contract->due_day ?: 1), $periodMonth->daysInMonth))->toDateString(),
-            'name' => $description,
-            'amount' => $amount,
-            'received_amount' => $amount,
-            'received_on' => $receivedOn->toDateString(),
-            'status' => 'received',
-            'account_id' => $accountId,
-            'category_id' => $category->id,
-            'person_id' => $contract->person_id,
-            'movement_id' => $movement->id,
-            'is_rent' => true,
-            'notes' => 'Cobro registrado desde contrato de renta',
-        ])->save();
+        if ($income->status === 'received') {
+            return back()->with('success', 'Esa renta ya estaba cubierta.');
+        }
 
-        return back()->with('success', 'Renta registrada como recibida.');
+        $remaining = max(0, (float) $income->amount - (float) $income->received_amount);
+        $amount = min($amount, $remaining > 0 ? $remaining : $amount);
+
+        try {
+            $payment = $this->incomePayments->createMovementAndPayment(
+                $income,
+                $receivedOn,
+                $amount,
+                $accountId,
+                'Abono de renta San Juan: ' . $personName
+            );
+
+            if ($payment->movement_id) {
+                Movement::where('user_id', $user->id)
+                    ->whereKey($payment->movement_id)
+                    ->update([
+                        'source' => 'rental_contract',
+                        'description' => $amount + 0.01 >= $remaining
+                            ? 'Renta recibida: ' . $personName
+                            : 'Abono renta San Juan: ' . $personName,
+                    ]);
+            }
+        } catch (\Throwable $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
+
+        return back()->with('success', 'Abono de renta registrado.');
     }
 }

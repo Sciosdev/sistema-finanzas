@@ -5,12 +5,14 @@ namespace App\Http\Controllers\Finance;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
 use App\Models\Finance\ExpectedIncome;
+use App\Models\Finance\ExpectedIncomePayment;
 use App\Models\Finance\Movement;
 use App\Models\Finance\Person;
 use App\Models\Finance\RentalContract;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceSummaryService;
+use App\Services\Finance\ExpectedIncomePaymentService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Http\Request;
@@ -26,6 +28,7 @@ class ExpectedIncomeController extends Controller
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
+        private readonly ExpectedIncomePaymentService $incomePayments,
     ) {
     }
 
@@ -36,7 +39,7 @@ class ExpectedIncomeController extends Controller
 
         [$start, $end] = $this->summaryService->monthRange($request->query('month', now()->format('Y-m')));
 
-        $incomes = ExpectedIncome::with(['account', 'category', 'person', 'movement'])
+        $incomes = ExpectedIncome::with(['account', 'category', 'person', 'movement', 'payments.movement'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->orderByRaw('due_date is null, due_date asc')
@@ -170,7 +173,12 @@ class ExpectedIncomeController extends Controller
         $status = $income->status;
 
         if ($status !== 'skipped') {
-            $status = $receivedAmount + 0.01 >= $amount ? 'received' : 'pending';
+            $status = match (true) {
+                $receivedAmount + 0.01 >= $amount => 'received',
+                $receivedAmount > 0 => 'partial',
+                $income->due_date && $income->due_date->copy()->startOfDay()->lt(today()->startOfDay()) => 'overdue',
+                default => 'pending',
+            };
         }
 
         $income->update(array_merge($data, [
@@ -290,7 +298,7 @@ class ExpectedIncomeController extends Controller
             ->values();
 
         return view('finance.expected-incomes.link', [
-            'income' => $income->load(['account', 'category', 'person', 'movement']),
+            'income' => $income->load(['account', 'category', 'person', 'movement', 'payments.movement']),
             'movements' => $movements,
             'monthValue' => $start->format('Y-m'),
         ]);
@@ -308,43 +316,49 @@ class ExpectedIncomeController extends Controller
                     ->where('user_id', $request->user()->id)
                     ->where('movement_type', 'income')),
             ],
+            'amount_applied' => ['nullable', 'numeric', 'min:0.01'],
+            'notes' => ['nullable', 'string', 'max:500'],
         ]);
 
         $movement = Movement::where('user_id', $request->user()->id)
             ->where('movement_type', 'income')
             ->findOrFail($data['movement_id']);
 
-        $receivedAmount = round((float) $movement->amount, 2);
-        $status = $receivedAmount + 0.01 >= (float) $income->amount ? 'received' : 'pending';
+        if ($income->payments()->where('movement_id', $movement->id)->exists()) {
+            return back()->with('error', 'Ese movimiento ya está ligado como abono de este ingreso esperado.');
+        }
 
-        $income->update([
-            'status' => $status,
-            'received_amount' => $receivedAmount,
-            'received_on' => $movement->happened_on->toDateString(),
-            'account_id' => $income->account_id ?: $movement->account_id,
-            'category_id' => $income->category_id ?: $movement->category_id,
-            'person_id' => $income->person_id ?: $movement->person_id,
-            'movement_id' => $movement->id,
-            'is_rent' => $income->is_rent || $movement->is_rent,
-        ]);
+        try {
+            $this->incomePayments->addMovementPayment(
+                $income,
+                $movement,
+                isset($data['amount_applied']) ? (float) $data['amount_applied'] : null,
+                $data['notes'] ?? null
+            );
+
+            $income->refresh();
+            $income->update([
+                'account_id' => $income->account_id ?: $movement->account_id,
+                'category_id' => $income->category_id ?: $movement->category_id,
+                'person_id' => $income->person_id ?: $movement->person_id,
+                'is_rent' => $income->is_rent || $movement->is_rent,
+            ]);
+        } catch (\Throwable $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
 
         return redirect()
             ->route('finance.expected-incomes.index', ['month' => $income->period_month->format('Y-m')])
-            ->with('success', 'Ingreso esperado vinculado con el movimiento real.');
+            ->with('success', 'Abono vinculado con el ingreso esperado.');
     }
 
     public function unlinkMovement(Request $request, ExpectedIncome $income)
     {
         abort_unless($income->user_id === $request->user()->id, 403);
 
-        $income->update([
-            'status' => 'pending',
-            'received_amount' => 0,
-            'received_on' => null,
-            'movement_id' => null,
-        ]);
+        $this->incomePayments->unlinkAll($income);
 
-        return back()->with('success', 'Ingreso esperado desligado del movimiento real.');
+        return back()->with('success', 'Ingreso esperado desligado de sus abonos.');
     }
 
     public function markReceived(Request $request, ExpectedIncome $income)
@@ -361,35 +375,20 @@ class ExpectedIncomeController extends Controller
         $remaining = max(0, (float) $income->amount - (float) $income->received_amount);
         $receivedAmount = round((float) ($data['amount'] ?? $remaining), 2);
         $accountId = $data['account_id'] ?? $income->account_id;
-        $movement = null;
 
-        if ($receivedAmount > 0) {
-            $movement = Movement::create([
-                'user_id' => $income->user_id,
-                'happened_on' => $receivedOn->toDateString(),
-                'movement_type' => 'income',
-                'amount' => $receivedAmount,
-                'description' => 'Ingreso esperado: ' . $income->name,
-                'account_id' => $accountId,
-                'category_id' => $income->category_id,
-                'person_id' => $income->person_id,
-                'is_san_juan' => $income->is_rent,
-                'is_rent' => $income->is_rent,
-                'source' => 'expected_income',
-            ]);
+        try {
+            $this->incomePayments->createMovementAndPayment(
+                $income,
+                $receivedOn,
+                $receivedAmount,
+                $accountId,
+                'Abono registrado desde ingresos esperados.'
+            );
+        } catch (\Throwable $exception) {
+            return back()->with('error', $exception->getMessage());
         }
 
-        $newReceivedAmount = round((float) $income->received_amount + $receivedAmount, 2);
-
-        $income->update([
-            'status' => $newReceivedAmount + 0.01 >= (float) $income->amount ? 'received' : 'pending',
-            'received_amount' => $newReceivedAmount,
-            'received_on' => $receivedOn->toDateString(),
-            'account_id' => $accountId,
-            'movement_id' => $movement?->id ?? $income->movement_id,
-        ]);
-
-        return back()->with('success', 'Ingreso marcado como recibido.');
+        return back()->with('success', 'Abono registrado como ingreso real.');
     }
 
     public function markRegistered(Request $request, ExpectedIncome $income)
@@ -402,13 +401,33 @@ class ExpectedIncomeController extends Controller
 
         $receivedOn = isset($data['received_on']) ? Carbon::parse($data['received_on']) : today();
 
-        $income->update([
-            'status' => 'received',
-            'received_amount' => $income->amount,
-            'received_on' => $receivedOn->toDateString(),
-        ]);
+        $remaining = max(0, (float) $income->amount - (float) $income->received_amount);
+
+        if ($remaining <= 0) {
+            return back()->with('success', 'Ingreso esperado ya estaba cubierto.');
+        }
+
+        try {
+            $this->incomePayments->addRegisteredPayment(
+                $income,
+                $receivedOn,
+                $remaining,
+                'Marcado como ya registrado sin movimiento vinculado.'
+            );
+        } catch (\Throwable $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
 
         return back()->with('success', 'Ingreso marcado como ya registrado.');
+    }
+
+    public function destroyPayment(Request $request, ExpectedIncomePayment $payment)
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+
+        $this->incomePayments->deletePayment($payment);
+
+        return back()->with('success', 'Abono desligado del ingreso esperado.');
     }
 
     public function skip(Request $request, ExpectedIncome $income)
@@ -448,25 +467,33 @@ class ExpectedIncomeController extends Controller
             ->pluck('person_id')
             ->all();
 
-        $manualRows = $incomes->map(fn (ExpectedIncome $income) => [
-            'kind' => 'expected',
-            'id' => $income->id,
-            'due_date' => $income->due_date,
-            'name' => $income->name,
-            'category' => $income->category?->name ?? '-',
-            'person' => $income->person?->name ?? '-',
-            'amount' => (float) $income->amount,
-            'received_amount' => (float) $income->received_amount,
-            'status' => $income->status,
-            'is_rent' => $income->is_rent,
-            'account_id' => $income->account_id,
-            'category_id' => $income->category_id,
-            'person_id' => $income->person_id,
-            'movement_id' => $income->movement_id,
-            'movement' => $income->movement,
-            'period_month' => $income->period_month,
-            'notes' => $income->notes,
-        ])->toBase();
+        $manualRows = $incomes->map(function (ExpectedIncome $income) {
+            $amount = (float) $income->amount;
+            $received = (float) $income->received_amount;
+
+            return [
+                'kind' => 'expected',
+                'id' => $income->id,
+                'due_date' => $income->due_date,
+                'name' => $income->name,
+                'category' => $income->category?->name ?? '-',
+                'person' => $income->person?->name ?? '-',
+                'amount' => $amount,
+                'received_amount' => $received,
+                'amount_due' => round(max(0, $amount - $received), 2),
+                'payment_count' => $income->payments->count(),
+                'payments' => $income->payments,
+                'status' => $income->status,
+                'is_rent' => $income->is_rent,
+                'account_id' => $income->account_id,
+                'category_id' => $income->category_id,
+                'person_id' => $income->person_id,
+                'movement_id' => $income->movement_id,
+                'movement' => $income->movement,
+                'period_month' => $income->period_month,
+                'notes' => $income->notes,
+            ];
+        })->toBase();
 
         $rentMovements = Movement::with('person')
             ->where('user_id', $user->id)
@@ -514,6 +541,9 @@ class ExpectedIncomeController extends Controller
                     'person' => $personName,
                     'amount' => $amountDue,
                     'received_amount' => 0.0,
+                    'amount_due' => $amountDue,
+                    'payment_count' => 0,
+                    'payments' => collect(),
                     'status' => $dueDate->lt(today()->startOfDay()) ? 'overdue' : 'pending',
                     'is_rent' => true,
                     'account_id' => null,

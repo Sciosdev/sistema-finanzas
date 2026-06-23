@@ -32,6 +32,11 @@
                     <i data-lucide="file-search" class="me-1"></i>Validar vista previa
                 </button>
             </div>
+            <div class="col-lg-3 d-grid">
+                <a href="{{ route('finance.imports.historical.template') }}" class="btn btn-outline-success">
+                    <i data-lucide="download" class="me-1"></i>Descargar plantilla
+                </a>
+            </div>
         </form>
 
         <div class="alert alert-info mt-3 mb-0">

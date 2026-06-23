@@ -51,7 +51,10 @@
             <button class="btn btn-outline-primary" type="submit">
                 <i data-lucide="calendar-search" class="me-1"></i>Ver
             </button>
-            <a class="btn btn-outline-success" href="{{ route('finance.reports.export', request()->only(['month', 'year', 'category_id'])) }}">
+            <a class="btn btn-outline-success" href="{{ route('finance.reports.export', request()->only(['month', 'year', 'category_id']) + ['format' => 'xlsx']) }}">
+                <i data-lucide="file-spreadsheet" class="me-1"></i>Excel
+            </a>
+            <a class="btn btn-outline-success" href="{{ route('finance.reports.export', request()->only(['month', 'year', 'category_id']) + ['format' => 'csv']) }}">
                 <i data-lucide="download" class="me-1"></i>Exportar CSV
             </a>
         </form>

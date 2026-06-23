@@ -338,7 +338,7 @@ it('lets users create expected incomes with a new person', function () {
     $this->actingAs($user)
         ->get('/finanzas/ingresos-esperados?month=2026-06')
         ->assertOk()
-        ->assertSee('Ingresos esperados seran estos')
+        ->assertSee('Ingresos esperados serán estos')
         ->assertSee('Pago ITTLA')
         ->assertSee('ITTLA')
         ->assertSee('$5,800.00');

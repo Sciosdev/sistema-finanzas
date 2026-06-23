@@ -13,6 +13,7 @@ uses(RefreshDatabase::class);
 afterEach(function () {
     File::deleteDirectory(storage_path('app/private/finance-backups'));
     File::deleteDirectory(storage_path('app/private/finance-exports'));
+    config()->set('finance.external_backup_path', null);
     Carbon::setTestNow();
 });
 
@@ -144,6 +145,28 @@ it('records full backup failures', function () {
         'user_id' => $user->id,
         'module' => 'backup',
         'action' => 'full',
+        'status' => 'open',
+    ]);
+});
+
+it('records external backup failures', function () {
+    $user = User::factory()->create();
+    $localDirectory = storage_path('app/private/finance-backups/database');
+    File::ensureDirectoryExists($localDirectory);
+    File::put($localDirectory . DIRECTORY_SEPARATOR . 'manual.sql', '-- backup');
+    config()->set('finance.external_backup_path', storage_path('app/private/missing-external-path'));
+
+    $this->actingAs($user)
+        ->post(route('finance.security.backups.external'), [
+            'mode' => 'copy_latest',
+        ])
+        ->assertRedirect()
+        ->assertSessionHas('error');
+
+    $this->assertDatabaseHas('finance_system_failures', [
+        'user_id' => $user->id,
+        'module' => 'backup',
+        'action' => 'external',
         'status' => 'open',
     ]);
 });
