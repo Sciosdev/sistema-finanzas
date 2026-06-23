@@ -12,7 +12,7 @@
                </a>
           </div>
 
-          <button type="button" class="btn btn-link d-flex button-sm-hover button-toggle-menu" aria-label="Show Full Sidebar">
+          <button type="button" class="btn btn-link d-flex button-sm-hover button-toggle-menu" aria-label="Mostrar menú completo" aria-expanded="false">
                <i data-lucide="menu" class="button-sm-hover-icon"></i>
           </button>
      </div>

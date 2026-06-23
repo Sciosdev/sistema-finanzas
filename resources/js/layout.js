@@ -426,18 +426,21 @@ class ThemeLayout {
                });
           }
           
-          var menuToggleBtn = document.querySelector('.button-toggle-menu');
-          if (menuToggleBtn) {
+          var menuToggleButtons = document.querySelectorAll('.button-toggle-menu');
+          menuToggleButtons.forEach(function (menuToggleBtn) {
                menuToggleBtn.addEventListener('click', function () {
                     if (window.innerWidth > 1040) {
                          self.html.classList.toggle("sidebar-hover");
                     } else {
-                         self.html.classList.toggle('sidebar-enable');
-                         self.showBackdrop();
+                         if (self.html.classList.contains('sidebar-enable')) {
+                              self.closeMobileSidebar();
+                         } else {
+                              self.openMobileSidebar();
+                         }
                     }
 
                });
-          }
+          });
 
           document.querySelectorAll('.main-nav .menu-link').forEach(function (link) {
                link.addEventListener('click', function () {
@@ -446,6 +449,14 @@ class ThemeLayout {
                     }
                });
           });
+     }
+
+     openMobileSidebar() {
+          this.html.classList.add('sidebar-enable');
+          document.querySelectorAll('.button-toggle-menu').forEach(function (button) {
+               button.setAttribute('aria-expanded', 'true');
+          });
+          this.showBackdrop();
      }
 
      showBackdrop() {
@@ -463,6 +474,9 @@ class ThemeLayout {
 
      closeMobileSidebar() {
           this.html.classList.remove('sidebar-enable');
+          document.querySelectorAll('.button-toggle-menu').forEach(function (button) {
+               button.setAttribute('aria-expanded', 'false');
+          });
           document.querySelector('.finance-sidebar-backdrop')?.remove();
           document.body.style.overflow = null;
           document.body.style.paddingRight = null;

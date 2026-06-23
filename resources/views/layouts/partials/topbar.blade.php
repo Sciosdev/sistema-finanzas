@@ -2,7 +2,7 @@
      <div class="container-fluid">
           <div class="navbar-header">
                <div class="d-flex align-items-center gap-2">
-                    <button type="button" class="btn btn-sm btn-outline-secondary button-toggle-menu d-xl-none" aria-label="Mostrar menú">
+                    <button type="button" class="btn btn-sm btn-outline-secondary button-toggle-menu d-xl-none" aria-label="Mostrar menú" aria-expanded="false">
                          <i data-lucide="menu" class="me-1"></i>Menú
                     </button>
                     <a href="{{ route('finance.dashboard') }}" class="btn btn-sm btn-outline-primary">
