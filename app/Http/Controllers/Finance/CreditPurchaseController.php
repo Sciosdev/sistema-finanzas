@@ -491,7 +491,7 @@ class CreditPurchaseController extends Controller
         return $credits
             ->groupBy(fn (CreditPurchase $credit) => $credit->account?->name ?: 'Sin acreedor')
             ->map(function ($group, string $creditorName) use ($creditTotals, $currentMonth, $nextMonth) {
-                $style = $this->creditorStyle($creditorName);
+                $style = $this->creditorStyle($creditorName, $group->first()?->account?->color);
                 $items = $group
                     ->map(function (CreditPurchase $credit) use ($creditTotals, $style, $creditorName, $currentMonth, $nextMonth) {
                         $totals = $creditTotals[$credit->id] ?? $this->freePayments->totals($credit);
@@ -546,7 +546,7 @@ class CreditPurchaseController extends Controller
             ->values();
     }
 
-    private function creditorStyle(string $name): array
+    private function creditorStyle(string $name, ?string $color = null): array
     {
         $normalized = str($name)->ascii()->lower()->toString();
 
@@ -566,6 +566,36 @@ class CreditPurchaseController extends Controller
             }
         }
 
+        if ($this->isHexColor($color)) {
+            return [
+                'label' => $name,
+                'color' => $color,
+                'soft' => $this->hexToRgba($color, .16),
+                'text' => $color,
+                'badge_text' => $this->contrastText($color),
+            ];
+        }
+
         return ['label' => $name, 'color' => '#22c55e', 'soft' => 'rgba(34, 197, 94, .14)', 'text' => '#86efac', 'badge_text' => '#111827'];
+    }
+
+    private function isHexColor(?string $color): bool
+    {
+        return is_string($color) && preg_match('/^#[0-9A-Fa-f]{6}$/', $color) === 1;
+    }
+
+    private function hexToRgba(string $color, float $alpha): string
+    {
+        [$red, $green, $blue] = sscanf($color, '#%02x%02x%02x');
+
+        return "rgba({$red}, {$green}, {$blue}, {$alpha})";
+    }
+
+    private function contrastText(string $color): string
+    {
+        [$red, $green, $blue] = sscanf($color, '#%02x%02x%02x');
+        $brightness = (($red * 299) + ($green * 587) + ($blue * 114)) / 1000;
+
+        return $brightness > 150 ? '#111827' : '#ffffff';
     }
 }

@@ -69,7 +69,7 @@ class DailyCutController extends Controller
             $account = $accounts->get((int) $accountId);
             $balances[$account->id] = $amount;
 
-            if ($account->type === 'cash') {
+            if ($account->isCash()) {
                 $cash += $amount;
             } else {
                 $cards += $amount;

@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\Finance\AccountController;
 use App\Http\Controllers\Finance\CategoryController;
 use App\Http\Controllers\Finance\CreditPurchaseController;
 use App\Http\Controllers\Finance\DailyCutController;
@@ -55,6 +56,10 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
             ->where(['type' => 'database|full', 'filename' => '[^/]+'])
             ->name('security.backups.download');
         Route::post('seguridad/fallas/{failure}/resolver', [FinanceSecurityController::class, 'resolveFailure'])->name('security.failures.resolve');
+
+        Route::get('cuentas', [AccountController::class, 'index'])->name('accounts.index');
+        Route::post('cuentas', [AccountController::class, 'store'])->name('accounts.store');
+        Route::put('cuentas/{account}', [AccountController::class, 'update'])->name('accounts.update');
 
         Route::get('movimientos', [MovementController::class, 'index'])->name('movements.index');
         Route::get('movimientos/exportar', [MovementController::class, 'export'])->name('movements.export');

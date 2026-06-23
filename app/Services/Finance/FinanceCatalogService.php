@@ -20,19 +20,24 @@ class FinanceCatalogService
     private function ensureAccounts(User $user): void
     {
         $accounts = [
-            ['name' => 'Efectivo', 'type' => 'cash', 'display_order' => 10],
-            ['name' => 'NU', 'type' => 'card', 'display_order' => 20],
-            ['name' => 'Mercado Pago', 'type' => 'card', 'display_order' => 30],
-            ['name' => 'BBVA', 'type' => 'card', 'display_order' => 40],
-            ['name' => 'DIDI', 'type' => 'card', 'display_order' => 50],
-            ['name' => 'MPW', 'type' => 'card', 'display_order' => 60],
+            ['name' => 'Efectivo', 'type' => 'cash', 'color' => '#22c55e', 'display_order' => 10],
+            ['name' => 'NU', 'type' => 'card', 'color' => '#7c3aed', 'display_order' => 20],
+            ['name' => 'Mercado Pago', 'type' => 'wallet', 'color' => '#00b4d8', 'display_order' => 30],
+            ['name' => 'BBVA', 'type' => 'bank', 'color' => '#2563eb', 'display_order' => 40],
+            ['name' => 'DIDI', 'type' => 'credit', 'color' => '#f97316', 'display_order' => 50],
+            ['name' => 'MPW', 'type' => 'wallet', 'color' => '#facc15', 'display_order' => 60],
+            ['name' => 'Onix', 'type' => 'bank', 'color' => '#0f766e', 'display_order' => 70],
         ];
 
         foreach ($accounts as $account) {
-            Account::firstOrCreate(
+            $record = Account::firstOrCreate(
                 ['user_id' => $user->id, 'name' => $account['name']],
                 $account + ['user_id' => $user->id]
             );
+
+            if (!$record->color && isset($account['color'])) {
+                $record->update(['color' => $account['color']]);
+            }
         }
     }
 
