@@ -3,6 +3,7 @@
 @section('content')
 @php
     $money = fn ($value) => '$' . number_format((float) $value, 2);
+    $creditorSummaries = collect($creditorSummaries ?? []);
 @endphp
 
 @include('finance.partials.flash')
@@ -69,6 +70,90 @@
         </div>
     </div>
 </div>
+
+@if ($creditorSummaries->isNotEmpty())
+    <div class="card">
+        <div class="card-header d-flex flex-column flex-lg-row justify-content-between gap-2">
+            <div>
+                <h4 class="card-title mb-1">A quién se le debe</h4>
+                <p class="text-muted mb-0">Presiona una caja para ver los créditos agrupados por acreedor/tarjeta.</p>
+            </div>
+            <span class="badge badge-soft-primary align-self-lg-center">Saldo pendiente real {{ $money($summary['pending'] ?? 0) }}</span>
+        </div>
+        <div class="card-body">
+            <div class="row g-3">
+                @foreach ($creditorSummaries as $creditor)
+                    @php
+                        $style = $creditor['style'];
+                        $collapseId = 'creditor-list-' . $creditor['key'];
+                    @endphp
+                    <div class="col-xl-3 col-lg-4 col-md-6">
+                        <button
+                            type="button"
+                            class="w-100 text-start border-0 rounded-2 p-3 h-100"
+                            style="background: {{ $style['soft'] }}; border-left: 4px solid {{ $style['color'] }} !important;"
+                            data-bs-toggle="collapse"
+                            data-bs-target="#{{ $collapseId }}"
+                            aria-expanded="false"
+                            aria-controls="{{ $collapseId }}"
+                        >
+                            <div class="d-flex align-items-center justify-content-between gap-2">
+                                <span class="fw-semibold" style="color: {{ $style['text'] }};">{{ $creditor['name'] }}</span>
+                                <span class="badge" style="background: {{ $style['color'] }}; color: {{ $style['badge_text'] ?? '#111827' }};">{{ $creditor['count'] }}</span>
+                            </div>
+                            <div class="mt-3">
+                                <div class="text-muted small">Saldo pendiente</div>
+                                <div class="fs-5 fw-semibold" style="color: {{ $style['text'] }};">{{ $money($creditor['pending']) }}</div>
+                            </div>
+                            <div class="d-flex justify-content-between text-muted small mt-2">
+                                <span>Total {{ $money($creditor['total']) }}</span>
+                                <span>Pagado {{ $money($creditor['paid']) }}</span>
+                            </div>
+                        </button>
+                        <div class="collapse mt-2" id="{{ $collapseId }}">
+                            <div class="border rounded-2 p-2" style="border-color: {{ $style['color'] }}55 !important;">
+                                <div class="small fw-semibold mb-2" style="color: {{ $style['text'] }};">
+                                    Se le deben estos créditos a {{ $creditor['name'] }}
+                                </div>
+                                <div class="table-responsive">
+                                    <table class="table table-sm mb-0 align-middle">
+                                        <thead>
+                                            <tr>
+                                                <th>Crédito</th>
+                                                <th class="text-end">Saldo</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($creditor['credits'] as $creditItem)
+                                                <tr>
+                                                    <td>
+                                                        <a href="#credit-{{ $creditItem['id'] }}" class="fw-semibold" style="color: {{ $style['text'] }};">
+                                                            {{ $creditItem['name'] }}
+                                                        </a>
+                                                        <div class="text-muted small">
+                                                            {{ \App\Support\FinanceLabels::creditStatus($creditItem['status']) }}
+                                                            @if ($creditItem['notes'])
+                                                                | {{ $creditItem['notes'] }}
+                                                            @endif
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-end">
+                                                        <span class="text-warning">{{ $money($creditItem['pending']) }}</span>
+                                                        <div class="text-muted small">de {{ $money($creditItem['total']) }}</div>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+        </div>
+    </div>
+@endif
 
 <div class="card">
     <div class="card-header">
@@ -158,14 +243,22 @@
         $creditFreePaid = (float) $totals['free_paid'];
         $creditInstallmentPaid = (float) $totals['installment_paid'];
         $creditPending = (float) $totals['balance_due'];
+        $creditorName = $credit->account?->name ?? 'Sin acreedor';
+        $creditorSummary = $creditorSummaries->firstWhere('name', $creditorName);
+        $creditorStyle = $creditorSummary['style'] ?? ['color' => '#22c55e', 'soft' => 'rgba(34, 197, 94, .14)', 'text' => '#86efac'];
         $firstInstallment = $credit->installments->first();
         $monthlyAmount = $firstInstallment ? (float) $firstInstallment->amount : 0;
         $creditFormId = 'credit-form-' . $credit->id;
     @endphp
-    <div class="card">
+    <div class="card" id="credit-{{ $credit->id }}" style="border-left: 4px solid {{ $creditorStyle['color'] }};">
         <div class="card-header d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
             <div>
-                <h4 class="card-title mb-1">{{ $credit->name }}</h4>
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                    <h4 class="card-title mb-0">{{ $credit->name }}</h4>
+                    <span class="badge" style="background: {{ $creditorStyle['soft'] }}; color: {{ $creditorStyle['text'] }}; border: 1px solid {{ $creditorStyle['color'] }};">
+                        Se debe a {{ $creditorName }}
+                    </span>
+                </div>
                 <p class="text-muted mb-0">
                     Total original {{ $money($credit->total_amount) }} - {{ $credit->months }} meses - {{ \App\Support\FinanceLabels::creditStatus($credit->status) }}
                     @if ($credit->notes)

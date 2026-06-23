@@ -48,6 +48,7 @@ class CreditPurchaseController extends Controller
         $creditTotals = $credits->mapWithKeys(fn (CreditPurchase $credit) => [
             $credit->id => $this->freePayments->totals($credit),
         ]);
+        $creditorSummaries = $this->creditorSummaries($credits, $creditTotals);
         $currentMonth = now()->startOfMonth();
         $nextMonth = $currentMonth->copy()->addMonth();
         $summary = [
@@ -68,6 +69,7 @@ class CreditPurchaseController extends Controller
         return view('finance.credits.index', [
             'credits' => $credits,
             'creditTotals' => $creditTotals,
+            'creditorSummaries' => $creditorSummaries,
             'summary' => $summary,
             'currentMonthLabel' => $currentMonth->format('Y-m'),
             'nextMonthLabel' => $nextMonth->format('Y-m'),
@@ -482,5 +484,69 @@ class CreditPurchaseController extends Controller
     private function refreshCreditStatus(CreditPurchase $credit): void
     {
         $this->freePayments->syncCreditStatus($credit);
+    }
+
+    private function creditorSummaries($credits, $creditTotals)
+    {
+        return $credits
+            ->groupBy(fn (CreditPurchase $credit) => $credit->account?->name ?: 'Sin acreedor')
+            ->map(function ($group, string $creditorName) use ($creditTotals) {
+                $style = $this->creditorStyle($creditorName);
+                $items = $group
+                    ->map(function (CreditPurchase $credit) use ($creditTotals, $style, $creditorName) {
+                        $totals = $creditTotals[$credit->id] ?? $this->freePayments->totals($credit);
+
+                        return [
+                            'id' => $credit->id,
+                            'name' => $credit->name,
+                            'notes' => $credit->notes,
+                            'months' => $credit->months,
+                            'status' => $credit->status,
+                            'creditor' => $creditorName,
+                            'style' => $style,
+                            'total' => (float) $credit->total_amount,
+                            'paid' => (float) ($totals['total_paid'] ?? 0),
+                            'pending' => (float) ($totals['balance_due'] ?? 0),
+                        ];
+                    })
+                    ->sortByDesc('pending')
+                    ->values();
+
+                return [
+                    'name' => $creditorName,
+                    'key' => str('creditor-' . $creditorName)->slug()->toString() ?: 'sin-acreedor',
+                    'style' => $style,
+                    'count' => $items->count(),
+                    'pending' => round($items->sum('pending'), 2),
+                    'paid' => round($items->sum('paid'), 2),
+                    'total' => round($items->sum('total'), 2),
+                    'credits' => $items,
+                ];
+            })
+            ->sortByDesc('pending')
+            ->values();
+    }
+
+    private function creditorStyle(string $name): array
+    {
+        $normalized = str($name)->ascii()->lower()->toString();
+
+        $styles = [
+            'nu' => ['label' => 'NU', 'color' => '#7c3aed', 'soft' => 'rgba(124, 58, 237, .14)', 'text' => '#c4b5fd', 'badge_text' => '#ffffff'],
+            'mpw' => ['label' => 'MPW', 'color' => '#facc15', 'soft' => 'rgba(250, 204, 21, .16)', 'text' => '#fde68a', 'badge_text' => '#111827'],
+            'didi' => ['label' => 'DIDI', 'color' => '#f97316', 'soft' => 'rgba(249, 115, 22, .16)', 'text' => '#fdba74', 'badge_text' => '#111827'],
+            'mercado pago' => ['label' => 'Mercado Pago', 'color' => '#00b4d8', 'soft' => 'rgba(0, 180, 216, .16)', 'text' => '#67e8f9', 'badge_text' => '#111827'],
+            'bbva' => ['label' => 'BBVA', 'color' => '#2563eb', 'soft' => 'rgba(37, 99, 235, .16)', 'text' => '#93c5fd', 'badge_text' => '#ffffff'],
+            'amazon' => ['label' => 'Amazon', 'color' => '#f59e0b', 'soft' => 'rgba(245, 158, 11, .16)', 'text' => '#fcd34d', 'badge_text' => '#111827'],
+            'sin acreedor' => ['label' => 'Sin acreedor', 'color' => '#94a3b8', 'soft' => 'rgba(148, 163, 184, .14)', 'text' => '#cbd5e1', 'badge_text' => '#111827'],
+        ];
+
+        foreach ($styles as $needle => $style) {
+            if (str_contains($normalized, $needle)) {
+                return $style;
+            }
+        }
+
+        return ['label' => $name, 'color' => '#22c55e', 'soft' => 'rgba(34, 197, 94, .14)', 'text' => '#86efac', 'badge_text' => '#111827'];
     }
 }
