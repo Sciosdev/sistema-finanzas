@@ -31,6 +31,7 @@ class FinanceLabels
         return match ($status) {
             'active' => 'Activo',
             'open' => 'Activo',
+            'partially_paid' => 'Parcialmente pagado',
             'paid' => 'Pagado',
             'cancelled' => 'Cancelado',
             default => 'En revisión',

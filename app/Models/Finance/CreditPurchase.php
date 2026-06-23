@@ -53,4 +53,9 @@ class CreditPurchase extends Model
     {
         return $this->hasMany(CreditInstallment::class);
     }
+
+    public function freePayments(): HasMany
+    {
+        return $this->hasMany(CreditFreePayment::class);
+    }
 }

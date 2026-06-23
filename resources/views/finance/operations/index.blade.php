@@ -23,7 +23,10 @@
             </div>
             <div class="card-body">
                 <p class="text-muted">
-                    Base mínima lista: el navegador puede pedir permiso y mostrar avisos locales. En servidor real requiere HTTPS; en localhost funciona para pruebas.
+                    Base mínima lista: la app ya tiene manifest y service worker para instalarse como app web. El navegador puede pedir permiso y mostrar avisos locales; para notificaciones push reales en servidor necesitas HTTPS y llaves VAPID.
+                </p>
+                <p class="mb-2">
+                    Estado PWA: <span class="badge badge-soft-info" id="financeServiceWorkerStatus">Revisando service worker</span>
                 </p>
                 <div class="d-flex flex-wrap gap-2 mb-3">
                     <button type="button" class="btn btn-primary" id="financeNotificationPermission">
@@ -34,7 +37,7 @@
                     </button>
                 </div>
                 <div class="alert {{ $isSecureContextHint ? 'alert-success' : 'alert-warning' }} mb-0">
-                    {{ $isSecureContextHint ? 'Contexto válido para probar notificaciones.' : 'Para notificaciones reales necesitas HTTPS o abrirlo en localhost.' }}
+                    {{ $isSecureContextHint ? 'Contexto válido para probar notificaciones locales e instalación.' : 'Para instalar y notificaciones reales necesitas HTTPS o abrirlo en localhost.' }}
                 </div>
             </div>
         </div>
@@ -109,6 +112,26 @@
     document.addEventListener('DOMContentLoaded', function () {
         const permissionButton = document.getElementById('financeNotificationPermission');
         const testButton = document.getElementById('financeNotificationTest');
+        const serviceWorkerStatus = document.getElementById('financeServiceWorkerStatus');
+
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.ready
+                .then(() => {
+                    if (serviceWorkerStatus) {
+                        serviceWorkerStatus.textContent = 'Service worker activo';
+                        serviceWorkerStatus.className = 'badge badge-soft-success';
+                    }
+                })
+                .catch(() => {
+                    if (serviceWorkerStatus) {
+                        serviceWorkerStatus.textContent = 'Service worker no disponible';
+                        serviceWorkerStatus.className = 'badge badge-soft-warning';
+                    }
+                });
+        } else if (serviceWorkerStatus) {
+            serviceWorkerStatus.textContent = 'Navegador sin soporte PWA';
+            serviceWorkerStatus.className = 'badge badge-soft-warning';
+        }
 
         const showNotification = () => {
             if (!('Notification' in window)) {

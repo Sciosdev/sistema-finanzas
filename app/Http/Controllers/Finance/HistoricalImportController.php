@@ -280,18 +280,18 @@ class HistoricalImportController extends Controller
         $value = Str::of($value)->ascii()->lower()->trim()->replace([' ', '-', '.'], '_')->toString();
 
         return match ($value) {
-            'descripcion', 'description', 'concepto' => 'descripcion',
-            'categoria', 'category' => 'categoria',
-            'persona', 'person' => 'persona',
-            'cuenta', 'account' => 'cuenta',
-            'fecha', 'date' => 'fecha',
-            'tipo', 'type' => 'tipo',
-            'monto', 'amount' => 'monto',
-            'notas', 'notes' => 'notas',
-            'san_juan', 'snj' => 'san_juan',
-            'renta', 'rent' => 'renta',
-            'desconocido', 'unknown', '?' => 'desconocido',
-            'diferencia_conciliacion', 'resta_corte' => 'diferencia_conciliacion',
+            'descripcion', 'description', 'concepto', 'concept', 'detalle', 'movimiento', 'descripcion_movimiento' => 'descripcion',
+            'categoria', 'category', 'cat', 'rubro' => 'categoria',
+            'persona', 'person', 'inquilino', 'cliente', 'proveedor' => 'persona',
+            'cuenta', 'account', 'tarjeta', 'banco' => 'cuenta',
+            'fecha', 'date', 'fecha_movimiento', 'dia' => 'fecha',
+            'tipo', 'type', 'movimiento_tipo' => 'tipo',
+            'monto', 'amount', 'importe', 'cantidad', 'valor', 'total' => 'monto',
+            'notas', 'notes', 'nota', 'observaciones', 'comentarios' => 'notas',
+            'san_juan', 'snj', 'gasto_snj', 'es_san_juan' => 'san_juan',
+            'renta', 'rent', 'es_renta' => 'renta',
+            'desconocido', 'unknown', 'sin_identificar', '?' => 'desconocido',
+            'diferencia_conciliacion', 'resta_corte', 'diferencia', 'conciliacion', 'diferencia_corte' => 'diferencia_conciliacion',
             default => $value,
         };
     }

@@ -42,6 +42,8 @@
         <div class="alert alert-info mt-3 mb-0">
             <strong>Columnas esperadas:</strong>
             fecha, tipo, descripcion, monto. Opcionales: cuenta, categoria, persona, notas, san_juan, renta, desconocido, diferencia_conciliacion.
+            También acepta alias comunes como date, concepto, importe, cantidad, categoría, tarjeta, diferencia y resta_corte.
+            Si la diferencia de conciliación es distinta de 0, el registro queda en revisión y no se guarda.
         </div>
     </div>
 </div>

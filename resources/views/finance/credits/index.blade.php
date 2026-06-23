@@ -147,8 +147,17 @@
 
 @forelse ($credits as $credit)
     @php
-        $creditPaid = round($credit->installments->sum(fn ($installment) => (float) $installment->paid_amount), 2);
-        $creditPending = round($credit->installments->sum(fn ($installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2);
+        $totals = $creditTotals[$credit->id] ?? [
+            'total_original' => (float) $credit->total_amount,
+            'installment_paid' => round($credit->installments->sum(fn ($installment) => (float) $installment->paid_amount), 2),
+            'free_paid' => round($credit->freePayments->sum(fn ($payment) => (float) $payment->amount_applied), 2),
+            'total_paid' => 0,
+            'balance_due' => 0,
+        ];
+        $creditPaid = (float) $totals['total_paid'];
+        $creditFreePaid = (float) $totals['free_paid'];
+        $creditInstallmentPaid = (float) $totals['installment_paid'];
+        $creditPending = (float) $totals['balance_due'];
         $firstInstallment = $credit->installments->first();
         $monthlyAmount = $firstInstallment ? (float) $firstInstallment->amount : 0;
         $creditFormId = 'credit-form-' . $credit->id;
@@ -158,15 +167,18 @@
             <div>
                 <h4 class="card-title mb-1">{{ $credit->name }}</h4>
                 <p class="text-muted mb-0">
-                    {{ $money($credit->total_amount) }} - {{ $credit->months }} meses - {{ \App\Support\FinanceLabels::creditStatus($credit->status) }}
+                    Total original {{ $money($credit->total_amount) }} - {{ $credit->months }} meses - {{ \App\Support\FinanceLabels::creditStatus($credit->status) }}
                     @if ($credit->notes)
                         <span class="ms-1">| {{ $credit->notes }}</span>
                     @endif
                 </p>
             </div>
-            <div class="d-flex align-items-center gap-2">
-                <span class="badge badge-soft-success">Pagado {{ $money($creditPaid) }}</span>
-                <span class="badge badge-soft-warning">Pendiente {{ $money($creditPending) }}</span>
+            <div class="d-flex align-items-center flex-wrap gap-2">
+                <span class="badge badge-soft-success">Pagado total {{ $money($creditPaid) }}</span>
+                <span class="badge badge-soft-primary">Mensualidades {{ $money($creditInstallmentPaid) }}</span>
+                <span class="badge badge-soft-info">Abonos libres {{ $money($creditFreePaid) }}</span>
+                <span class="badge badge-soft-warning">Saldo real {{ $money($creditPending) }}</span>
+                <a href="#free-payments-{{ $credit->id }}" class="btn btn-sm btn-outline-primary">Ver abonos</a>
                 <form method="POST" action="{{ route('finance.credits.destroy', $credit) }}">
                     @csrf
                     @method('DELETE')
@@ -243,6 +255,101 @@
                     </button>
                 </div>
             </form>
+        </div>
+        <div class="card-body border-bottom" id="free-payments-{{ $credit->id }}">
+            <div class="row g-3">
+                <div class="col-lg-5">
+                    <h5 class="mb-3">Registrar abono libre</h5>
+                    <form method="POST" action="{{ route('finance.credits.free-payments.store', $credit) }}" class="row g-2 align-items-end">
+                        @csrf
+                        <div class="col-md-4">
+                            <label class="form-label">Fecha</label>
+                            <input type="date" name="paid_on" class="form-control form-control-sm" value="{{ now()->toDateString() }}">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Monto</label>
+                            <input type="number" name="amount" class="form-control form-control-sm text-end" step="0.01" min="0.01" max="{{ max(0.01, $creditPending) }}" placeholder="220.00" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Cuenta</label>
+                            <select name="account_id" class="form-select form-select-sm">
+                                <option value="">Cuenta del crédito</option>
+                                @foreach ($accounts as $account)
+                                    <option value="{{ $account->id }}" @selected($credit->account_id === $account->id)>{{ $account->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Categoría</label>
+                            <select name="category_id" class="form-select form-select-sm">
+                                <option value="">Categoría del crédito</option>
+                                @foreach ($categories as $category)
+                                    <option value="{{ $category->id }}" @selected($credit->category_id === $category->id)>{{ $category->name }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label">Notas</label>
+                            <input type="text" name="notes" class="form-control form-control-sm" placeholder="Pago suelto, anticipo, transferencia...">
+                        </div>
+                        <div class="col-12 d-flex justify-content-between align-items-center">
+                            <small class="text-muted">No marca mensualidades como pagadas; solo reduce el saldo real del crédito.</small>
+                            <button type="submit" class="btn btn-sm btn-primary">
+                                <i data-lucide="plus" class="me-1"></i>Registrar abono libre
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                <div class="col-lg-7">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h5 class="mb-0">Ver abonos libres</h5>
+                        <span class="badge badge-soft-info">{{ $money($creditFreePaid) }}</span>
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm mb-0">
+                            <thead>
+                                <tr>
+                                    <th>Fecha</th>
+                                    <th>Movimiento</th>
+                                    <th class="text-end">Monto</th>
+                                    <th>Notas</th>
+                                    <th class="text-end"></th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @forelse ($credit->freePayments->sortByDesc('paid_on') as $payment)
+                                    <tr>
+                                        <td>{{ $payment->paid_on->format('Y-m-d') }}</td>
+                                        <td>
+                                            @if ($payment->movement)
+                                                {{ $payment->movement->description }}
+                                                <div class="text-muted small">{{ $payment->movement->account?->name ?? $credit->account?->name ?? 'Sin cuenta' }}</div>
+                                            @else
+                                                <span class="badge badge-soft-warning">Sin movimiento ligado</span>
+                                            @endif
+                                        </td>
+                                        <td class="text-end text-danger">{{ $money($payment->amount_applied) }}</td>
+                                        <td>{{ $payment->notes ?? '-' }}</td>
+                                        <td class="text-end">
+                                            <form method="POST" action="{{ route('finance.credits.free-payments.destroy', $payment) }}" onsubmit="return confirm('¿Eliminar este abono libre? Podrás deshacerlo durante 2 minutos.')">
+                                                @csrf
+                                                @method('DELETE')
+                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar abono">
+                                                    <i data-lucide="trash-2"></i>
+                                                </button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                @empty
+                                    <tr>
+                                        <td colspan="5" class="text-center text-muted py-3">Sin abonos libres</td>
+                                    </tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
         </div>
         <div class="card-body p-0">
             <div class="table-responsive">

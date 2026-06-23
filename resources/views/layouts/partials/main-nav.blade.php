@@ -58,6 +58,15 @@
                </li>
 
                <li class="menu-item">
+                    <a class="menu-link" href="{{ route('finance.monthly-review.index') }}">
+                         <span class="nav-icon">
+                              <i data-lucide="spell-check-2"></i>
+                         </span>
+                         <span class="nav-text">Corrector mensual</span>
+                    </a>
+               </li>
+
+               <li class="menu-item">
                     <a class="menu-link" href="{{ route('finance.cuts.index') }}">
                          <span class="nav-icon">
                               <i data-lucide="scale"></i>

@@ -92,7 +92,7 @@ it('deletes an individual credit installment and restores it before two minutes'
     expect((float) $credit->total_amount)->toBe(600.0);
     expect($credit->months)->toBe(3);
     expect($credit->first_due_month->toDateString())->toBe('2026-07-01');
-    expect($credit->status)->toBe('active');
+    expect($credit->status)->toBe('partially_paid');
 
     Carbon::setTestNow();
 });

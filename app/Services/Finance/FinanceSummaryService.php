@@ -148,7 +148,7 @@ class FinanceSummaryService
             ->get()
             ->map(fn (PlannedPayment $payment) => $this->plannedObligation($payment));
 
-        $credits = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.category'])
+        $credits = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.category', 'creditPurchase.freePayments'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->get()
@@ -341,6 +341,12 @@ class FinanceSummaryService
         );
         $status = $isOverdue ? 'overdue' : $installment->status;
         $months = $credit?->months ?? '-';
+        $creditFreePaid = $credit ? (float) $credit->freePayments->sum('amount_applied') : 0.0;
+        $creditInstallmentPaid = $credit ? (float) $credit->installments()->sum('paid_amount') : $paidAmount;
+        $creditTotalPaid = $this->money($creditInstallmentPaid + $creditFreePaid);
+        $creditBalanceDue = $credit
+            ? $this->money(max(0, (float) $credit->total_amount - $creditTotalPaid))
+            : $amountDue;
 
         return [
             'source' => 'credit',
@@ -359,6 +365,11 @@ class FinanceSummaryService
             'amount' => $this->money($amount),
             'paid_amount' => $this->money($paidAmount),
             'amount_due' => $this->money($amountDue),
+            'credit_total_amount' => $this->money((float) ($credit?->total_amount ?? $amount)),
+            'credit_installment_paid' => $this->money($creditInstallmentPaid),
+            'credit_free_paid' => $this->money($creditFreePaid),
+            'credit_total_paid' => $creditTotalPaid,
+            'credit_balance_due' => $creditBalanceDue,
             'kind' => 'Crédito',
             'origin' => 'Crédito',
             'origin_detail' => $this->originDetail($status, (bool) $installment->movement_id),

@@ -11,6 +11,7 @@ use App\Http\Controllers\Finance\FinanceReportController;
 use App\Http\Controllers\Finance\FinanceSecurityController;
 use App\Http\Controllers\Finance\HistoricalImportController;
 use App\Http\Controllers\Finance\MovementController;
+use App\Http\Controllers\Finance\MonthlyReviewController;
 use App\Http\Controllers\Finance\PlannedPaymentController;
 use App\Http\Controllers\Finance\ReminderController;
 use App\Http\Controllers\Finance\SanJuanController;
@@ -41,6 +42,9 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::get('importar-historico/plantilla', [HistoricalImportController::class, 'template'])->name('imports.historical.template');
         Route::post('importar-historico/vista-previa', [HistoricalImportController::class, 'preview'])->name('imports.historical.preview');
         Route::post('importar-historico/guardar', [HistoricalImportController::class, 'store'])->name('imports.historical.store');
+        Route::get('revision-mensual', [MonthlyReviewController::class, 'index'])->name('monthly-review.index');
+        Route::post('revision-mensual/{key}/aplicar', [MonthlyReviewController::class, 'apply'])->name('monthly-review.apply');
+        Route::post('revision-mensual/{key}/ignorar', [MonthlyReviewController::class, 'ignore'])->name('monthly-review.ignore');
         Route::get('operacion', [FinanceOperationController::class, 'index'])->name('operations.index');
         Route::get('seguridad', [FinanceSecurityController::class, 'index'])->name('security.index');
         Route::post('seguridad/deshacer/{token}', [FinanceSecurityController::class, 'undoDelete'])->name('security.undo-delete');
@@ -94,6 +98,8 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
 
         Route::get('creditos', [CreditPurchaseController::class, 'index'])->name('credits.index');
         Route::post('creditos', [CreditPurchaseController::class, 'store'])->name('credits.store');
+        Route::post('creditos/{credit}/abonos-libres', [CreditPurchaseController::class, 'storeFreePayment'])->name('credits.free-payments.store');
+        Route::delete('creditos/abonos-libres/{payment}', [CreditPurchaseController::class, 'destroyFreePayment'])->name('credits.free-payments.destroy');
         Route::put('creditos/{credit}', [CreditPurchaseController::class, 'update'])->name('credits.update');
         Route::delete('creditos/{credit}', [CreditPurchaseController::class, 'destroy'])->name('credits.destroy');
         Route::put('creditos/mensualidades/{installment}', [CreditPurchaseController::class, 'updateInstallment'])->name('credits.installments.update');

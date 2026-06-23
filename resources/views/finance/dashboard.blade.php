@@ -872,6 +872,10 @@
                                                                 @if (! empty($payment['account']) || ! empty($payment['category']))
                                                                     <br>{{ $payment['account'] ?? 'Sin cuenta' }} · {{ $payment['category'] ?? 'Sin categoría' }}
                                                                 @endif
+                                                                <br>Saldo real del crédito: {{ $money($payment['credit_balance_due'] ?? $payment['amount_due']) }}
+                                                                @if (($payment['credit_free_paid'] ?? 0) > 0)
+                                                                    <br>Abonos libres aplicados: {{ $money($payment['credit_free_paid']) }}
+                                                                @endif
                                                             </div>
                                                         @elseif (! empty($payment['detail']))
                                                             <div class="text-muted small">{{ $payment['detail'] }}</div>

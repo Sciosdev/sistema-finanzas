@@ -3,6 +3,7 @@
 namespace App\Services\Finance;
 
 use App\Models\Finance\Category;
+use App\Models\Finance\CreditFreePayment;
 use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\DeleteSnapshot;
@@ -33,6 +34,7 @@ class FinanceDeletionSnapshotService
         'rental_contract' => RentalContract::class,
         'credit_purchase' => CreditPurchase::class,
         'credit_installment' => CreditInstallment::class,
+        'credit_free_payment' => CreditFreePayment::class,
     ];
 
     public function captureBeforeDelete(User $user, Model $model, string $entityType): DeleteSnapshot
@@ -113,6 +115,7 @@ class FinanceDeletionSnapshotService
             'rental_contract' => $this->restoreRentalContract($user, $snapshot),
             'credit_purchase' => $this->restoreCreditPurchase($user, $snapshot),
             'credit_installment' => $this->restoreCreditInstallment($user, $snapshot),
+            'credit_free_payment' => $this->restoreCreditFreePayment($user, $snapshot),
             default => $this->restoreGeneric($user, $snapshot, $modelClass),
         };
     }
@@ -282,7 +285,12 @@ class FinanceDeletionSnapshotService
         }
 
         $installments = $snapshot->relations_payload['installments'] ?? [];
+        $freePayments = $snapshot->relations_payload['free_payments'] ?? [];
         $installmentIds = collect($installments)
+            ->pluck('id')
+            ->filter()
+            ->all();
+        $freePaymentIds = collect($freePayments)
             ->pluck('id')
             ->filter()
             ->all();
@@ -291,6 +299,13 @@ class FinanceDeletionSnapshotService
             return [
                 'ok' => false,
                 'message' => 'No se pudo restaurar porque una mensualidad ya existe.',
+            ];
+        }
+
+        if ($freePaymentIds !== [] && CreditFreePayment::query()->whereIn('id', $freePaymentIds)->exists()) {
+            return [
+                'ok' => false,
+                'message' => 'No se pudo restaurar porque un abono libre ya existe.',
             ];
         }
 
@@ -305,6 +320,22 @@ class FinanceDeletionSnapshotService
             }
 
             CreditInstallment::query()->insert($installment);
+        }
+
+        foreach ($freePayments as $payment) {
+            if (! empty($payment['movement_id']) && ! Movement::query()
+                ->where('user_id', $user->id)
+                ->whereKey($payment['movement_id'])
+                ->exists()) {
+                $payment['movement_id'] = null;
+            }
+
+            CreditFreePayment::query()->insert($payment);
+        }
+
+        $credit = CreditPurchase::query()->whereKey($snapshot->entity_id)->first();
+        if ($credit) {
+            $this->refreshCreditStatusWithFreePayments($credit);
         }
 
         return [
@@ -356,6 +387,51 @@ class FinanceDeletionSnapshotService
         ];
     }
 
+    private function restoreCreditFreePayment(User $user, DeleteSnapshot $snapshot): array
+    {
+        if (CreditFreePayment::query()->whereKey($snapshot->entity_id)->exists()) {
+            return [
+                'ok' => false,
+                'message' => 'No se pudo restaurar porque el abono libre ya existe.',
+            ];
+        }
+
+        $payload = $snapshot->payload;
+        $creditId = $payload['credit_purchase_id'] ?? null;
+        $credit = $creditId
+            ? CreditPurchase::query()
+                ->where('user_id', $user->id)
+                ->whereKey($creditId)
+                ->first()
+            : null;
+
+        if (! $credit) {
+            return [
+                'ok' => false,
+                'message' => 'No se pudo restaurar porque el crédito ya no existe.',
+            ];
+        }
+
+        $movementPayload = $snapshot->relations_payload['movement'] ?? null;
+        $movementId = $payload['movement_id'] ?? null;
+
+        if ($movementId && ! Movement::query()->where('user_id', $user->id)->whereKey($movementId)->exists()) {
+            if ($movementPayload && ! Movement::query()->whereKey($movementId)->exists()) {
+                Movement::query()->insert($movementPayload);
+            } else {
+                $payload['movement_id'] = null;
+            }
+        }
+
+        CreditFreePayment::query()->insert($payload);
+        $this->refreshCreditStatusWithFreePayments($credit);
+
+        return [
+            'ok' => true,
+            'message' => $this->restoredMessage($snapshot->entity_type),
+        ];
+    }
+
     private function relationsPayload(User $user, Model $model, string $entityType): ?array
     {
         if ($entityType === 'movement') {
@@ -369,6 +445,10 @@ class FinanceDeletionSnapshotService
                     ->pluck('id')
                     ->all(),
                 'expected_income_payment_ids' => ExpectedIncomePayment::where('user_id', $user->id)
+                    ->where('movement_id', $model->getKey())
+                    ->pluck('id')
+                    ->all(),
+                'credit_free_payment_ids' => CreditFreePayment::where('user_id', $user->id)
                     ->where('movement_id', $model->getKey())
                     ->pluck('id')
                     ->all(),
@@ -414,6 +494,13 @@ class FinanceDeletionSnapshotService
                     ->get()
                     ->map(fn (CreditInstallment $installment) => $installment->getAttributes())
                     ->all(),
+                'free_payments' => CreditFreePayment::where('user_id', $user->id)
+                    ->where('credit_purchase_id', $model->getKey())
+                    ->orderBy('paid_on')
+                    ->orderBy('id')
+                    ->get()
+                    ->map(fn (CreditFreePayment $payment) => $payment->getAttributes())
+                    ->all(),
             ];
         }
 
@@ -431,6 +518,18 @@ class FinanceDeletionSnapshotService
                     'first_due_month',
                     'status',
                 ]),
+            ];
+        }
+
+        if ($entityType === 'credit_free_payment' && $model instanceof CreditFreePayment) {
+            $movement = $model->movement_id
+                ? Movement::where('user_id', $user->id)->whereKey($model->movement_id)->first()
+                : null;
+
+            return [
+                'movement' => $movement && $movement->source === 'credit_free_payment'
+                    ? $movement->getAttributes()
+                    : null,
             ];
         }
 
@@ -459,6 +558,11 @@ class FinanceDeletionSnapshotService
 
         ExpectedIncomePayment::where('user_id', $user->id)
             ->whereIn('id', $snapshot->relations_payload['expected_income_payment_ids'] ?? [])
+            ->whereNull('movement_id')
+            ->update(['movement_id' => $snapshot->entity_id]);
+
+        CreditFreePayment::where('user_id', $user->id)
+            ->whereIn('id', $snapshot->relations_payload['credit_free_payment_ids'] ?? [])
             ->whereNull('movement_id')
             ->update(['movement_id' => $snapshot->entity_id]);
     }
@@ -517,7 +621,24 @@ class FinanceDeletionSnapshotService
             'total_amount' => round($installments->sum(fn (CreditInstallment $installment) => (float) $installment->amount), 2),
             'months' => $installments->count(),
             'first_due_month' => $installments->first()->period_month->copy()->startOfMonth()->toDateString(),
-            'status' => $installments->every(fn (CreditInstallment $installment) => $installment->status === 'paid') ? 'paid' : 'active',
+        ]);
+
+        $this->refreshCreditStatusWithFreePayments($credit);
+    }
+
+    private function refreshCreditStatusWithFreePayments(CreditPurchase $credit): void
+    {
+        $installmentPaid = (float) $credit->installments()->sum('paid_amount');
+        $freePaid = (float) CreditFreePayment::where('user_id', $credit->user_id)
+            ->where('credit_purchase_id', $credit->id)
+            ->sum('amount_applied');
+        $totalPaid = round($installmentPaid + $freePaid, 2);
+        $total = round((float) $credit->total_amount, 2);
+
+        $credit->update([
+            'status' => $total > 0 && $totalPaid + 0.01 >= $total
+                ? 'paid'
+                : ($totalPaid > 0 ? 'partially_paid' : 'active'),
         ]);
     }
 
@@ -552,6 +673,7 @@ class FinanceDeletionSnapshotService
             'rental_contract' => 'Renta restaurada en la plantilla.',
             'credit_purchase' => 'Crédito restaurado.',
             'credit_installment' => 'Mensualidad restaurada.',
+            'credit_free_payment' => 'Abono libre restaurado.',
             default => 'Registro restaurado.',
         };
     }

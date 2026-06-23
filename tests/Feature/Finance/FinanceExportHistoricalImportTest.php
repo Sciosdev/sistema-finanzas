@@ -198,6 +198,36 @@ it('keeps historical rows with non-zero reconciliation difference in review', fu
     ]);
 });
 
+it('accepts common historical CSV column aliases safely', function () {
+    $user = User::factory()->create();
+    app(FinanceCatalogService::class)->ensureForUser($user);
+
+    $csv = implode("\n", [
+        'date,type,concepto,importe,tarjeta,category,observaciones,diferencia',
+        '2026-01-05,gasto,Recarga Weex,100,NU,Saldo / Telefonia,Alias del Excel,0',
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('finance.imports.historical.preview'), [
+            'file' => UploadedFile::fake()->createWithContent('historico-alias.csv', $csv),
+        ])
+        ->assertRedirect(route('finance.imports.historical.index'))
+        ->assertSessionHas('success');
+
+    $this->actingAs($user)
+        ->post(route('finance.imports.historical.store'))
+        ->assertRedirect(route('finance.movements.index'));
+
+    $this->assertDatabaseHas('finance_movements', [
+        'user_id' => $user->id,
+        'happened_on' => '2026-01-05 00:00:00',
+        'movement_type' => 'expense',
+        'description' => 'Recarga Weex',
+        'amount' => 100,
+        'source' => 'historical_import',
+    ]);
+});
+
 it('downloads the historical import CSV template', function () {
     $user = User::factory()->create();
 

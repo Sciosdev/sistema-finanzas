@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
+use App\Models\Finance\CreditFreePayment;
 use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
+use App\Services\Finance\CreditFreePaymentService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use Carbon\Carbon;
@@ -22,6 +24,7 @@ class CreditPurchaseController extends Controller
     public function __construct(
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
+        private readonly CreditFreePaymentService $freePayments,
     ) {
     }
 
@@ -30,18 +33,29 @@ class CreditPurchaseController extends Controller
         $user = $request->user();
         $this->catalogs->ensureForUser($user);
 
-        $credits = CreditPurchase::with(['account', 'category', 'installments' => fn ($query) => $query->orderBy('installment_number')])
+        $credits = CreditPurchase::with([
+            'account',
+            'category',
+            'freePayments.movement',
+            'installments' => fn ($query) => $query->orderBy('installment_number'),
+        ])
             ->where('user_id', $user->id)
             ->orderByDesc('purchase_date')
             ->get();
 
         $installments = $credits->flatMap->installments;
+        $freePayments = $credits->flatMap->freePayments;
+        $creditTotals = $credits->mapWithKeys(fn (CreditPurchase $credit) => [
+            $credit->id => $this->freePayments->totals($credit),
+        ]);
         $currentMonth = now()->startOfMonth();
         $nextMonth = $currentMonth->copy()->addMonth();
         $summary = [
-            'total' => round($installments->sum(fn (CreditInstallment $installment) => (float) $installment->amount), 2),
-            'paid' => round($installments->sum(fn (CreditInstallment $installment) => (float) $installment->paid_amount), 2),
-            'pending' => round($installments->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2),
+            'total' => round($credits->sum(fn (CreditPurchase $credit) => (float) $credit->total_amount), 2),
+            'paid' => round($creditTotals->sum('total_paid'), 2),
+            'installment_paid' => round($installments->sum(fn (CreditInstallment $installment) => (float) $installment->paid_amount), 2),
+            'free_paid' => round($freePayments->sum(fn (CreditFreePayment $payment) => (float) $payment->amount_applied), 2),
+            'pending' => round($creditTotals->sum('balance_due'), 2),
             'current_month' => round($installments
                 ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($currentMonth))
                 ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2),
@@ -53,6 +67,7 @@ class CreditPurchaseController extends Controller
 
         return view('finance.credits.index', [
             'credits' => $credits,
+            'creditTotals' => $creditTotals,
             'summary' => $summary,
             'currentMonthLabel' => $currentMonth->format('Y-m'),
             'nextMonthLabel' => $nextMonth->format('Y-m'),
@@ -184,9 +199,7 @@ class CreditPurchaseController extends Controller
             'movement_id' => $movement?->id ?? $installment->movement_id,
         ]);
 
-        if ($credit->installments()->where('status', '!=', 'paid')->doesntExist()) {
-            $credit->update(['status' => 'paid']);
-        }
+        $this->refreshCreditStatus($credit);
 
         return back()->with('success', 'Mensualidad marcada como pagada.');
     }
@@ -208,9 +221,7 @@ class CreditPurchaseController extends Controller
             'paid_on' => $paidOn->toDateString(),
         ]);
 
-        if ($credit->installments()->where('status', '!=', 'paid')->doesntExist()) {
-            $credit->update(['status' => 'paid']);
-        }
+        $this->refreshCreditStatus($credit);
 
         return back()->with('success', 'Mensualidad marcada como ya registrada.');
     }
@@ -244,6 +255,62 @@ class CreditPurchaseController extends Controller
         $this->refreshCreditFromInstallments($installment->creditPurchase()->firstOrFail());
 
         return back()->with('success', 'Mensualidad actualizada.');
+    }
+
+    public function storeFreePayment(Request $request, CreditPurchase $credit)
+    {
+        abort_unless($credit->user_id === $request->user()->id, 403);
+
+        $user = $request->user();
+        $data = $request->validate([
+            'paid_on' => ['nullable', 'date'],
+            'amount' => ['required', 'numeric', 'min:0.01'],
+            'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'category_id' => ['nullable', 'integer', Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'movement_id' => ['nullable', 'integer', Rule::exists('finance_movements', 'id')->where(fn ($query) => $query->where('user_id', $user->id)->where('movement_type', 'expense'))],
+            'notes' => ['nullable', 'string'],
+        ]);
+
+        $movement = ! empty($data['movement_id'])
+            ? Movement::where('user_id', $user->id)->whereKey($data['movement_id'])->first()
+            : null;
+
+        try {
+            $this->freePayments->createFreePayment(
+                $credit,
+                isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today(),
+                (float) $data['amount'],
+                $data['account_id'] ?? null,
+                $data['category_id'] ?? null,
+                $data['notes'] ?? null,
+                $movement,
+            );
+        } catch (\Throwable $exception) {
+            return back()->with('error', $exception->getMessage());
+        }
+
+        return back()->with('success', 'Abono libre registrado como egreso real.');
+    }
+
+    public function destroyFreePayment(Request $request, CreditFreePayment $payment)
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+
+        $snapshot = DB::transaction(function () use ($request, $payment) {
+            $snapshot = $this->deleteSnapshots->captureBeforeDelete($request->user(), $payment, 'credit_free_payment');
+
+            $this->freePayments->deleteFreePayment($payment);
+
+            return $snapshot;
+        });
+
+        return back()
+            ->with('success', 'Abono libre eliminado.')
+            ->with('undo_delete', [
+                'token' => $snapshot->token,
+                'label' => 'Deshacer',
+                'expires_at' => $snapshot->expires_at,
+            ]);
     }
 
     public function destroyInstallment(Request $request, CreditInstallment $installment)
@@ -409,23 +476,11 @@ class CreditPurchaseController extends Controller
             return;
         }
 
-        $credit->update([
-            'total_amount' => round($installments->sum(fn (CreditInstallment $installment) => (float) $installment->amount), 2),
-            'months' => $installments->count(),
-            'first_due_month' => $installments->first()->period_month->copy()->startOfMonth()->toDateString(),
-            'status' => $installments->every(fn (CreditInstallment $installment) => $installment->status === 'paid') ? 'paid' : 'active',
-        ]);
+        $this->freePayments->refreshCreditFromInstallments($credit);
     }
 
     private function refreshCreditStatus(CreditPurchase $credit): void
     {
-        $credit->load('installments');
-
-        $credit->update([
-            'status' => $credit->installments->isNotEmpty()
-                && $credit->installments->every(fn (CreditInstallment $installment) => $installment->status === 'paid')
-                    ? 'paid'
-                    : 'active',
-        ]);
+        $this->freePayments->syncCreditStatus($credit);
     }
 }
