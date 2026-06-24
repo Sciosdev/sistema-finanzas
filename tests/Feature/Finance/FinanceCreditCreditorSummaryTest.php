@@ -95,3 +95,81 @@ it('shows credit debts grouped by creditor with meaningful colors', function () 
         ->assertSee('#7c3aed')
         ->assertSee('#facc15');
 });
+
+it('shows credit summary cards without the Onix car credit', function () {
+    Carbon::setTestNow('2026-06-23 09:00:00');
+
+    $user = User::factory()->create();
+    app(FinanceCatalogService::class)->ensureForUser($user);
+
+    $onix = Account::where('user_id', $user->id)->where('name', 'Onix')->firstOrFail();
+    $nu = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+
+    $carCredit = CreditPurchase::create([
+        'user_id' => $user->id,
+        'purchase_date' => '2026-06-23',
+        'name' => 'Onix',
+        'total_amount' => 150000,
+        'months' => 30,
+        'first_due_month' => '2026-06-01',
+        'due_day' => 15,
+        'account_id' => $onix->id,
+        'status' => 'active',
+    ]);
+
+    $normalCredit = CreditPurchase::create([
+        'user_id' => $user->id,
+        'purchase_date' => '2026-06-23',
+        'name' => 'Celular',
+        'total_amount' => 12000,
+        'months' => 6,
+        'first_due_month' => '2026-06-01',
+        'due_day' => 25,
+        'account_id' => $nu->id,
+        'status' => 'active',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $carCredit->id,
+        'period_month' => '2026-06-01',
+        'due_date' => '2026-06-15',
+        'installment_number' => 1,
+        'amount' => 5000,
+        'paid_amount' => 0,
+        'status' => 'pending',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $normalCredit->id,
+        'period_month' => '2026-06-01',
+        'due_date' => '2026-06-25',
+        'installment_number' => 1,
+        'amount' => 2000,
+        'paid_amount' => 0,
+        'status' => 'pending',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $normalCredit->id,
+        'period_month' => '2026-07-01',
+        'due_date' => '2026-07-25',
+        'installment_number' => 2,
+        'amount' => 2000,
+        'paid_amount' => 0,
+        'status' => 'pending',
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('finance.credits.index'))
+        ->assertOk()
+        ->assertSee('Vista realista sin el crédito del Onix')
+        ->assertSee('Deuda sin Onix')
+        ->assertSee('Pendiente sin Onix')
+        ->assertSee('Este mes sin Onix')
+        ->assertSee('Siguiente mes sin Onix')
+        ->assertSee('$12,000.00')
+        ->assertSee('$2,000.00');
+});
