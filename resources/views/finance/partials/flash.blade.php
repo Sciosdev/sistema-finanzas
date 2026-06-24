@@ -11,6 +11,15 @@
             </form>
             <small class="text-muted ms-1">Disponible por 2 minutos.</small>
         @endif
+        @if (session('backup_download'))
+            @php($backupDownload = session('backup_download'))
+            <a
+                href="{{ route('finance.security.backups.download', ['type' => $backupDownload['type'], 'filename' => $backupDownload['name']]) }}"
+                class="btn btn-sm btn-outline-success ms-2"
+            >
+                Descargar ahora
+            </a>
+        @endif
         <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
     </div>
 @endif

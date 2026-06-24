@@ -210,6 +210,21 @@ it('stores a generated migration package flash with a protected download link', 
             && str_ends_with($download['name'], '.zip'));
 });
 
+it('shows an immediate download button after creating a migration package', function () {
+    Carbon::setTestNow('2026-06-22 10:00:00');
+
+    app()->instance(FinanceBackupService::class, fakeMigrationFinanceBackupService());
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->followingRedirects()
+        ->post(route('finance.security.backups.migration'))
+        ->assertOk()
+        ->assertSee('Paquete de migracion creado.')
+        ->assertSee('Descargar ahora')
+        ->assertSee('finanzas-migration-20260622-100000.zip');
+});
+
 it('downloads an existing private backup file from a protected route', function () {
     $user = User::factory()->create();
     $directory = storage_path('app/private/finance-backups/database');
