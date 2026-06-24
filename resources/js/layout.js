@@ -268,6 +268,7 @@ class ThemeLayout {
           this.defaultConfig = window.config;
           this.sidebarBreakpoint = 1140;
           this.sidebarStorageKey = '__FINANCE_SIDEBAR_COLLAPSED__';
+          this.themeStorageKey = '__FINANCE_THEME_CHOICE__';
      }
 
      // Main Nav
@@ -352,6 +353,7 @@ class ThemeLayout {
      initConfig() {
           this.defaultConfig = JSON.parse(JSON.stringify(window.defaultConfig));
           this.config = JSON.parse(JSON.stringify(window.config));
+          this.syncThemeColor();
           this.setSwitchFromConfig();
      }
 
@@ -375,9 +377,21 @@ class ThemeLayout {
      }
 
      changeThemeMode(color) {
-          this.config.theme = color;
-          this.html.setAttribute('data-bs-theme', color);
+          const theme = color === 'light' ? 'light' : 'dark';
+
+          this.config.theme = theme;
+          this.html.setAttribute('data-bs-theme', theme);
+          sessionStorage.setItem(this.themeStorageKey, theme);
+          this.syncThemeColor();
           this.setSwitchFromConfig();
+     }
+
+     syncThemeColor() {
+          const meta = document.querySelector('meta[name="theme-color"]');
+
+          if (meta) {
+               meta.setAttribute('content', this.config.theme === 'light' ? '#f4f7fb' : '#0f172a');
+          }
      }
 
      // changeTopbarColor(color) {

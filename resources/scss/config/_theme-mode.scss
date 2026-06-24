@@ -26,10 +26,31 @@
     --#{$prefix}input-focus-border-color:       #b0b0bb;
 }
 
+html {
+    color-scheme: light;
+}
+
+html[data-bs-theme="light"] {
+    color-scheme: light;
+
+    --#{$prefix}body-bg:                       #f4f7fb;
+    --#{$prefix}body-color:                    #111827;
+    --#{$prefix}secondary-color:               #667085;
+    --#{$prefix}secondary-bg:                  #ffffff;
+    --#{$prefix}tertiary-bg:                   #eef3f8;
+    --#{$prefix}emphasis-color:                #111827;
+    --#{$prefix}border-color:                  #dfe7f0;
+    --#{$prefix}headings-color:                #1f2937;
+
+    --#{$prefix}input-border-color:            #cfd8e3;
+    --#{$prefix}input-focus-border-color:      #93a4b7;
+}
+
 
 /* Color system - Dark Mode only */
 html[data-bs-theme="dark"],
 [data-bs-theme="dark"] {
+    color-scheme: dark;
 
     --#{$prefix}border-color:                   #2f3944;
 
@@ -49,10 +70,10 @@ html[data-bs-theme="dark"],
 /* Main Menu Light */
 html.sidebar-light{
     --#{$prefix}main-nav-bg:                               #ffffff;
-    --#{$prefix}main-menu-item-color:                       #5a5b70;
-    --#{$prefix}main-menu-item-hover-bg:                    #f3f1fa;
+    --#{$prefix}main-menu-item-color:                       #475467;
+    --#{$prefix}main-menu-item-hover-bg:                    rgba(var(--#{$prefix}primary-rgb), .09);
     --#{$prefix}main-menu-item-hover-color:                  #{$primary};
-    --#{$prefix}main-nav-border-color:                     #eaedf1;
+    --#{$prefix}main-nav-border-color:                     #dfe7f0;
 }
 
 
@@ -80,8 +101,8 @@ html[data-bs-theme="dark"].sidebar-light {
 /* Topbar Light */
 html.topbar-light {
     --#{$prefix}topbar-bg:                                 #{$white};
-    --#{$prefix}topbar-item-color:                         #707793;
-    --#{$prefix}topbar-search-bg:                          #f3f6f9;
+    --#{$prefix}topbar-item-color:                         #475467;
+    --#{$prefix}topbar-search-bg:                          #eef3f8;
 }
 
 

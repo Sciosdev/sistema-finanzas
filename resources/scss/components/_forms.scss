@@ -72,3 +72,22 @@ $value in $theme-colors {
         text-decoration: line-through;
    }
 }
+
+html[data-bs-theme="light"] {
+    .form-control,
+    .form-select {
+        background-color: var(--#{$prefix}secondary-bg);
+        border-color: var(--#{$prefix}input-border-color);
+
+        &:focus {
+            border-color: var(--#{$prefix}input-focus-border-color);
+            box-shadow: 0 0 0 0.2rem rgba(var(--#{$prefix}primary-rgb), 0.12);
+        }
+    }
+
+    .input-group-text {
+        background-color: var(--#{$prefix}tertiary-bg);
+        border-color: var(--#{$prefix}input-border-color);
+        color: var(--#{$prefix}secondary-color);
+    }
+}

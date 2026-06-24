@@ -10,6 +10,7 @@
      height: $topbar-height;
      background-color: $topbar-bg;
      padding-left: $main-nav-width;
+     border-bottom: 1px solid var(--#{$prefix}border-color);
      box-shadow: $box-shadow;
 
      .logo-box {
@@ -84,6 +85,14 @@
           font-weight: $font-weight-semibold;
           display: inline-block;
           line-height: 32px;
+     }
+
+     .btn-outline-secondary {
+          --#{$prefix}btn-color: var(--#{$prefix}topbar-item-color);
+          --#{$prefix}btn-border-color: var(--#{$prefix}border-color);
+          --#{$prefix}btn-hover-color: var(--#{$prefix}body-color);
+          --#{$prefix}btn-hover-bg: var(--#{$prefix}tertiary-bg);
+          --#{$prefix}btn-hover-border-color: var(--#{$prefix}border-color);
      }
 
      #light-dark-mode {

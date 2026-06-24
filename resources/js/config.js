@@ -6,11 +6,15 @@
 
 (function () {
 
-     var savedConfig = sessionStorage.getItem("__THEME_CONFIG__");
+     var themeConfigKey = "__THEME_CONFIG__";
+     var themeChoiceKey = "__FINANCE_THEME_CHOICE__";
+     var defaultTheme = "dark";
+     var savedConfig = sessionStorage.getItem(themeConfigKey);
+     var savedThemeChoice = sessionStorage.getItem(themeChoiceKey);
      var html = document.getElementsByTagName("html")[0];
 
      var defaultConfig = {
-          theme: "light",
+          theme: defaultTheme,
 
           topbar: {
                color: "topbar-light",
@@ -22,22 +26,47 @@
           },
      };
 
-     // The line below was causing the error and is now removed.
-     // this.html = document.getElementsByTagName('html')[0];
+     function readSavedConfig(value) {
+          if (value === null) {
+               return null;
+          }
 
-     let config = Object.assign(JSON.parse(JSON.stringify(defaultConfig)), {});
-     window.defaultConfig = JSON.parse(JSON.stringify(config));
+          try {
+               return JSON.parse(value);
+          } catch (error) {
+               sessionStorage.removeItem(themeConfigKey);
 
-     if (savedConfig !== null) {
-          config = JSON.parse(savedConfig);
+               return null;
+          }
      }
 
+     function updateThemeColor(theme) {
+          var meta = document.querySelector('meta[name="theme-color"]');
+
+          if (meta) {
+               meta.setAttribute("content", theme === "light" ? "#f4f7fb" : "#0f172a");
+          }
+     }
+
+     let config = JSON.parse(JSON.stringify(defaultConfig));
+     window.defaultConfig = JSON.parse(JSON.stringify(config));
+
+     var parsedConfig = readSavedConfig(savedConfig);
+
+     if (parsedConfig !== null) {
+          config = Object.assign(config, parsedConfig);
+          config.topbar = Object.assign({}, defaultConfig.topbar, parsedConfig.topbar || {});
+          config.menu = Object.assign({}, defaultConfig.menu, parsedConfig.menu || {});
+     }
+
+     config.theme = savedThemeChoice === "light" ? "light" : defaultTheme;
      window.config = config;
 
      if (config) {
           html.setAttribute("data-bs-theme", config.theme);
           html.classList.add(config.topbar.color);
           html.classList.add(config.menu.color);
+          updateThemeColor(config.theme);
 
           if (window.innerWidth <= 1140) {
                html.classList.add("sidebar-hidden");

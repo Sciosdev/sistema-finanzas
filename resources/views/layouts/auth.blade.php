@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" data-bs-theme="dark" class="topbar-light sidebar-light">
 
 <head>
     @include('layouts.partials/title-meta', ['title' => $title])

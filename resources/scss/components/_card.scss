@@ -11,6 +11,13 @@
     }
 }
 
+html[data-bs-theme="light"] {
+    .card {
+        border: 1px solid var(--#{$prefix}border-color);
+        box-shadow: 0 8px 24px rgba(16, 24, 40, 0.06);
+    }
+}
+
 .card-link+.card-link {
     margin-left: $card-spacer-x;
     margin-right: 0;

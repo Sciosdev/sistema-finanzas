@@ -62,3 +62,16 @@ html[data-bs-theme="dark"] {
         --#{$prefix}table-border-color: #{$table-group-separator-color};
     }
 }
+
+html[data-bs-theme="light"] {
+    .table {
+        --#{$prefix}table-border-color: var(--#{$prefix}border-color);
+
+        thead {
+            th {
+                background-color: var(--#{$prefix}tertiary-bg);
+                color: var(--#{$prefix}headings-color);
+            }
+        }
+    }
+}
