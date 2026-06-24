@@ -31,6 +31,14 @@
     $failureStatus = fn ($status) => $status === 'resolved'
         ? ['label' => 'Resuelta', 'class' => 'badge-soft-success']
         : ['label' => 'Abierta', 'class' => 'badge-soft-danger'];
+    $backupType = function ($type) {
+        return match ($type) {
+            'database' => ['label' => 'BD', 'class' => 'badge-soft-primary'],
+            'full' => ['label' => 'Completo', 'class' => 'badge-soft-success'],
+            'migration' => ['label' => 'Migracion', 'class' => 'badge-soft-warning'],
+            default => ['label' => $type, 'class' => 'badge-soft-secondary'],
+        };
+    };
 @endphp
 
 @include('finance.partials.flash')
@@ -41,6 +49,12 @@
     </div>
     <div class="col-md-6">
         <div class="d-flex justify-content-md-end gap-2">
+            <form method="POST" action="{{ route('finance.security.backups.migration') }}">
+                @csrf
+                <button type="submit" class="btn btn-outline-warning">
+                    <i data-lucide="package-open" class="me-1"></i>Paquete migracion
+                </button>
+            </form>
             <form method="POST" action="{{ route('finance.security.backups.database') }}">
                 @csrf
                 <button type="submit" class="btn btn-outline-primary">
@@ -63,6 +77,10 @@
 
 <div class="alert alert-warning">
     <strong>.env contiene credenciales.</strong> Inclúyelo solo si necesitas restaurar el sistema completo.
+</div>
+
+<div class="alert alert-info">
+    <strong>Paquete migracion:</strong> genera un zip con SQL importable en Laragon/HeidiSQL, sin .env ni credenciales.
 </div>
 
 <div class="card">
@@ -120,11 +138,14 @@
                             </tr>
                         </thead>
                         <tbody>
-                            @forelse (collect($backups['database'] ?? [])->merge($backups['full'] ?? [])->sortByDesc('created_at') as $backup)
+                            @forelse (collect($backups['database'] ?? [])->merge($backups['full'] ?? [])->merge($backups['migration'] ?? [])->sortByDesc('created_at') as $backup)
+                                @php
+                                    $type = $backupType($backup['type']);
+                                @endphp
                                 <tr>
                                     <td>
-                                        <span class="badge {{ $backup['type'] === 'database' ? 'badge-soft-primary' : 'badge-soft-success' }}">
-                                            {{ $backup['type'] === 'database' ? 'BD' : 'Completo' }}
+                                        <span class="badge {{ $type['class'] }}">
+                                            {{ $type['label'] }}
                                         </span>
                                     </td>
                                     <td>{{ $backup['name'] }}</td>

@@ -51,9 +51,10 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::post('seguridad/deshacer/{token}', [FinanceSecurityController::class, 'undoDelete'])->name('security.undo-delete');
         Route::post('seguridad/backups/database', [FinanceSecurityController::class, 'createDatabaseBackup'])->name('security.backups.database');
         Route::post('seguridad/backups/full', [FinanceSecurityController::class, 'createFullBackup'])->name('security.backups.full');
+        Route::post('seguridad/backups/migration', [FinanceSecurityController::class, 'createMigrationPackage'])->name('security.backups.migration');
         Route::post('seguridad/backups/externo', [FinanceSecurityController::class, 'createExternalBackup'])->name('security.backups.external');
         Route::get('seguridad/backups/{type}/{filename}', [FinanceSecurityController::class, 'downloadBackup'])
-            ->where(['type' => 'database|full', 'filename' => '[^/]+'])
+            ->where(['type' => 'database|full|migration', 'filename' => '[^/]+'])
             ->name('security.backups.download');
         Route::post('seguridad/fallas/{failure}/resolver', [FinanceSecurityController::class, 'resolveFailure'])->name('security.failures.resolve');
 

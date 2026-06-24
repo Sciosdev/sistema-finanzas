@@ -92,6 +92,11 @@ class FinanceSecurityController extends Controller
         return $this->backupResponse($this->backups->createFullBackup($request->boolean('include_env')), 'full');
     }
 
+    public function createMigrationPackage()
+    {
+        return $this->backupResponse($this->backups->createMigrationPackage(), 'migration');
+    }
+
     public function createExternalBackup(Request $request)
     {
         $data = $request->validate([

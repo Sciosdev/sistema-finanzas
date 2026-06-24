@@ -3,6 +3,7 @@
 namespace App\Services\Finance;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\File;
 use RuntimeException;
 use Symfony\Component\Process\Process;
@@ -89,6 +90,70 @@ class FinanceBackupService
         }
     }
 
+    public function createMigrationPackage(): array
+    {
+        $timestamp = now()->format('Ymd-His');
+        $filename = 'finanzas-migration-' . $timestamp . '.zip';
+        $directory = $this->migrationBackupDirectory();
+        $path = $directory . DIRECTORY_SEPARATOR . $filename;
+        $sqlPath = $directory . DIRECTORY_SEPARATOR . 'sistema-finanzas-' . $timestamp . '.sql';
+
+        try {
+            File::ensureDirectoryExists($directory);
+
+            $databaseExport = $this->createPortableDatabaseExport($sqlPath);
+
+            $zip = new ZipArchive();
+            if ($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+                throw new RuntimeException('No se pudo abrir el archivo zip.');
+            }
+
+            $manifest = [
+                'type' => 'sistema-finanzas-migration',
+                'generated_at' => now()->toIso8601String(),
+                'app_name' => config('app.name'),
+                'app_url' => config('app.url'),
+                'environment' => app()->environment(),
+                'database' => [
+                    'driver' => $databaseExport['driver'],
+                    'name' => $databaseExport['database'],
+                    'tables' => $databaseExport['tables'],
+                    'rows' => $databaseExport['rows'],
+                ],
+                'restore' => [
+                    'target' => 'local',
+                    'method' => 'Importar database/sistema-finanzas.sql en una base local vacia.',
+                ],
+            ];
+
+            $zip->addFile($sqlPath, 'database/sistema-finanzas.sql');
+            $zip->addFromString('manifest.json', json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) ?: '{}');
+            $zip->addFromString('RESTORE_LOCAL.md', $this->migrationRestoreGuide($databaseExport));
+            $zip->close();
+
+            @unlink($sqlPath);
+
+            if (! is_file($path) || filesize($path) === 0) {
+                throw new RuntimeException('No se genero un zip valido.');
+            }
+
+            return $this->successPayload('migration', $filename, $path, 'Paquete de migracion creado.');
+        } catch (\Throwable $exception) {
+            if (is_file($path)) {
+                @unlink($path);
+            }
+
+            if (is_file($sqlPath)) {
+                @unlink($sqlPath);
+            }
+
+            return [
+                'ok' => false,
+                'message' => 'No se pudo crear el paquete de migracion: ' . $exception->getMessage(),
+            ];
+        }
+    }
+
     public function createDatabaseBackupExternal(): array
     {
         $backup = $this->createDatabaseBackup();
@@ -146,6 +211,7 @@ class FinanceBackupService
         return [
             'database' => $this->filesForType('database'),
             'full' => $this->filesForType('full'),
+            'migration' => $this->filesForType('migration'),
         ];
     }
 
@@ -154,6 +220,7 @@ class FinanceBackupService
         $directory = match ($type) {
             'database' => $this->databaseBackupDirectory(),
             'full' => $this->fullBackupDirectory(),
+            'migration' => $this->migrationBackupDirectory(),
             default => throw new RuntimeException('Tipo de backup invalido.'),
         };
 
@@ -182,6 +249,109 @@ class FinanceBackupService
         }
 
         return $realPath;
+    }
+
+    protected function createPortableDatabaseExport(string $path): array
+    {
+        $connectionConfig = $this->databaseConnection();
+
+        if (! in_array($connectionConfig['driver'] ?? null, ['mysql', 'mariadb'], true)) {
+            throw new RuntimeException('El paquete de migracion solo esta disponible para MySQL/MariaDB.');
+        }
+
+        $connection = DB::connection();
+        $pdo = $connection->getPdo();
+        $database = (string) $connection->getDatabaseName();
+
+        if ($database === '') {
+            throw new RuntimeException('La base de datos no esta configurada.');
+        }
+
+        $tables = collect($connection->select('SHOW FULL TABLES WHERE Table_type = ?', ['BASE TABLE']))
+            ->map(function (object $row) {
+                $values = array_values((array) $row);
+
+                return (string) ($values[0] ?? '');
+            })
+            ->filter()
+            ->values();
+
+        $handle = fopen($path, 'wb');
+        if (! $handle) {
+            throw new RuntimeException('No se pudo crear el archivo SQL.');
+        }
+
+        $rowCount = 0;
+
+        try {
+            fwrite($handle, "-- Sistema de Finanzas migration package\n");
+            fwrite($handle, '-- Generated at: ' . now()->toIso8601String() . "\n");
+            fwrite($handle, "-- Source database: {$database}\n\n");
+            fwrite($handle, "SET FOREIGN_KEY_CHECKS=0;\n");
+            fwrite($handle, "SET SQL_MODE='NO_AUTO_VALUE_ON_ZERO';\n\n");
+
+            foreach ($tables as $table) {
+                fwrite($handle, 'DROP TABLE IF EXISTS ' . $this->quoteIdentifier($table) . ";\n");
+            }
+
+            fwrite($handle, "\n");
+
+            foreach ($tables as $table) {
+                $createRow = (array) $connection->selectOne('SHOW CREATE TABLE ' . $this->quoteIdentifier($table));
+                $createSql = (string) ($createRow['Create Table'] ?? array_values($createRow)[1] ?? '');
+
+                if ($createSql === '') {
+                    throw new RuntimeException("No se pudo leer la estructura de {$table}.");
+                }
+
+                fwrite($handle, "--\n-- Table structure for {$table}\n--\n\n");
+                fwrite($handle, $createSql . ";\n\n");
+
+                $columns = collect($connection->select('SHOW COLUMNS FROM ' . $this->quoteIdentifier($table)))
+                    ->pluck('Field')
+                    ->map(fn (string $column) => $this->quoteIdentifier($column))
+                    ->implode(', ');
+
+                if ($columns === '') {
+                    continue;
+                }
+
+                $rows = $connection->table($table)->get();
+                if ($rows->isEmpty()) {
+                    continue;
+                }
+
+                fwrite($handle, "--\n-- Data for {$table}\n--\n\n");
+
+                foreach ($rows->chunk(100) as $chunk) {
+                    $values = $chunk
+                        ->map(function (object $row) use ($pdo) {
+                            return '(' . collect((array) $row)
+                                ->map(fn ($value) => $this->sqlValue($pdo, $value))
+                                ->implode(', ') . ')';
+                        })
+                        ->implode(",\n");
+
+                    fwrite($handle, 'INSERT INTO ' . $this->quoteIdentifier($table) . " ({$columns}) VALUES\n{$values};\n\n");
+                    $rowCount += $chunk->count();
+                }
+            }
+
+            fwrite($handle, "SET FOREIGN_KEY_CHECKS=1;\n");
+        } finally {
+            fclose($handle);
+        }
+
+        if (! is_file($path) || filesize($path) === 0) {
+            throw new RuntimeException('No se genero un SQL valido.');
+        }
+
+        return [
+            'driver' => (string) $connectionConfig['driver'],
+            'database' => $database,
+            'tables' => $tables->count(),
+            'rows' => $rowCount,
+        ];
     }
 
     protected function runMysqlDump(array $connection, string $path): void
@@ -268,7 +438,7 @@ class FinanceBackupService
             'ok' => true,
             'type' => $type,
             'name' => $filename,
-            'path' => self::BACKUP_ROOT . '/' . ($type === 'database' ? 'database' : 'full') . '/' . $filename,
+            'path' => self::BACKUP_ROOT . '/' . $this->directoryNameForType($type) . '/' . $filename,
             'absolute_path' => $path,
             'size' => filesize($path),
             'created_at' => Carbon::now(),
@@ -378,7 +548,12 @@ class FinanceBackupService
 
     private function filesForType(string $type): array
     {
-        $directory = $type === 'database' ? $this->databaseBackupDirectory() : $this->fullBackupDirectory();
+        $directory = match ($type) {
+            'database' => $this->databaseBackupDirectory(),
+            'full' => $this->fullBackupDirectory(),
+            'migration' => $this->migrationBackupDirectory(),
+            default => throw new RuntimeException('Tipo de backup invalido.'),
+        };
 
         if (! is_dir($directory)) {
             return [];
@@ -405,6 +580,65 @@ class FinanceBackupService
     private function fullBackupDirectory(): string
     {
         return storage_path('app/private/' . self::BACKUP_ROOT . '/full');
+    }
+
+    private function migrationBackupDirectory(): string
+    {
+        return storage_path('app/private/' . self::BACKUP_ROOT . '/migration');
+    }
+
+    private function directoryNameForType(string $type): string
+    {
+        return match ($type) {
+            'database' => 'database',
+            'full' => 'full',
+            'migration' => 'migration',
+            default => throw new RuntimeException('Tipo de backup invalido.'),
+        };
+    }
+
+    private function migrationRestoreGuide(array $databaseExport): string
+    {
+        return implode("\n", [
+            '# Restaurar copia local',
+            '',
+            '1. Crea una base vacia en Laragon o selecciona una base de pruebas.',
+            '2. En HeidiSQL o phpMyAdmin importa `database/sistema-finanzas.sql`.',
+            '3. Ajusta tu `.env` local para apuntar a esa base.',
+            '4. Ejecuta `php artisan optimize:clear`.',
+            '5. Entra con el usuario que venia en la copia exportada.',
+            '',
+            'Datos del paquete:',
+            '- Motor: ' . ($databaseExport['driver'] ?? '-'),
+            '- Base origen: ' . ($databaseExport['database'] ?? '-'),
+            '- Tablas: ' . ($databaseExport['tables'] ?? 0),
+            '- Filas: ' . ($databaseExport['rows'] ?? 0),
+            '',
+            'Este paquete no incluye `.env` ni credenciales.',
+            '',
+        ]);
+    }
+
+    private function quoteIdentifier(string $identifier): string
+    {
+        return '`' . str_replace('`', '``', $identifier) . '`';
+    }
+
+    private function sqlValue(\PDO $pdo, mixed $value): string
+    {
+        if ($value === null) {
+            return 'NULL';
+        }
+
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        return $pdo->quote((string) $value);
     }
 
     private function externalBackupDirectory(string $type): string

@@ -51,6 +51,16 @@ function zipEntriesForFinanceBackup(string $path): array
     return $entries;
 }
 
+function zipTextEntryForFinanceBackup(string $path, string $entry): string
+{
+    $zip = new ZipArchive();
+    $zip->open($path);
+    $contents = (string) $zip->getFromName($entry);
+    $zip->close();
+
+    return $contents;
+}
+
 function fakeDatabaseDumpFinanceBackupService(): FinanceBackupService
 {
     return new class extends FinanceBackupService {
@@ -82,6 +92,23 @@ function fakeFullFinanceBackupService(): FinanceBackupService
                 'size' => filesize($path),
                 'created_at' => now(),
                 'message' => 'Backup de BD creado.',
+            ];
+        }
+    };
+}
+
+function fakeMigrationFinanceBackupService(): FinanceBackupService
+{
+    return new class extends FinanceBackupService {
+        protected function createPortableDatabaseExport(string $path): array
+        {
+            File::put($path, "-- portable dump\nCREATE TABLE `users` (`id` bigint unsigned NOT NULL AUTO_INCREMENT, PRIMARY KEY (`id`));\n");
+
+            return [
+                'driver' => 'mysql',
+                'database' => 'finanzas_test',
+                'tables' => 1,
+                'rows' => 0,
             ];
         }
     };
@@ -134,6 +161,26 @@ it('creates a full backup zip with env when requested', function () {
     expect($entries)->toContain('.env');
 });
 
+it('creates a migration package zip with portable sql and restore metadata', function () {
+    Carbon::setTestNow('2026-06-22 10:00:00');
+
+    $result = fakeMigrationFinanceBackupService()->createMigrationPackage();
+
+    expect($result['ok'])->toBeTrue();
+    expect($result['type'])->toBe('migration');
+    expect($result['name'])->toEndWith('.zip');
+    expect(File::exists($result['absolute_path']))->toBeTrue();
+
+    $entries = collect(zipEntriesForFinanceBackup($result['absolute_path']));
+
+    expect($entries)->toContain('database/sistema-finanzas.sql');
+    expect($entries)->toContain('manifest.json');
+    expect($entries)->toContain('RESTORE_LOCAL.md');
+    expect(zipTextEntryForFinanceBackup($result['absolute_path'], 'database/sistema-finanzas.sql'))->toContain('CREATE TABLE `users`');
+    expect(zipTextEntryForFinanceBackup($result['absolute_path'], 'manifest.json'))->toContain('sistema-finanzas-migration');
+    expect(zipTextEntryForFinanceBackup($result['absolute_path'], 'manifest.json'))->not->toContain('secret');
+});
+
 it('stores a generated database backup flash with a protected download link', function () {
     Carbon::setTestNow('2026-06-22 10:00:00');
 
@@ -147,6 +194,20 @@ it('stores a generated database backup flash with a protected download link', fu
         ->assertSessionHas('success')
         ->assertSessionHas('backup_download', fn (array $download) => $download['type'] === 'database'
             && str_ends_with($download['name'], '.sql'));
+});
+
+it('stores a generated migration package flash with a protected download link', function () {
+    Carbon::setTestNow('2026-06-22 10:00:00');
+
+    app()->instance(FinanceBackupService::class, fakeMigrationFinanceBackupService());
+    $user = User::factory()->create();
+
+    $this->actingAs($user)
+        ->post(route('finance.security.backups.migration'))
+        ->assertRedirect()
+        ->assertSessionHas('success')
+        ->assertSessionHas('backup_download', fn (array $download) => $download['type'] === 'migration'
+            && str_ends_with($download['name'], '.zip'));
 });
 
 it('downloads an existing private backup file from a protected route', function () {
@@ -172,6 +233,7 @@ it('rejects manipulated backup download paths', function () {
 it('requires authentication to generate and download backups', function () {
     $this->post(route('finance.security.backups.database'))->assertRedirect(route('login'));
     $this->post(route('finance.security.backups.full'))->assertRedirect(route('login'));
+    $this->post(route('finance.security.backups.migration'))->assertRedirect(route('login'));
     $this->get(route('finance.security.backups.download', ['type' => 'database', 'filename' => 'manual.sql']))
         ->assertRedirect(route('login'));
 });
