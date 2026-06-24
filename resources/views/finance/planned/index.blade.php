@@ -174,6 +174,8 @@
                 <tbody>
                     @forelse ($payments as $payment)
                         @php
+                            $isCreditPaid = $payment->status === 'paid' && (bool) $payment->is_credit;
+                            $linkedCredit = $payment->creditPurchase;
                             $overdue = in_array($payment->status, ['pending', 'overdue'], true)
                                 && (
                                     $payment->status === 'overdue'
@@ -181,6 +183,8 @@
                                 );
                             $displayStatus = $overdue ? 'overdue' : $payment->status;
                             $originLabel = match (true) {
+                                $isCreditPaid && $linkedCredit => 'Pagado con credito: ' . $linkedCredit->name,
+                                $isCreditPaid => 'Pagado con credito',
                                 $payment->status === 'skipped' => 'No pagado / pendiente de decisión',
                                 $payment->status === 'paid' && (bool) $payment->movement_id => 'Pagado/vinculado',
                                 $payment->status === 'paid' => 'Pagado/registrado',
@@ -188,6 +192,7 @@
                                 default => 'Pago planeado',
                             };
                             $originClass = match (true) {
+                                $isCreditPaid => 'badge-soft-warning',
                                 $payment->status === 'paid' => 'badge-soft-success',
                                 $payment->status === 'skipped' || $overdue => 'badge-soft-danger',
                                 default => 'badge-soft-primary',
@@ -199,6 +204,15 @@
                                 {{ $payment->name }}
                                 @if ($payment->is_san_juan)
                                     <span class="badge badge-soft-danger ms-1">SNJ</span>
+                                @endif
+                                @if ($isCreditPaid)
+                                    <span class="badge badge-soft-warning ms-1">Tarjeta</span>
+                                    <div class="text-muted small">
+                                        {{ $payment->account?->name ? 'Tarjeta: ' . $payment->account->name : 'Tarjeta sin cuenta asignada' }}
+                                        @if ($linkedCredit)
+                                            | Credito: {{ $linkedCredit->name }}
+                                        @endif
+                                    </div>
                                 @endif
                             </td>
                             <td>{{ $payment->category?->name ?? '-' }}</td>
@@ -233,6 +247,25 @@
                                         <a href="{{ route('finance.planned.link', $payment) }}" class="btn btn-sm btn-outline-success" title="Vincular con movimiento">
                                             <i data-lucide="link"></i>
                                         </a>
+                                        <form method="POST" action="{{ route('finance.planned.credit-paid', $payment) }}" class="d-flex flex-column gap-1" title="Cubrir con tarjeta o credito">
+                                            @csrf
+                                            <input type="date" name="paid_on" class="form-control form-control-sm" value="{{ $payment->due_date?->format('Y-m-d') ?? now()->toDateString() }}" title="Fecha de compra con tarjeta">
+                                            <select name="account_id" class="form-select form-select-sm" title="Tarjeta o cuenta de credito">
+                                                <option value="">Tarjeta</option>
+                                                @foreach ($creditAccounts as $account)
+                                                    <option value="{{ $account->id }}" @selected($payment->account_id === $account->id)>{{ $account->name }}</option>
+                                                @endforeach
+                                            </select>
+                                            <select name="credit_purchase_id" class="form-select form-select-sm" title="Credito ya agregado">
+                                                <option value="">Ligar credito existente</option>
+                                                @foreach ($creditPurchases as $creditPurchase)
+                                                    <option value="{{ $creditPurchase->id }}">{{ $creditPurchase->name }}{{ $creditPurchase->account ? ' - ' . $creditPurchase->account->name : '' }}</option>
+                                                @endforeach
+                                            </select>
+                                            <button type="submit" class="btn btn-sm btn-outline-warning" title="Pagado con credito">
+                                                <i data-lucide="credit-card"></i>
+                                            </button>
+                                        </form>
                                         <form method="POST" action="{{ route('finance.planned.skip', $payment) }}">
                                             @csrf
                                             <button type="submit" class="btn btn-sm btn-outline-danger" title="No pagado / pendiente de decisión">
@@ -256,6 +289,27 @@
                                             <a href="{{ route('finance.planned.link', $payment) }}" class="btn btn-sm btn-outline-success" title="Vincular con movimiento">
                                                 <i data-lucide="link"></i>
                                             </a>
+                                        @endif
+                                        @if ($payment->status === 'paid' && ! $payment->movement_id && ! $payment->is_credit)
+                                            <form method="POST" action="{{ route('finance.planned.credit-paid', $payment) }}" class="d-flex flex-column gap-1" title="Ligar a credito">
+                                                @csrf
+                                                <input type="hidden" name="paid_on" value="{{ $payment->paid_on?->format('Y-m-d') ?? now()->toDateString() }}">
+                                                <select name="account_id" class="form-select form-select-sm" title="Tarjeta o cuenta de credito">
+                                                    <option value="">Tarjeta</option>
+                                                    @foreach ($creditAccounts as $account)
+                                                        <option value="{{ $account->id }}" @selected($payment->account_id === $account->id)>{{ $account->name }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <select name="credit_purchase_id" class="form-select form-select-sm" title="Credito ya agregado">
+                                                    <option value="">Credito existente</option>
+                                                    @foreach ($creditPurchases as $creditPurchase)
+                                                        <option value="{{ $creditPurchase->id }}">{{ $creditPurchase->name }}{{ $creditPurchase->account ? ' - ' . $creditPurchase->account->name : '' }}</option>
+                                                    @endforeach
+                                                </select>
+                                                <button type="submit" class="btn btn-sm btn-outline-warning" title="Ligar como pagado con credito">
+                                                    <i data-lucide="credit-card"></i>
+                                                </button>
+                                            </form>
                                         @endif
                                         <form method="POST" action="{{ route('finance.planned.destroy', $payment) }}" class="d-inline">
                                             @csrf

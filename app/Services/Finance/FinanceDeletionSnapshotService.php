@@ -286,6 +286,7 @@ class FinanceDeletionSnapshotService
 
         $installments = $snapshot->relations_payload['installments'] ?? [];
         $freePayments = $snapshot->relations_payload['free_payments'] ?? [];
+        $plannedPaymentIds = $snapshot->relations_payload['planned_payment_ids'] ?? [];
         $installmentIds = collect($installments)
             ->pluck('id')
             ->filter()
@@ -331,6 +332,16 @@ class FinanceDeletionSnapshotService
             }
 
             CreditFreePayment::query()->insert($payment);
+        }
+
+        if ($plannedPaymentIds !== []) {
+            PlannedPayment::where('user_id', $user->id)
+                ->whereIn('id', $plannedPaymentIds)
+                ->whereNull('credit_purchase_id')
+                ->update([
+                    'credit_purchase_id' => $snapshot->entity_id,
+                    'is_credit' => true,
+                ]);
         }
 
         $credit = CreditPurchase::query()->whereKey($snapshot->entity_id)->first();
@@ -500,6 +511,10 @@ class FinanceDeletionSnapshotService
                     ->orderBy('id')
                     ->get()
                     ->map(fn (CreditFreePayment $payment) => $payment->getAttributes())
+                    ->all(),
+                'planned_payment_ids' => PlannedPayment::where('user_id', $user->id)
+                    ->where('credit_purchase_id', $model->getKey())
+                    ->pluck('id')
                     ->all(),
             ];
         }

@@ -23,6 +23,7 @@ class PlannedPayment extends Model
         'category_id',
         'person_id',
         'movement_id',
+        'credit_purchase_id',
         'is_credit',
         'is_san_juan',
         'notes',
@@ -65,5 +66,10 @@ class PlannedPayment extends Model
     public function movement(): BelongsTo
     {
         return $this->belongsTo(Movement::class);
+    }
+
+    public function creditPurchase(): BelongsTo
+    {
+        return $this->belongsTo(CreditPurchase::class);
     }
 }

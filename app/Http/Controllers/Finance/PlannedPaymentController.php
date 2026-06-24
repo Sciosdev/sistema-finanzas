@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Finance;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
 use App\Models\Finance\CreditInstallment;
+use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
 use App\Services\Finance\FinanceDeletionSnapshotService;
@@ -33,7 +34,7 @@ class PlannedPaymentController extends Controller
 
         [$start, $end] = $this->summaryService->monthRange($request->query('month', now()->format('Y-m')));
 
-        $payments = PlannedPayment::with(['account', 'category', 'person', 'movement'])
+        $payments = PlannedPayment::with(['account', 'category', 'person', 'movement', 'creditPurchase.account'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->orderByRaw('due_date is null, due_date asc')
@@ -50,13 +51,30 @@ class PlannedPaymentController extends Controller
         $paymentTotals = $this->summaryService->obligationTotals(
             $this->summaryService->monthObligations($user, $start, $end)
         );
+        $accounts = $this->accountsFor($user);
+        $creditAccounts = $accounts
+            ->filter(fn ($account) => in_array($account->type, ['card', 'credit'], true))
+            ->values();
+
+        if ($creditAccounts->isEmpty()) {
+            $creditAccounts = $accounts;
+        }
+
+        $creditPurchases = CreditPurchase::with('account')
+            ->where('user_id', $user->id)
+            ->where('status', '!=', 'paid')
+            ->orderByDesc('purchase_date')
+            ->orderBy('name')
+            ->get();
 
         return view('finance.planned.index', [
             'payments' => $payments,
             'creditInstallments' => $creditInstallments,
             'paymentTotals' => $paymentTotals,
             'monthValue' => $start->format('Y-m'),
-            'accounts' => $this->accountsFor($user),
+            'accounts' => $accounts,
+            'creditAccounts' => $creditAccounts,
+            'creditPurchases' => $creditPurchases,
             'categories' => $this->categoriesFor($user, 'expense'),
             'people' => $this->peopleFor($user),
         ]);
@@ -224,9 +242,47 @@ class PlannedPaymentController extends Controller
             'paid_amount' => $payment->amount,
             'paid_on' => $paidOn->toDateString(),
             'movement_id' => $movement?->id ?? $payment->movement_id,
+            'credit_purchase_id' => null,
+            'is_credit' => false,
         ]);
 
         return back()->with('success', 'Pago marcado como pagado.');
+    }
+
+    public function markPaidWithCredit(Request $request, PlannedPayment $payment)
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+
+        if ($payment->movement_id) {
+            return back()->with('error', 'Este pago ya tiene un movimiento real vinculado; no lo marque con credito para evitar duplicar egresos.');
+        }
+
+        $user = $request->user();
+        $data = $request->validate([
+            'paid_on' => ['nullable', 'date'],
+            'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'credit_purchase_id' => ['nullable', 'integer', Rule::exists('finance_credit_purchases', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+        ]);
+
+        $credit = ! empty($data['credit_purchase_id'])
+            ? CreditPurchase::where('user_id', $user->id)->findOrFail($data['credit_purchase_id'])
+            : null;
+        $paidOn = isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today();
+        $accountId = $data['account_id'] ?? $credit?->account_id ?? $payment->account_id;
+
+        $payment->update([
+            'status' => 'paid',
+            'paid_amount' => $payment->amount,
+            'paid_on' => $paidOn->toDateString(),
+            'account_id' => $accountId,
+            'credit_purchase_id' => $credit?->id,
+            'movement_id' => null,
+            'is_credit' => true,
+        ]);
+
+        return redirect()
+            ->route('finance.planned.index', ['month' => $payment->period_month->format('Y-m')])
+            ->with('success', 'Pago marcado como cubierto con credito. La deuda queda en la seccion de creditos.');
     }
 
     public function link(Request $request, PlannedPayment $payment)
@@ -287,6 +343,8 @@ class PlannedPaymentController extends Controller
             'paid_amount' => $payment->amount,
             'paid_on' => $movement->happened_on->toDateString(),
             'movement_id' => $movement->id,
+            'credit_purchase_id' => null,
+            'is_credit' => false,
         ]);
 
         return redirect()
@@ -308,6 +366,8 @@ class PlannedPaymentController extends Controller
             'status' => 'paid',
             'paid_amount' => $payment->amount,
             'paid_on' => $paidOn->toDateString(),
+            'credit_purchase_id' => null,
+            'is_credit' => false,
         ]);
 
         return back()->with('success', 'Pago marcado como ya registrado.');

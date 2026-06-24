@@ -142,17 +142,19 @@ class FinanceSummaryService
 
     public function monthObligations(User $user, Carbon $start, Carbon $end): Collection
     {
-        $planned = PlannedPayment::with(['account', 'category', 'person', 'movement'])
+        $planned = PlannedPayment::with(['account', 'category', 'person', 'movement', 'creditPurchase.account'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->get()
-            ->map(fn (PlannedPayment $payment) => $this->plannedObligation($payment));
+            ->map(fn (PlannedPayment $payment) => $this->plannedObligation($payment))
+            ->toBase();
 
         $credits = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.category', 'creditPurchase.freePayments'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->get()
-            ->map(fn (CreditInstallment $installment) => $this->creditObligation($installment));
+            ->map(fn (CreditInstallment $installment) => $this->creditObligation($installment))
+            ->toBase();
 
         return $planned
             ->merge($credits)
@@ -293,6 +295,8 @@ class FinanceSummaryService
         $paidAmount = (float) $payment->paid_amount;
         $isSkipped = $payment->status === 'skipped';
         $isPaid = $payment->status === 'paid';
+        $isCreditPaid = $isPaid && (bool) $payment->is_credit;
+        $credit = $payment->creditPurchase;
         $amountDue = $isSkipped || $isPaid ? 0.0 : max(0, $amount - $paidAmount);
         $isPending = in_array($payment->status, ['pending', 'overdue'], true) && $amountDue > 0;
         $isOverdue = $isPending && (
@@ -315,14 +319,19 @@ class FinanceSummaryService
             'amount' => $this->money($amount),
             'paid_amount' => $this->money($paidAmount),
             'amount_due' => $this->money($amountDue),
-            'kind' => 'Pago planeado',
-            'origin' => 'Pago planeado',
-            'origin_detail' => $this->originDetail($status, (bool) $payment->movement_id),
+            'credit_name' => $credit?->name,
+            'credit_account' => $credit?->account?->name,
+            'kind' => $isCreditPaid ? 'Pagado con credito' : 'Pago planeado',
+            'origin' => $isCreditPaid ? 'Credito / tarjeta' : 'Pago planeado',
+            'origin_detail' => $isCreditPaid
+                ? 'Cubierto con credito' . ($credit ? ': ' . $credit->name : '')
+                : $this->originDetail($status, (bool) $payment->movement_id),
             'is_pending' => $isPending,
             'is_overdue' => $isOverdue,
             'is_paid' => $isPaid,
             'is_linked' => (bool) $payment->movement_id,
             'is_skipped' => $isSkipped,
+            'is_credit_paid' => $isCreditPaid,
         ];
     }
 
