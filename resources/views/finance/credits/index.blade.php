@@ -4,6 +4,7 @@
 @php
     $money = fn ($value) => '$' . number_format((float) $value, 2);
     $creditorSummaries = collect($creditorSummaries ?? []);
+    $summaryWithoutOnix = $summaryWithoutOnix ?? [];
 @endphp
 
 @include('finance.partials.flash')
@@ -66,6 +67,37 @@
                     <h4 class="fw-semibold text-warning mb-0">{{ $money($summary['next_month'] ?? 0) }}</h4>
                 </div>
                 <span class="badge badge-soft-primary">{{ $nextMonthLabel }}</span>
+            </div>
+        </div>
+    </div>
+    <div class="col-12">
+        <div class="card mb-0 border border-info border-opacity-25">
+            <div class="card-body">
+                <div class="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2 mb-3">
+                    <div>
+                        <p class="text-muted mb-1">Vista realista sin el crédito del Onix</p>
+                        <h5 class="mb-0">Lo que debes en créditos normales, separado del carro.</h5>
+                    </div>
+                    <span class="badge badge-soft-info align-self-start align-self-lg-center">No incluye créditos llamados Onix ni acreedor Onix</span>
+                </div>
+                <div class="row g-3">
+                    <div class="col-xl-3 col-md-6">
+                        <p class="text-muted mb-1">Deuda sin Onix</p>
+                        <h4 class="fw-semibold text-info mb-0">{{ $money($summaryWithoutOnix['total'] ?? 0) }}</h4>
+                    </div>
+                    <div class="col-xl-3 col-md-6">
+                        <p class="text-muted mb-1">Pendiente sin Onix</p>
+                        <h4 class="fw-semibold text-warning mb-0">{{ $money($summaryWithoutOnix['pending'] ?? 0) }}</h4>
+                    </div>
+                    <div class="col-xl-3 col-md-6">
+                        <p class="text-muted mb-1">Este mes sin Onix</p>
+                        <h4 class="fw-semibold text-warning mb-0">{{ $money($summaryWithoutOnix['current_month'] ?? 0) }}</h4>
+                    </div>
+                    <div class="col-xl-3 col-md-6">
+                        <p class="text-muted mb-1">Siguiente mes sin Onix</p>
+                        <h4 class="fw-semibold text-warning mb-0">{{ $money($summaryWithoutOnix['next_month'] ?? 0) }}</h4>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

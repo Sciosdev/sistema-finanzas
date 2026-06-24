@@ -43,34 +43,26 @@ class CreditPurchaseController extends Controller
             ->orderByDesc('purchase_date')
             ->get();
 
-        $installments = $credits->flatMap->installments;
-        $freePayments = $credits->flatMap->freePayments;
         $creditTotals = $credits->mapWithKeys(fn (CreditPurchase $credit) => [
             $credit->id => $this->freePayments->totals($credit),
         ]);
         $currentMonth = now()->startOfMonth();
         $nextMonth = $currentMonth->copy()->addMonth();
         $creditorSummaries = $this->creditorSummaries($credits, $creditTotals, $currentMonth, $nextMonth);
-        $summary = [
-            'total' => round($credits->sum(fn (CreditPurchase $credit) => (float) $credit->total_amount), 2),
-            'paid' => round($creditTotals->sum('total_paid'), 2),
-            'installment_paid' => round($installments->sum(fn (CreditInstallment $installment) => (float) $installment->paid_amount), 2),
-            'free_paid' => round($freePayments->sum(fn (CreditFreePayment $payment) => (float) $payment->amount_applied), 2),
-            'pending' => round($creditTotals->sum('balance_due'), 2),
-            'current_month' => round($installments
-                ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($currentMonth))
-                ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2),
-            'next_month' => round($installments
-                ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($nextMonth))
-                ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2),
-            'active_count' => $credits->where('status', '!=', 'paid')->count(),
-        ];
+        $summary = $this->creditSummary($credits, $creditTotals, $currentMonth, $nextMonth);
+        $summaryWithoutOnix = $this->creditSummary(
+            $credits->reject(fn (CreditPurchase $credit) => $this->isOnixCredit($credit))->values(),
+            $creditTotals,
+            $currentMonth,
+            $nextMonth
+        );
 
         return view('finance.credits.index', [
             'credits' => $credits,
             'creditTotals' => $creditTotals,
             'creditorSummaries' => $creditorSummaries,
             'summary' => $summary,
+            'summaryWithoutOnix' => $summaryWithoutOnix,
             'currentMonthLabel' => $currentMonth->format('Y-m'),
             'nextMonthLabel' => $nextMonth->format('Y-m'),
             'accounts' => $this->accountsFor($user),
@@ -484,6 +476,35 @@ class CreditPurchaseController extends Controller
     private function refreshCreditStatus(CreditPurchase $credit): void
     {
         $this->freePayments->syncCreditStatus($credit);
+    }
+
+    private function creditSummary($credits, $creditTotals, Carbon $currentMonth, Carbon $nextMonth): array
+    {
+        $installments = $credits->flatMap->installments;
+        $freePayments = $credits->flatMap->freePayments;
+        $creditIds = $credits->pluck('id');
+        $filteredTotals = $creditTotals->only($creditIds->all());
+
+        return [
+            'total' => round($credits->sum(fn (CreditPurchase $credit) => (float) $credit->total_amount), 2),
+            'paid' => round($filteredTotals->sum('total_paid'), 2),
+            'installment_paid' => round($installments->sum(fn (CreditInstallment $installment) => (float) $installment->paid_amount), 2),
+            'free_paid' => round($freePayments->sum(fn (CreditFreePayment $payment) => (float) $payment->amount_applied), 2),
+            'pending' => round($filteredTotals->sum('balance_due'), 2),
+            'current_month' => round($installments
+                ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($currentMonth))
+                ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2),
+            'next_month' => round($installments
+                ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($nextMonth))
+                ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2),
+            'active_count' => $credits->where('status', '!=', 'paid')->count(),
+        ];
+    }
+
+    private function isOnixCredit(CreditPurchase $credit): bool
+    {
+        return str($credit->name)->ascii()->lower()->contains('onix')
+            || str($credit->account?->name ?? '')->ascii()->lower()->contains('onix');
     }
 
     private function creditorSummaries($credits, $creditTotals, Carbon $currentMonth, Carbon $nextMonth)
