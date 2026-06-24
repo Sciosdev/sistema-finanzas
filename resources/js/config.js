@@ -41,6 +41,8 @@
 
           if (window.innerWidth <= 1140) {
                html.classList.add("sidebar-hidden");
+          } else if (sessionStorage.getItem("__FINANCE_SIDEBAR_COLLAPSED__") === "true") {
+               html.classList.add("sidebar-collapsed");
           }
      }
 })();

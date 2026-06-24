@@ -375,6 +375,75 @@ html.sidebar-hover {
      }
 }
 
+html.sidebar-collapsed {
+
+     .page-container {
+          margin-left: $main-nav-width-sm;
+          position: relative;
+     }
+
+     .main-nav {
+          width: $main-nav-width-sm;
+          min-width: $main-nav-width-sm;
+          transition: visibility .2s ease, width .2s ease, margin .2s ease;
+
+          &::before {
+               content: none;
+          }
+
+          .logo-box {
+               display: none;
+
+               .logo-lg {
+                    display: none;
+               }
+          }
+
+          .menu-item {
+
+               .menu-link {
+                    justify-content: center;
+                    padding: calc($main-menu-item-padding-y * 1.25) calc($main-menu-item-padding-x * 1.25);
+
+                    .nav-text,
+                    .menu-arrow,
+                    .badge {
+                         display: none;
+                    }
+
+                    .nav-icon {
+                         margin-left: 0;
+
+                         svg {
+                              height: 22px;
+                              width: 22px;
+                         }
+                    }
+               }
+
+               .collapse,
+               .collapsing {
+                    display: none;
+               }
+          }
+
+          .menu-title {
+               height: 0;
+               opacity: 0;
+               padding: 0;
+          }
+
+          .simplebar-track.simplebar-vertical,
+          .simplebar-track.simplebar-horizontal {
+               visibility: hidden !important;
+          }
+     }
+
+     .topbar {
+          padding-left: $main-nav-width-sm;
+     }
+}
+
 
 // SideNav Hidden (Mobile View)
 html.sidebar-hidden {

@@ -266,6 +266,8 @@ class ThemeLayout {
           this.html = document.getElementsByTagName('html')[0]
           this.config = {};
           this.defaultConfig = window.config;
+          this.sidebarBreakpoint = 1140;
+          this.sidebarStorageKey = '__FINANCE_SIDEBAR_COLLAPSED__';
      }
 
      // Main Nav
@@ -360,7 +362,12 @@ class ThemeLayout {
      }
 
      changeMenuSize(size, save = true) {
-          this.html.classList.add(size);
+          this.html.classList.remove('sidebar-hidden');
+
+          if (size && size !== 'default') {
+               this.html.classList.add(size);
+          }
+
           if (save) {
                this.config.menu.size = size;
                this.setSwitchFromConfig();
@@ -428,34 +435,67 @@ class ThemeLayout {
           
           var menuToggleButtons = document.querySelectorAll('.button-toggle-menu');
           menuToggleButtons.forEach(function (menuToggleBtn) {
-               menuToggleBtn.addEventListener('click', function () {
-                    if (window.innerWidth > 1040) {
-                         self.html.classList.toggle("sidebar-hover");
-                    } else {
-                         if (self.html.classList.contains('sidebar-enable')) {
-                              self.closeMobileSidebar();
-                         } else {
-                              self.openMobileSidebar();
-                         }
-                    }
-
+               menuToggleBtn.addEventListener('click', function (event) {
+                    event.preventDefault();
+                    self.toggleSidebar();
                });
           });
 
           document.querySelectorAll('.main-nav .menu-link').forEach(function (link) {
                link.addEventListener('click', function () {
-                    if (window.innerWidth <= 1040) {
+                    if (!self.isDesktopSidebar()) {
                          self.closeMobileSidebar();
                     }
                });
           });
      }
 
-     openMobileSidebar() {
-          this.html.classList.add('sidebar-enable');
+     isDesktopSidebar() {
+          return window.innerWidth > this.sidebarBreakpoint;
+     }
+
+     toggleSidebar() {
+          if (this.isDesktopSidebar()) {
+               this.toggleDesktopSidebar();
+
+               return;
+          }
+
+          if (this.html.classList.contains('sidebar-enable')) {
+               this.closeMobileSidebar();
+          } else {
+               this.openMobileSidebar();
+          }
+     }
+
+     toggleDesktopSidebar() {
+          const shouldCollapse = !this.html.classList.contains('sidebar-collapsed');
+
+          this.closeMobileSidebar();
+          this.html.classList.remove('sidebar-hidden', 'sidebar-hover');
+          this.html.classList.toggle('sidebar-collapsed', shouldCollapse);
+          sessionStorage.setItem(this.sidebarStorageKey, shouldCollapse ? 'true' : 'false');
+          this.syncSidebarToggleButtons();
+     }
+
+     syncSidebarToggleButtons() {
+          const isExpanded = this.isDesktopSidebar()
+               ? !this.html.classList.contains('sidebar-collapsed')
+               : this.html.classList.contains('sidebar-enable');
+
           document.querySelectorAll('.button-toggle-menu').forEach(function (button) {
-               button.setAttribute('aria-expanded', 'true');
+               button.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+               button.setAttribute(
+                    'aria-label',
+                    isExpanded ? 'Contraer barra lateral' : 'Mostrar barra lateral'
+               );
           });
+     }
+
+     openMobileSidebar() {
+          this.html.classList.remove('sidebar-collapsed');
+          this.html.classList.add('sidebar-enable');
+          this.syncSidebarToggleButtons();
           this.showBackdrop();
      }
 
@@ -474,12 +514,10 @@ class ThemeLayout {
 
      closeMobileSidebar() {
           this.html.classList.remove('sidebar-enable');
-          document.querySelectorAll('.button-toggle-menu').forEach(function (button) {
-               button.setAttribute('aria-expanded', 'false');
-          });
           document.querySelector('.finance-sidebar-backdrop')?.remove();
           document.body.style.overflow = null;
           document.body.style.paddingRight = null;
+          this.syncSidebarToggleButtons();
      }
 
      initWindowSize() {
@@ -492,12 +530,19 @@ class ThemeLayout {
      _adjustLayout() {
           var self = this;
 
-          if (window.innerWidth <= 1140) {
+          if (!self.isDesktopSidebar()) {
+               self.html.classList.remove('sidebar-collapsed', 'sidebar-hover');
                self.changeMenuSize('sidebar-hidden', false);
           } else {
                self.closeMobileSidebar();
-               self.changeMenuSize(self.config.menu.size);
+               self.changeMenuSize(self.config.menu?.size || 'default', false);
+               self.html.classList.toggle(
+                    'sidebar-collapsed',
+                    sessionStorage.getItem(self.sidebarStorageKey) === 'true'
+               );
           }
+
+          self.syncSidebarToggleButtons();
      }
 
      setSwitchFromConfig() {
