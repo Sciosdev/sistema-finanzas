@@ -9,6 +9,7 @@ use App\Http\Controllers\Finance\ExpectedIncomeController;
 use App\Http\Controllers\Finance\FinanceDashboardController;
 use App\Http\Controllers\Finance\FinanceHealthController;
 use App\Http\Controllers\Finance\FinanceOperationController;
+use App\Http\Controllers\Finance\FinancePendingController;
 use App\Http\Controllers\Finance\FinanceReportController;
 use App\Http\Controllers\Finance\FinanceSecurityController;
 use App\Http\Controllers\Finance\FinanceTriageController;
@@ -54,6 +55,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::post('revision-mensual/{key}/aplicar', [MonthlyReviewController::class, 'apply'])->name('monthly-review.apply');
         Route::post('revision-mensual/{key}/ignorar', [MonthlyReviewController::class, 'ignore'])->name('monthly-review.ignore');
         Route::get('operacion', [FinanceOperationController::class, 'index'])->name('operations.index');
+        Route::get('pendientes', [FinancePendingController::class, 'index'])->name('pending.index');
         Route::middleware('finance.owner')->group(function () {
             Route::get('seguridad', [FinanceSecurityController::class, 'index'])->name('security.index');
             Route::get('diagnostico', [FinanceHealthController::class, 'index'])->name('health.index');

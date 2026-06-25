@@ -67,6 +67,15 @@
                </li>
 
                <li class="menu-item">
+                    <a class="menu-link" href="{{ route('finance.pending.index') }}">
+                         <span class="nav-icon">
+                              <i data-lucide="list-checks"></i>
+                         </span>
+                         <span class="nav-text">Pendientes</span>
+                    </a>
+               </li>
+
+               <li class="menu-item">
                     <a class="menu-link" href="{{ route('finance.cuts.index') }}">
                          <span class="nav-icon">
                               <i data-lucide="scale"></i>
