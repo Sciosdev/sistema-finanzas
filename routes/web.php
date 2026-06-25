@@ -7,6 +7,7 @@ use App\Http\Controllers\Finance\CreditPurchaseController;
 use App\Http\Controllers\Finance\DailyCutController;
 use App\Http\Controllers\Finance\ExpectedIncomeController;
 use App\Http\Controllers\Finance\FinanceDashboardController;
+use App\Http\Controllers\Finance\FinanceHealthController;
 use App\Http\Controllers\Finance\FinanceOperationController;
 use App\Http\Controllers\Finance\FinanceReportController;
 use App\Http\Controllers\Finance\FinanceSecurityController;
@@ -48,6 +49,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::post('revision-mensual/{key}/ignorar', [MonthlyReviewController::class, 'ignore'])->name('monthly-review.ignore');
         Route::get('operacion', [FinanceOperationController::class, 'index'])->name('operations.index');
         Route::get('seguridad', [FinanceSecurityController::class, 'index'])->name('security.index');
+        Route::get('diagnostico', [FinanceHealthController::class, 'index'])->name('health.index');
         Route::post('seguridad/deshacer/{token}', [FinanceSecurityController::class, 'undoDelete'])->name('security.undo-delete');
         Route::post('seguridad/backups/database', [FinanceSecurityController::class, 'createDatabaseBackup'])->name('security.backups.database');
         Route::post('seguridad/backups/full', [FinanceSecurityController::class, 'createFullBackup'])->name('security.backups.full');
