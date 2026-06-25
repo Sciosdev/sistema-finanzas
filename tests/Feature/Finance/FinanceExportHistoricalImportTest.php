@@ -14,10 +14,12 @@ uses(RefreshDatabase::class);
 
 afterEach(function () {
     File::deleteDirectory(storage_path('app/private/finance-exports'));
+    config()->set('finance.owner_email', null);
 });
 
 it('exports filtered movements to a Spanish CSV compatible with Excel', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     app(FinanceCatalogService::class)->ensureForUser($user);
 
     $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
@@ -60,6 +62,7 @@ it('exports filtered movements to a Spanish CSV compatible with Excel', function
 
 it('exports report movements filtered by category', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     app(FinanceCatalogService::class)->ensureForUser($user);
 
     $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
@@ -101,6 +104,7 @@ it('exports report movements filtered by category', function () {
 
 it('exports movements to a real xlsx file with Spanish headers and currency values', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     app(FinanceCatalogService::class)->ensureForUser($user);
 
     $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
@@ -133,6 +137,7 @@ it('exports movements to a real xlsx file with Spanish headers and currency valu
 
 it('previews and stores historical CSV movements after review', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     app(FinanceCatalogService::class)->ensureForUser($user);
 
     $csv = implode("\n", [
@@ -171,6 +176,7 @@ it('previews and stores historical CSV movements after review', function () {
 
 it('keeps historical rows with non-zero reconciliation difference in review', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
 
     $csv = implode("\n", [
         'fecha,tipo,descripcion,monto,diferencia_conciliacion',
@@ -200,6 +206,7 @@ it('keeps historical rows with non-zero reconciliation difference in review', fu
 
 it('accepts common historical CSV column aliases safely', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     app(FinanceCatalogService::class)->ensureForUser($user);
 
     $csv = implode("\n", [
@@ -230,6 +237,7 @@ it('accepts common historical CSV column aliases safely', function () {
 
 it('downloads the historical import CSV template', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
 
     $response = $this->actingAs($user)
         ->get(route('finance.imports.historical.template'));
