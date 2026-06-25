@@ -206,7 +206,7 @@
                             <td class="text-end {{ $movement->movement_type === 'expense' ? 'text-danger' : 'text-success' }}">{{ $money($movement->amount) }}</td>
                             <td class="text-end">
                                 <div class="d-inline-flex align-items-center gap-2">
-                                    <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue]) }}" class="btn btn-sm btn-link text-primary p-0" title="Editar">
+                                    <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue, 'return_to' => request()->fullUrl()]) }}" class="btn btn-sm btn-link text-primary p-0" title="Editar">
                                         <i data-lucide="pencil"></i>
                                     </a>
                                     <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}" onsubmit="return confirm('¿Eliminar este movimiento? Podrás deshacerlo durante 2 minutos.')">

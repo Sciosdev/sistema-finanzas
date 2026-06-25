@@ -12,12 +12,16 @@
     $categoryValue = old('category_id', $formMovement?->category_id);
     $personValue = old('person_id', $formMovement?->person_id);
     $notesValue = old('notes', $formMovement?->notes);
+    $returnTo = $returnTo ?? null;
 @endphp
 
 <form method="POST" action="{{ $formAction }}" class="needs-validation" novalidate>
     @csrf
     @if ($formMethod)
         @method($formMethod)
+    @endif
+    @if (! empty($returnTo))
+        <input type="hidden" name="return_to" value="{{ $returnTo }}">
     @endif
     <div class="row g-3">
         <div class="col-md-3">

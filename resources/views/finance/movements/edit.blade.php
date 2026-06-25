@@ -8,7 +8,7 @@
         <h4 class="mb-0 fw-semibold">Editar movimiento</h4>
     </div>
     <div class="col-md-6 text-md-end">
-        <a href="{{ route('finance.movements.index', ['month' => $monthValue]) }}" class="btn btn-outline-primary">
+        <a href="{{ $returnTo ?? route('finance.movements.index', ['month' => $monthValue]) }}" class="btn btn-outline-primary">
             <i data-lucide="arrow-left" class="me-1"></i>Regresar
         </a>
     </div>
@@ -25,6 +25,7 @@
             'formMethod' => 'PUT',
             'submitLabel' => 'Actualizar',
             'submitIcon' => 'save',
+            'returnTo' => $returnTo ?? null,
         ])
     </div>
 </div>

@@ -152,9 +152,15 @@ class MovementController extends Controller
         $user = $request->user();
         $this->catalogs->ensureForUser($user);
 
+        $monthValue = $request->query('month', $movement->happened_on->format('Y-m'));
+        $returnTo = $request->filled('return_to')
+            ? $this->safeMovementsReturnTo($request, (string) $request->query('return_to'))
+            : route('finance.movements.index', ['month' => $monthValue]);
+
         return view('finance.movements.edit', [
             'movement' => $movement->load(['account', 'category', 'person']),
-            'monthValue' => $request->query('month', $movement->happened_on->format('Y-m')),
+            'monthValue' => $monthValue,
+            'returnTo' => $returnTo,
             'accounts' => $this->accountsFor($user),
             'categories' => $this->categoriesFor($user),
             'people' => $this->peopleFor($user),
@@ -173,9 +179,13 @@ class MovementController extends Controller
 
         $movement->update($data + $flags);
 
-        return redirect()
-            ->route('finance.movements.index', ['month' => Carbon::parse($data['happened_on'])->format('Y-m')])
-            ->with('success', 'Movimiento actualizado.');
+        // Regresa al mismo contexto (página/filtros) si el formulario trae un
+        // return_to interno seguro; si no, mantiene el comportamiento normal.
+        $returnTo = $request->filled('return_to')
+            ? $this->safeMovementsReturnTo($request, (string) $request->input('return_to'))
+            : route('finance.movements.index', ['month' => Carbon::parse($data['happened_on'])->format('Y-m')]);
+
+        return redirect($returnTo)->with('success', 'Movimiento actualizado.');
     }
 
     public function destroy(Request $request, Movement $movement)
