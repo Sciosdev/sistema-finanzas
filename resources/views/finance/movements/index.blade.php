@@ -62,6 +62,96 @@
     </div>
 </div>
 
+<form id="bulk-movements-form" method="POST" action="{{ route('finance.movements.bulk-update') }}" onsubmit="return financeBulkConfirm(this);">
+    @csrf
+    <input type="hidden" name="return_to" value="{{ request()->fullUrl() }}">
+    <div class="card border-primary-subtle">
+        <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+            <h4 class="card-title mb-0">
+                <i data-lucide="list-checks" class="me-1"></i>Aplicar cambios masivos
+            </h4>
+            <span class="badge badge-soft-primary">
+                Seleccionados: <span id="bulk-selected-count">0</span>
+            </span>
+        </div>
+        <div class="card-body">
+            <p class="text-muted small mb-3">
+                Los cambios se aplican <strong>solo a los movimientos seleccionados</strong> en la lista de abajo.
+                Deja un campo en <em>“No cambiar”</em> para no sobrescribirlo.
+            </p>
+            <div class="row g-2">
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Categoría</label>
+                    <select name="category_id" class="form-select form-select-sm">
+                        <option value="">No cambiar</option>
+                        @foreach ($categories as $category)
+                            <option value="{{ $category->id }}">{{ $category->group ? $category->group . ' · ' : '' }}{{ $category->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Persona</label>
+                    <select name="person_id" class="form-select form-select-sm">
+                        <option value="">No cambiar</option>
+                        @foreach ($people as $person)
+                            <option value="{{ $person->id }}">{{ $person->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Cuenta</label>
+                    <select name="account_id" class="form-select form-select-sm">
+                        <option value="">No cambiar</option>
+                        @foreach ($accounts as $account)
+                            <option value="{{ $account->id }}">{{ $account->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Tipo</label>
+                    <select name="movement_type" class="form-select form-select-sm">
+                        <option value="">No cambiar</option>
+                        <option value="income">Ingreso</option>
+                        <option value="expense">Egreso</option>
+                        <option value="yield">Rendimiento</option>
+                        <option value="transfer">Transferencia</option>
+                        <option value="adjustment">Ajuste</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Desconocido</label>
+                    <select name="is_unknown" class="form-select form-select-sm">
+                        <option value="">No cambiar</option>
+                        <option value="1">Marcar como desconocido</option>
+                        <option value="0">Quitar desconocido</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">San Juan</label>
+                    <select name="is_san_juan" class="form-select form-select-sm">
+                        <option value="">No cambiar</option>
+                        <option value="1">Marcar San Juan</option>
+                        <option value="0">Quitar San Juan</option>
+                    </select>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label small mb-1">Renta</label>
+                    <select name="is_rent" class="form-select form-select-sm">
+                        <option value="">No cambiar</option>
+                        <option value="1">Marcar renta</option>
+                        <option value="0">Quitar renta</option>
+                    </select>
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="submit" class="btn btn-primary btn-sm w-100">
+                        <i data-lucide="save" class="me-1"></i>Aplicar a seleccionados
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</form>
+
 <div class="card">
     <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
         <h4 class="card-title mb-0">Historial</h4>
@@ -77,6 +167,9 @@
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
+                        <th style="width: 36px;">
+                            <input type="checkbox" id="bulk-select-all" class="form-check-input" title="Seleccionar todos los visibles">
+                        </th>
                         <th>Fecha</th>
                         <th>Descripción</th>
                         <th>Tipo</th>
@@ -90,6 +183,9 @@
                 <tbody>
                     @forelse ($movements as $movement)
                         <tr>
+                            <td>
+                                <input type="checkbox" name="ids[]" value="{{ $movement->id }}" form="bulk-movements-form" class="form-check-input bulk-row-check">
+                            </td>
                             <td>{{ $movement->happened_on->format('Y-m-d') }}</td>
                             <td>
                                 {{ $movement->description }}
@@ -125,7 +221,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="8" class="text-center text-muted py-4">Sin movimientos</td>
+                            <td colspan="9" class="text-center text-muted py-4">Sin movimientos</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -145,4 +241,46 @@
         </div>
     @endif
 </div>
+@endsection
+
+@section('scripts')
+<script>
+    (function () {
+        function rowChecks() {
+            return Array.prototype.slice.call(document.querySelectorAll('.bulk-row-check'));
+        }
+
+        function refreshCount() {
+            var counter = document.getElementById('bulk-selected-count');
+            if (counter) {
+                counter.textContent = rowChecks().filter(function (c) { return c.checked; }).length;
+            }
+        }
+
+        var selectAll = document.getElementById('bulk-select-all');
+        if (selectAll) {
+            selectAll.addEventListener('change', function () {
+                rowChecks().forEach(function (c) { c.checked = selectAll.checked; });
+                refreshCount();
+            });
+        }
+
+        document.addEventListener('change', function (e) {
+            if (e.target && e.target.classList && e.target.classList.contains('bulk-row-check')) {
+                refreshCount();
+            }
+        });
+
+        refreshCount();
+    })();
+
+    window.financeBulkConfirm = function () {
+        var checked = document.querySelectorAll('.bulk-row-check:checked').length;
+        if (checked === 0) {
+            alert('Selecciona al menos un movimiento.');
+            return false;
+        }
+        return confirm('Se aplicarán los cambios a ' + checked + ' movimiento(s) seleccionados. ¿Continuar?');
+    };
+</script>
 @endsection

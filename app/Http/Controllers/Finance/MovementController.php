@@ -198,6 +198,115 @@ class MovementController extends Controller
             ]);
     }
 
+    public function bulkUpdate(Request $request)
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'ids' => ['array'],
+            'ids.*' => ['integer'],
+            'movement_type' => ['nullable', 'in:income,expense,yield,transfer,adjustment'],
+            'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'category_id' => ['nullable', 'integer', Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'person_id' => ['nullable', 'integer', Rule::exists('finance_people', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'is_unknown' => ['nullable', 'in:0,1'],
+            'is_san_juan' => ['nullable', 'in:0,1'],
+            'is_rent' => ['nullable', 'in:0,1'],
+            'return_to' => ['nullable', 'string'],
+        ]);
+
+        $redirectTo = $this->safeMovementsReturnTo($request, $validated['return_to'] ?? null);
+
+        // Solo los IDs que pertenecen al usuario; cualquier otro se ignora.
+        $ids = collect($validated['ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return redirect($redirectTo)->with('error', 'No seleccionaste movimientos para actualizar.');
+        }
+
+        // Solo se cambian los campos que el usuario eligió explícitamente.
+        // Un valor vacío / "No cambiar" no sobrescribe nada.
+        $updates = [];
+
+        if (filled($validated['movement_type'] ?? null)) {
+            $updates['movement_type'] = $validated['movement_type'];
+        }
+        if (filled($validated['account_id'] ?? null)) {
+            $updates['account_id'] = (int) $validated['account_id'];
+        }
+        if (filled($validated['category_id'] ?? null)) {
+            $updates['category_id'] = (int) $validated['category_id'];
+        }
+        if (filled($validated['person_id'] ?? null)) {
+            $updates['person_id'] = (int) $validated['person_id'];
+        }
+        foreach (['is_unknown', 'is_san_juan', 'is_rent'] as $flag) {
+            if (($validated[$flag] ?? null) !== null && $validated[$flag] !== '') {
+                $updates[$flag] = (bool) ((int) $validated[$flag]);
+            }
+        }
+
+        if ($updates === []) {
+            return redirect($redirectTo)->with('error', 'No elegiste ningún cambio para aplicar.');
+        }
+
+        $query = Movement::query()
+            ->where('user_id', $user->id)
+            ->whereIn('id', $ids->all());
+
+        $matched = (clone $query)->count();
+
+        if ($matched === 0) {
+            return redirect($redirectTo)->with('error', 'No se encontraron movimientos tuyos en la selección.');
+        }
+
+        DB::transaction(fn () => $query->update($updates));
+
+        return redirect($redirectTo)->with('success', "Se actualizaron {$matched} movimiento(s).");
+    }
+
+    /**
+     * Devuelve una ruta interna segura (relativa, dentro de movimientos) para
+     * conservar filtros/página, evitando open redirects a sitios externos.
+     */
+    private function safeMovementsReturnTo(Request $request, ?string $returnTo): string
+    {
+        $fallback = route('finance.movements.index');
+
+        $returnTo = trim((string) $returnTo);
+        if ($returnTo === '') {
+            return $fallback;
+        }
+
+        $parts = parse_url($returnTo);
+        if ($parts === false) {
+            return $fallback;
+        }
+
+        // Rechaza destinos externos: cualquier host distinto al actual
+        // (acepta con o sin puerto, p. ej. el fullUrl() que envía la vista).
+        if (isset($parts['host'])) {
+            $allowedHosts = [$request->getHost(), $request->getHttpHost()];
+            if (! in_array($parts['host'], $allowedHosts, true)) {
+                return $fallback;
+            }
+        }
+
+        $path = $parts['path'] ?? '';
+        $movementsPath = parse_url($fallback, PHP_URL_PATH) ?: '/finanzas/movimientos';
+
+        if (! str_starts_with($path, $movementsPath)) {
+            return $fallback;
+        }
+
+        // Reconstruye solo path + query (descarta esquema/host) para forzar mismo origen.
+        return $path . (isset($parts['query']) ? '?' . $parts['query'] : '');
+    }
+
     private function validateMovement(Request $request): array
     {
         $user = $request->user();
