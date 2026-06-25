@@ -112,4 +112,16 @@ return [
 
     'password_timeout' => env('AUTH_PASSWORD_TIMEOUT', 10800),
 
+    /*
+    |--------------------------------------------------------------------------
+    | User Registration
+    |--------------------------------------------------------------------------
+    |
+    | This application is intended to run as a private finance system in
+    | production. Keep public registration disabled unless onboarding a new user.
+    |
+    */
+
+    'registration_enabled' => env('REGISTRATION_ENABLED', false),
+
 ];
