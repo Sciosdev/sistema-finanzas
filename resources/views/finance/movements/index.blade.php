@@ -36,12 +36,14 @@
             <button class="btn btn-outline-primary" type="submit">
                 <i data-lucide="filter" class="me-1"></i>Filtrar
             </button>
+            @if (auth()->user()?->isFinanceOwner())
             <a class="btn btn-outline-success" href="{{ route('finance.movements.export', request()->only(['month', 'type', 'q']) + ['format' => 'xlsx']) }}">
                 <i data-lucide="file-spreadsheet" class="me-1"></i>Excel
             </a>
             <a class="btn btn-outline-success" href="{{ route('finance.movements.export', request()->only(['month', 'type', 'q']) + ['format' => 'csv']) }}">
                 <i data-lucide="download" class="me-1"></i>Exportar CSV
             </a>
+            @endif
             @if (request()->filled('q') || request()->filled('type'))
                 <a href="{{ route('finance.movements.index', ['month' => $monthValue]) }}" class="btn btn-outline-secondary" title="Limpiar filtros">
                     <i data-lucide="x"></i>

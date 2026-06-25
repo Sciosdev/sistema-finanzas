@@ -32,6 +32,14 @@ it('blocks registration submissions when registration is disabled', function () 
     expect(User::query()->where('email', 'nueva@example.com')->exists())->toBeFalse();
 });
 
+it('does not show a registration link on the login page when registration is disabled', function () {
+    config(['auth.registration_enabled' => false]);
+
+    get('/login')
+        ->assertOk()
+        ->assertDontSee(route('register'), false);
+});
+
 it('shows the registration form when registration is enabled', function () {
     config(['auth.registration_enabled' => true]);
 

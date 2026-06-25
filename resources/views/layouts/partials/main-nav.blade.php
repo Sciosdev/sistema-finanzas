@@ -129,6 +129,7 @@
                     </a>
                </li>
 
+               @if (auth()->user()?->isFinanceOwner())
                <li class="menu-item">
                     <a class="menu-link" href="{{ route('finance.security.index') }}">
                          <span class="nav-icon">
@@ -146,6 +147,7 @@
                          <span class="nav-text">Diagnóstico</span>
                     </a>
                </li>
+               @endif
 
                <li class="menu-item">
                     <a class="menu-link" href="{{ route('finance.accounts.index') }}">

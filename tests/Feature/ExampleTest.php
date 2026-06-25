@@ -35,6 +35,9 @@ it('shows the finance dashboard to authenticated users', function () {
         ],
     );
 
+    // El enlace de Diagnóstico es owner-only; este test valida la vista del dueño.
+    config(['finance.owner_email' => 'feature-test@example.com']);
+
     $this->actingAs($user)
         ->get('/finanzas')
         ->assertOk()
