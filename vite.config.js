@@ -74,6 +74,7 @@ export default defineConfig({
             // // Pages
             'resources/js/pages/coming-soon.js',
             'resources/js/pages/dashboard.js',
+            'resources/js/pages/finance-reports.js',
             'resources/js/pages/gallery.js',
             'resources/js/pages/setting.js',
         ],

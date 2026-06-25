@@ -2,6 +2,7 @@
 
 use App\Models\Finance\Account;
 use App\Models\Finance\Category;
+use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\ExpectedIncome;
 use App\Models\Finance\Movement;
@@ -19,6 +20,29 @@ it('shows expense category report, important concepts and concept detail', funct
     $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
     $food = Category::where('user_id', $user->id)->where('name', 'Comida')->firstOrFail();
     $saldo = Category::where('user_id', $user->id)->where('name', 'Saldo / Telefonia')->firstOrFail();
+    $incomeCategory = Category::where('user_id', $user->id)->where('name', 'SCIOS / FESI')->firstOrFail();
+    $creditCategory = Category::where('user_id', $user->id)->where('keywords', 'like', '%tarjeta%')->firstOrFail();
+
+    Movement::create([
+        'user_id' => $user->id,
+        'happened_on' => '2026-06-04',
+        'movement_type' => 'income',
+        'amount' => 1800,
+        'description' => 'Pago FESI',
+        'account_id' => $account->id,
+        'category_id' => $incomeCategory->id,
+        'source' => 'manual',
+    ]);
+
+    Movement::create([
+        'user_id' => $user->id,
+        'happened_on' => '2026-06-08',
+        'movement_type' => 'yield',
+        'amount' => 25,
+        'description' => 'Rendimiento NU',
+        'account_id' => $account->id,
+        'source' => 'manual',
+    ]);
 
     Movement::create([
         'user_id' => $user->id,
@@ -64,9 +88,64 @@ it('shows expense category report, important concepts and concept detail', funct
         'source' => 'manual',
     ]);
 
+    PlannedPayment::create([
+        'user_id' => $user->id,
+        'period_month' => '2026-06-01',
+        'due_date' => '2026-06-20',
+        'name' => 'Internet',
+        'amount' => 600,
+        'status' => 'pending',
+        'category_id' => $saldo->id,
+    ]);
+
+    $credit = CreditPurchase::create([
+        'user_id' => $user->id,
+        'purchase_date' => '2026-06-01',
+        'name' => 'Laptop',
+        'total_amount' => 1200,
+        'months' => 3,
+        'first_due_month' => '2026-06-01',
+        'due_day' => 20,
+        'account_id' => $account->id,
+        'category_id' => $creditCategory->id,
+        'status' => 'active',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $credit->id,
+        'period_month' => '2026-06-01',
+        'due_date' => '2026-06-20',
+        'installment_number' => 1,
+        'amount' => 400,
+        'status' => 'pending',
+    ]);
+
+    ExpectedIncome::create([
+        'user_id' => $user->id,
+        'period_month' => '2026-06-01',
+        'due_date' => '2026-06-30',
+        'name' => 'Mensualidad FESI',
+        'amount' => 2500,
+        'status' => 'pending',
+        'account_id' => $account->id,
+        'category_id' => $incomeCategory->id,
+    ]);
+
     $this->actingAs($user)
         ->get(route('finance.reports.index', ['month' => '2026-06', 'year' => 2026]))
         ->assertOk()
+        ->assertSee('Distribucion real del mes')
+        ->assertSee('Obligaciones del mes')
+        ->assertSee('Top ingresos')
+        ->assertSee('Top egresos')
+        ->assertSee('Cobertura del mes')
+        ->assertSee('Ano en perspectiva')
+        ->assertSee('finance-report-chart-data')
+        ->assertSee('Flujo planeado')
+        ->assertSee('Creditos')
+        ->assertSee('Recibido/Pagado')
+        ->assertSee('No pagado')
         ->assertSee('Egresos por categoría')
         ->assertSee('Categorías con más egresos')
         ->assertSee('Conceptos importantes')
@@ -86,6 +165,22 @@ it('shows expense category report, important concepts and concept detail', funct
         ->assertSee('Taqueria')
         ->assertSee('Uber Eats')
         ->assertDontSee('Saldo Telcel');
+});
+
+it('renders report chart containers without data', function () {
+    $user = User::factory()->create();
+    app(FinanceCatalogService::class)->ensureForUser($user);
+
+    $this->actingAs($user)
+        ->get(route('finance.reports.index', ['month' => '2026-08', 'year' => 2026]))
+        ->assertOk()
+        ->assertSee('Distribucion real del mes')
+        ->assertSee('Obligaciones del mes')
+        ->assertSee('Top ingresos')
+        ->assertSee('Top egresos')
+        ->assertSee('Cobertura del mes')
+        ->assertSee('Ano en perspectiva')
+        ->assertSee('finance-report-chart-data');
 });
 
 it('shows category suggestions and similar category warnings without changing movement history', function () {

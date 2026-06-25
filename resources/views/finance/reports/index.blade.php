@@ -4,28 +4,7 @@
 @php
     $money = fn ($value) => '$' . number_format((float) $value, 2);
     $netClass = fn ($value) => (float) $value < 0 ? 'text-danger' : 'text-success';
-    $donutGradient = function ($rows) {
-        $cursor = 0;
-        $segments = [];
-
-        foreach ($rows->take(10) as $row) {
-            $percentage = max(0, (float) ($row['percentage'] ?? 0));
-
-            if ($percentage <= 0) {
-                continue;
-            }
-
-            $end = min(100, $cursor + $percentage);
-            $segments[] = ($row['color'] ?? '#64748b') . " {$cursor}% {$end}%";
-            $cursor = $end;
-        }
-
-        if ($cursor < 100) {
-            $segments[] = "#334155 {$cursor}% 100%";
-        }
-
-        return $segments ? implode(', ', $segments) : '#334155 0% 100%';
-    };
+    $reportChartData = $reportChartData ?? [];
 @endphp
 
 @include('finance.partials.flash')
@@ -96,6 +75,81 @@
     </div>
 </div>
 
+<script type="application/json" id="finance-report-chart-data">{!! json_encode($reportChartData, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES) !!}</script>
+
+<div class="row g-3 mb-3">
+    <div class="col-xl-4 col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Distribucion real del mes</h4>
+            </div>
+            <div class="card-body">
+                <div id="reports-real-distribution-donut" class="apex-charts" style="min-height: 280px;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4 col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Egresos por categoria</h4>
+            </div>
+            <div class="card-body">
+                <div id="reports-expense-category-donut" class="apex-charts" style="min-height: 280px;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-4 col-lg-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Obligaciones del mes</h4>
+            </div>
+            <div class="card-body">
+                <div id="reports-obligation-mix-donut" class="apex-charts" style="min-height: 280px;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Top ingresos</h4>
+            </div>
+            <div class="card-body">
+                <div id="reports-top-income-bar" class="apex-charts" style="min-height: 320px;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-6">
+        <div class="card h-100">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Top egresos</h4>
+            </div>
+            <div class="card-body">
+                <div id="reports-top-expenses-bar" class="apex-charts" style="min-height: 320px;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-5">
+        <div class="card h-100">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Cobertura del mes</h4>
+            </div>
+            <div class="card-body">
+                <div id="reports-coverage-bar" class="apex-charts" style="min-height: 280px;"></div>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl-7">
+        <div class="card h-100">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Ano en perspectiva</h4>
+            </div>
+            <div class="card-body">
+                <div id="reports-year-perspective-column" class="apex-charts" style="min-height: 320px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header">
         <h4 class="card-title mb-0">Dónde bajarle al gasto</h4>
@@ -136,16 +190,10 @@
                 @if ($expenseCategoryRows->isEmpty())
                     <p class="text-muted mb-0">No hay egresos registrados en este mes.</p>
                 @else
-                    <div class="d-flex flex-column align-items-center gap-3">
-                        <div class="rounded-circle d-flex align-items-center justify-content-center"
-                             style="width: 220px; height: 220px; background: conic-gradient({{ $donutGradient($expenseCategoryRows) }});">
-                            <div class="rounded-circle bg-body d-flex align-items-center justify-content-center text-center"
-                                 style="width: 128px; height: 128px;">
-                                <div>
-                                    <div class="text-muted small">Egresos</div>
-                                    <div class="fw-semibold">{{ $money($monthTotals['expenses']) }}</div>
-                                </div>
-                            </div>
+                    <div class="d-flex flex-column gap-3">
+                        <div>
+                            <div class="text-muted small">Egresos analizados</div>
+                            <h4 class="text-danger mb-0">{{ $money($monthTotals['expenses']) }}</h4>
                         </div>
                         <div class="w-100">
                             @foreach ($expenseCategoryRows->take(8) as $row)
@@ -154,7 +202,7 @@
                                         <span class="rounded-circle d-inline-block" style="width: 10px; height: 10px; background: {{ $row['color'] }}"></span>
                                         <span>{{ $row['name'] }}</span>
                                     </div>
-                                    <span class="text-muted">{{ number_format($row['percentage'], 1) }}%</span>
+                                    <span class="text-muted">{{ $money($row['amount']) }} · {{ number_format($row['percentage'], 1) }}%</span>
                                 </div>
                             @endforeach
                         </div>
@@ -456,4 +504,8 @@
         </div>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+    @vite(['resources/js/pages/finance-reports.js'])
 @endsection
