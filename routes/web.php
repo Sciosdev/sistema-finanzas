@@ -11,6 +11,7 @@ use App\Http\Controllers\Finance\FinanceHealthController;
 use App\Http\Controllers\Finance\FinanceOperationController;
 use App\Http\Controllers\Finance\FinanceReportController;
 use App\Http\Controllers\Finance\FinanceSecurityController;
+use App\Http\Controllers\Finance\FinanceTriageController;
 use App\Http\Controllers\Finance\HistoricalImportController;
 use App\Http\Controllers\Finance\MovementController;
 use App\Http\Controllers\Finance\MonthlyReviewController;
@@ -31,6 +32,11 @@ use App\Http\Controllers\RoutingController;
 */
 
 require __DIR__ . '/auth.php';
+
+// Endpoint mínimo de triage para errores 500 en producción. Público pero
+// protegido por token; fuera del middleware auth y registrado antes del grupo
+// con catch-all para que no lo intercepte la ruta {any}.
+Route::get('_health/triage', FinanceTriageController::class)->name('health.triage');
 
 Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
     Route::get('', [FinanceDashboardController::class, 'index'])->name('root');

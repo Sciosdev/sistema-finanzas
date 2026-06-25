@@ -58,6 +58,7 @@
 
 <div class="alert alert-info">
     <strong>Nota:</strong> este diagnóstico comprueba existencia de rutas y dependencias registradas; no hace llamadas HTTP internas para evitar timeouts o problemas de loopback en hosting compartido.
+    Para diagnosticar un error 500 cuando esta pantalla no carga, usa el endpoint público de triage <code>/_health/triage?key=TOKEN</code> (requiere <code>FINANCE_HEALTH_TOKEN</code>).
 </div>
 
 <div class="card">

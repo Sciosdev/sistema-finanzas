@@ -33,6 +33,20 @@ class FinanceHealthCheckService
         'finance.movements.index',
     ];
 
+    private const REQUIRED_PHP_EXTENSIONS = [
+        'pdo_mysql',
+        'mbstring',
+        'openssl',
+        'zip',
+        'fileinfo',
+        'json',
+        'ctype',
+        'tokenizer',
+        'xml',
+    ];
+
+    private const MINIMUM_PHP_VERSION_ID = 80200;
+
     public function __construct(private readonly FinanceBackupService $backups)
     {
     }
@@ -44,10 +58,16 @@ class FinanceHealthCheckService
             $this->appKeyIsConfigured(),
             $this->debugDisabledInProduction(),
             $this->timezoneIsExpected(),
+            $this->appUrlIsExpected(),
+            $this->ownerEmailConfigured(),
+            $this->registrationStateIsSafe(),
+            $this->phpVersionIsSupported(),
+            ...$this->phpExtensionsLoaded(),
             $this->databaseConnectionWorks(),
+            ...$this->databaseCriticalVars(),
             ...$this->criticalTablesExist(),
-            $this->fileExists('Autoload de Composer', base_path('vendor/autoload.php'), 'vendor/autoload.php existe.', 'vendor/autoload.php no existe.'),
-            $this->fileExists('Manifest de assets', public_path('build/manifest.json'), 'public/build/manifest.json existe.', 'public/build/manifest.json no existe.'),
+            $this->vendorAutoloadExists(),
+            $this->buildManifestExists(),
             ...$this->storageIsWritable(),
             $this->currentLogIsAccessible(),
             $this->backupsAreListable(),
@@ -99,6 +119,146 @@ class FinanceHealthCheckService
             $ok ? 'ok' : 'warning',
             $ok ? 'Timezone correcto.' : 'Timezone distinto al esperado.',
             'actual=' . $timezone . '; esperado=' . self::EXPECTED_TIMEZONE
+        );
+    }
+
+    private function appUrlIsExpected(): array
+    {
+        $current = trim((string) config('app.url'));
+        $expected = trim((string) config('finance.expected_app_url'));
+
+        if ($current === '') {
+            return $this->check('APP_URL', 'fail', 'APP_URL está vacía.', 'config(app.url) vacío.');
+        }
+
+        if ($expected === '' || $current === $expected) {
+            return $this->check('APP_URL', 'ok', 'APP_URL configurada.', 'actual=' . $current);
+        }
+
+        $status = app()->environment('production') ? 'warning' : 'ok';
+
+        return $this->check(
+            'APP_URL',
+            $status,
+            $status === 'warning'
+                ? 'APP_URL no coincide con la URL esperada de producción.'
+                : 'APP_URL configurada (no aplica comparación fuera de producción).',
+            'actual=' . $current . '; esperado=' . $expected
+        );
+    }
+
+    private function ownerEmailConfigured(): array
+    {
+        $configured = trim((string) config('finance.owner_email')) !== '';
+
+        return $this->check(
+            'FINANCE_OWNER_EMAIL',
+            $configured ? 'ok' : 'fail',
+            $configured
+                ? 'El dueño financiero está configurado.'
+                : 'FINANCE_OWNER_EMAIL está vacío: nadie podrá entrar a Seguridad ni Diagnóstico.',
+            $configured ? 'config(finance.owner_email) presente.' : 'config(finance.owner_email) vacío.'
+        );
+    }
+
+    private function registrationStateIsSafe(): array
+    {
+        $enabled = (bool) config('auth.registration_enabled');
+        $isProduction = app()->environment('production');
+
+        if ($isProduction && $enabled) {
+            return $this->check(
+                'Registro de usuarios',
+                'fail',
+                'El registro está abierto en producción; debe estar cerrado.',
+                'config(auth.registration_enabled)=true'
+            );
+        }
+
+        return $this->check(
+            'Registro de usuarios',
+            'ok',
+            $enabled ? 'Registro abierto (permitido fuera de producción).' : 'Registro cerrado.',
+            'config(auth.registration_enabled)=' . ($enabled ? 'true' : 'false')
+        );
+    }
+
+    private function phpVersionIsSupported(): array
+    {
+        $supported = PHP_VERSION_ID >= self::MINIMUM_PHP_VERSION_ID;
+
+        return $this->check(
+            'Versión de PHP',
+            $supported ? 'ok' : 'fail',
+            $supported ? 'La versión de PHP es compatible.' : 'La versión de PHP es menor a la mínima soportada (8.2).',
+            'actual=' . PHP_VERSION . '; mínimo=8.2'
+        );
+    }
+
+    private function phpExtensionsLoaded(): array
+    {
+        return array_map(function (string $extension): array {
+            $loaded = extension_loaded($extension);
+
+            return $this->check(
+                'Extensión ' . $extension,
+                $loaded ? 'ok' : 'fail',
+                $loaded ? 'Extensión PHP disponible.' : 'Falta una extensión PHP requerida.',
+                $extension
+            );
+        }, self::REQUIRED_PHP_EXTENSIONS);
+    }
+
+    private function databaseCriticalVars(): array
+    {
+        $connectionName = (string) config('database.default');
+        $connection = (array) config("database.connections.{$connectionName}", []);
+
+        $variables = [
+            'DB_CONNECTION' => $connectionName,
+            'DB_DATABASE' => (string) ($connection['database'] ?? ''),
+            'DB_USERNAME' => (string) ($connection['username'] ?? ''),
+        ];
+
+        return array_map(function (string $name, string $value): array {
+            $present = trim($value) !== '';
+
+            return $this->check(
+                $name,
+                $present ? 'ok' : 'fail',
+                $present ? 'Variable de BD presente.' : 'Falta una variable crítica de BD.',
+                $name . '=' . ($present ? 'presente' : 'ausente')
+            );
+        }, array_keys($variables), array_values($variables));
+    }
+
+    private function vendorAutoloadExists(): array
+    {
+        $path = base_path('vendor/autoload.php');
+        $exists = is_file($path);
+
+        return $this->check(
+            'Autoload de Composer',
+            $exists ? 'ok' : 'fail',
+            $exists
+                ? 'vendor/autoload.php existe.'
+                : 'Falta vendor/autoload.php. Sube vendor manualmente; HostGator no ejecuta composer install.',
+            'vendor/autoload.php'
+        );
+    }
+
+    private function buildManifestExists(): array
+    {
+        $path = public_path('build/manifest.json');
+        $exists = is_file($path);
+
+        return $this->check(
+            'Manifest de assets',
+            $exists ? 'ok' : 'fail',
+            $exists
+                ? 'public/build/manifest.json existe.'
+                : 'Falta public/build/manifest.json. Sube public/build manualmente o genera el paquete de producción.',
+            'public/build/manifest.json'
         );
     }
 
