@@ -122,7 +122,7 @@
 
 <style>
     .finance-dashboard-grid .dashboard-widget {
-        transition: opacity .15s ease, transform .15s ease;
+        transition: opacity .15s ease, transform .15s ease, width .15s ease;
     }
 
     .finance-dashboard-grid .dashboard-widget.is-dragging {
@@ -214,6 +214,12 @@
         }
     }
 
+    @media (min-width: 1200px) {
+        .finance-dashboard-grid.is-smart-layout .dashboard-widget[data-dashboard-smart-width="true"] {
+            width: var(--dashboard-smart-width);
+        }
+    }
+
     @media (max-width: 575.98px) {
         .dashboard-widget-size-panel {
             left: .5rem;
@@ -237,6 +243,9 @@
         <form method="GET" action="{{ route('finance.dashboard') }}" class="d-flex justify-content-md-end gap-2 flex-wrap">
             <button class="btn btn-outline-secondary" type="button" id="toggleDashboardLayout" title="Editar diseño" aria-pressed="false">
                 <i data-lucide="layout-grid" class="me-1"></i>Diseño
+            </button>
+            <button class="btn btn-outline-secondary" type="button" id="toggleDashboardAutoLayout" title="Ajuste inteligente" aria-pressed="true">
+                <i data-lucide="wand-sparkles" class="me-1"></i>Auto ajuste
             </button>
             <button class="btn btn-outline-secondary" type="button" id="resetDashboardOrder" title="Restablecer orden">
                 <i data-lucide="rotate-ccw"></i>
@@ -277,9 +286,10 @@
     </div>
 @endif
 
-<div class="row g-3 finance-dashboard-grid" id="financeDashboardGrid"
+<div class="row g-3 justify-content-center finance-dashboard-grid" id="financeDashboardGrid"
      data-storage-key="finance-dashboard-order-{{ auth()->id() }}"
-     data-size-storage-key="finance-dashboard-sizes-{{ auth()->id() }}">
+     data-size-storage-key="finance-dashboard-sizes-{{ auth()->id() }}"
+     data-auto-layout-storage-key="finance-dashboard-auto-layout-{{ auth()->id() }}">
     <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="income-real">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
@@ -1187,10 +1197,13 @@
 
         const storageKey = grid.dataset.storageKey || 'finance-dashboard-order';
         const sizeStorageKey = grid.dataset.sizeStorageKey || 'finance-dashboard-sizes';
+        const autoLayoutStorageKey = grid.dataset.autoLayoutStorageKey || 'finance-dashboard-auto-layout';
         const resetButton = document.getElementById('resetDashboardOrder');
         const layoutButton = document.getElementById('toggleDashboardLayout');
+        const autoLayoutButton = document.getElementById('toggleDashboardAutoLayout');
         let draggedWidget = null;
         let layoutEditing = false;
+        let smartLayoutEnabled = localStorage.getItem(autoLayoutStorageKey) !== '0';
         const sizeOptions = {
             4: { label: '4', classes: ['col-xl-3', 'col-md-6'] },
             3: { label: '3', classes: ['col-xl-4', 'col-md-6'] },
@@ -1201,6 +1214,30 @@
 
         const widgets = () => Array.from(grid.querySelectorAll('[data-dashboard-widget]'));
         const resizableWidgets = () => widgets();
+
+        const classColumnsFor = (widget) => {
+            if (widget.classList.contains('col-12')) {
+                return 12;
+            }
+
+            if (widget.classList.contains('col-xl-7')) {
+                return 7;
+            }
+
+            if (widget.classList.contains('col-xl-6')) {
+                return 6;
+            }
+
+            if (widget.classList.contains('col-xl-5')) {
+                return 5;
+            }
+
+            if (widget.classList.contains('col-xl-4')) {
+                return 4;
+            }
+
+            return 3;
+        };
 
         const saveOrder = () => {
             localStorage.setItem(storageKey, JSON.stringify(widgets().map((widget) => widget.dataset.dashboardWidget)));
@@ -1261,7 +1298,72 @@
 
             if (shouldPersist) {
                 saveSize(widget, size);
+                applySmartLayout();
             }
+        };
+
+        const clearSmartWidths = () => {
+            widgets().forEach((widget) => {
+                widget.style.removeProperty('--dashboard-smart-width');
+                delete widget.dataset.dashboardSmartWidth;
+            });
+        };
+
+        const balanceSmartRow = (row, columns) => {
+            if (columns >= 12 || row.length <= 1) {
+                return;
+            }
+
+            const extraColumns = (12 - columns) / row.length;
+
+            row.forEach((item) => {
+                const width = ((item.columns + extraColumns) / 12) * 100;
+                item.widget.style.setProperty('--dashboard-smart-width', `${width.toFixed(4)}%`);
+                item.widget.dataset.dashboardSmartWidth = 'true';
+            });
+        };
+
+        const applySmartLayout = () => {
+            clearSmartWidths();
+            grid.classList.toggle('is-smart-layout', smartLayoutEnabled);
+
+            if (!smartLayoutEnabled) {
+                return;
+            }
+
+            let row = [];
+            let columns = 0;
+
+            widgets().forEach((widget) => {
+                const widgetColumns = Math.min(12, Math.max(1, classColumnsFor(widget)));
+
+                if (row.length && columns + widgetColumns > 12) {
+                    balanceSmartRow(row, columns);
+                    row = [];
+                    columns = 0;
+                }
+
+                row.push({ widget, columns: widgetColumns });
+                columns += widgetColumns;
+
+                if (columns >= 12) {
+                    balanceSmartRow(row, columns);
+                    row = [];
+                    columns = 0;
+                }
+            });
+
+            balanceSmartRow(row, columns);
+        };
+
+        const updateAutoLayoutButton = () => {
+            if (!autoLayoutButton) {
+                return;
+            }
+
+            autoLayoutButton.classList.toggle('btn-primary', smartLayoutEnabled);
+            autoLayoutButton.classList.toggle('btn-outline-secondary', !smartLayoutEnabled);
+            autoLayoutButton.setAttribute('aria-pressed', smartLayoutEnabled ? 'true' : 'false');
         };
 
         const restoreSizes = () => {
@@ -1310,6 +1412,8 @@
 
         restoreOrder();
         restoreSizes();
+        applySmartLayout();
+        updateAutoLayoutButton();
 
         widgets().forEach((widget) => {
             const card = widget.querySelector(':scope > .card');
@@ -1400,6 +1504,7 @@
             draggedWidget.removeAttribute('draggable');
             draggedWidget = null;
             saveOrder();
+            applySmartLayout();
         });
 
         document.addEventListener('mouseup', () => {
@@ -1420,10 +1525,20 @@
             });
         }
 
+        if (autoLayoutButton) {
+            autoLayoutButton.addEventListener('click', () => {
+                smartLayoutEnabled = !smartLayoutEnabled;
+                localStorage.setItem(autoLayoutStorageKey, smartLayoutEnabled ? '1' : '0');
+                applySmartLayout();
+                updateAutoLayoutButton();
+            });
+        }
+
         if (resetButton) {
             resetButton.addEventListener('click', () => {
                 localStorage.removeItem(storageKey);
                 localStorage.removeItem(sizeStorageKey);
+                localStorage.removeItem(autoLayoutStorageKey);
                 window.location.reload();
             });
         }

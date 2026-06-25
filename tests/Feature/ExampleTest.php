@@ -44,8 +44,10 @@ it('shows the finance dashboard to authenticated users', function () {
         ->assertSee('Nuevo movimiento')
         ->assertSee('Corte diario')
         ->assertSee('Diseño')
+        ->assertSee('Auto ajuste')
         ->assertSee('financeDashboardGrid')
-        ->assertSee('data-size-storage-key');
+        ->assertSee('data-size-storage-key')
+        ->assertSee('data-auto-layout-storage-key');
 });
 
 it('lets authenticated users edit their movements', function () {
