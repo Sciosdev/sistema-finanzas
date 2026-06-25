@@ -139,6 +139,15 @@
                </li>
 
                <li class="menu-item">
+                    <a class="menu-link" href="{{ route('finance.health.index') }}">
+                         <span class="nav-icon">
+                              <i data-lucide="activity"></i>
+                         </span>
+                         <span class="nav-text">Diagnóstico</span>
+                    </a>
+               </li>
+
+               <li class="menu-item">
                     <a class="menu-link" href="{{ route('finance.accounts.index') }}">
                          <span class="nav-icon">
                               <i data-lucide="wallet-cards"></i>

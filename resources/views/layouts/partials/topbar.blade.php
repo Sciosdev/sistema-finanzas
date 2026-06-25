@@ -33,6 +33,9 @@
                               <a class="dropdown-item" href="{{ route('finance.dashboard') }}">
                                    <i data-lucide="layout-dashboard" class="fs-16 text-muted align-middle me-2"></i><span class="align-middle">Resumen</span>
                               </a>
+                              <a class="dropdown-item" href="{{ route('finance.health.index') }}">
+                                   <i data-lucide="activity" class="fs-16 text-muted align-middle me-2"></i><span class="align-middle">Diagnóstico</span>
+                              </a>
                               <div class="dropdown-divider my-1"></div>
                               <form method="POST" action="{{ route('logout') }}">
                                    @csrf

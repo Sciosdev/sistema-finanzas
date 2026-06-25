@@ -43,6 +43,8 @@ it('shows the finance dashboard to authenticated users', function () {
         ->assertSee('Oportunidades de mejora')
         ->assertSee('Nuevo movimiento')
         ->assertSee('Corte diario')
+        ->assertSee('Diagnóstico')
+        ->assertSee('/finanzas/diagnostico')
         ->assertSee('Diseño')
         ->assertSee('Auto ajuste')
         ->assertSee('financeDashboardGrid')
