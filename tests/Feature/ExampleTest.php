@@ -484,6 +484,86 @@ it('marks an expected income as received and creates the real income movement', 
     expect($movement->description)->toBe('Ingreso esperado: FESI');
 });
 
+it('shows expected income actions in a modal with movement candidates', function () {
+    $user = User::factory()->create();
+
+    app(FinanceCatalogService::class)->ensureForUser($user);
+
+    $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $category = Category::where('user_id', $user->id)->where('name', 'SCIOS / FESI')->firstOrFail();
+
+    $income = ExpectedIncome::create([
+        'user_id' => $user->id,
+        'period_month' => '2026-06-01',
+        'due_date' => '2026-06-30',
+        'name' => 'FESI Mensualidad',
+        'amount' => 8000,
+        'status' => 'pending',
+        'account_id' => $account->id,
+        'category_id' => $category->id,
+    ]);
+
+    Movement::create([
+        'user_id' => $user->id,
+        'happened_on' => '2026-06-29',
+        'movement_type' => 'income',
+        'amount' => 8000,
+        'description' => 'Deposito FESI',
+        'account_id' => $account->id,
+        'category_id' => $category->id,
+        'source' => 'manual',
+    ]);
+
+    $response = $this->actingAs($user)
+        ->get('/finanzas/ingresos-esperados?month=2026-06')
+        ->assertOk()
+        ->assertSee('FESI Mensualidad')
+        ->assertSee('Acciones')
+        ->assertSee('Marcar como recibido')
+        ->assertSee('Vincular movimiento existente')
+        ->assertSee('Ya lo capture como ingreso')
+        ->assertSee('Marcar como no recibido')
+        ->assertSee('Editar ingreso')
+        ->assertSee('Eliminar ingreso')
+        ->assertSee('Monto coincide')
+        ->assertSee('Aplicar abono');
+
+    $html = $response->getContent();
+    $linkFormStart = strpos($html, 'action="' . route('finance.expected-incomes.link-movement', $income) . '"');
+    $linkFormEnd = strpos($html, '</form>', $linkFormStart);
+    expect($linkFormStart)->not->toBeFalse();
+    expect($linkFormEnd)->not->toBeFalse();
+    $linkForm = substr($html, $linkFormStart, $linkFormEnd - $linkFormStart);
+
+    expect($linkForm)->toContain('movement_id');
+    expect($linkForm)->toContain('amount_applied');
+    expect($linkForm)->not->toContain('received_on');
+});
+
+it('shows San Juan rental rows with actions modal instead of loose table controls', function () {
+    $user = User::factory()->create();
+
+    app(FinanceCatalogService::class)->ensureForUser($user);
+
+    $cesar = Person::where('user_id', $user->id)->where('name', 'Cesar')->firstOrFail();
+    RentalContract::where('user_id', $user->id)->where('person_id', $cesar->id)->update([
+        'room' => '4',
+        'expected_amount' => 2200,
+        'due_day' => 27,
+        'is_active' => true,
+    ]);
+
+    $this->actingAs($user)
+        ->get('/finanzas/ingresos-esperados?month=2026-06')
+        ->assertOk()
+        ->assertSee('Renta cuarto 4')
+        ->assertSee('Contrato San Juan')
+        ->assertSee('Registrar renta recibida')
+        ->assertSee('Administrar contrato')
+        ->assertDontSee('form-control form-control-sm mb-1', false)
+        ->assertDontSee('title="Editar contrato"', false);
+});
+
 it('lets users edit San Juan rental contracts', function () {
     $user = User::factory()->create();
 
@@ -1161,21 +1241,52 @@ it('shows actions for overdue planned payments', function () {
 
     app(FinanceCatalogService::class)->ensureForUser($user);
 
-    PlannedPayment::create([
+    $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $category = Category::where('user_id', $user->id)->where('name', 'Comida')->firstOrFail();
+
+    $payment = PlannedPayment::create([
         'user_id' => $user->id,
         'period_month' => '2026-06-01',
         'due_date' => '2026-06-16',
         'name' => 'Amazon - Amazon Shopping',
         'amount' => 99,
         'status' => 'overdue',
+        'category_id' => $category->id,
     ]);
 
-    $this->actingAs($user)
+    Movement::create([
+        'user_id' => $user->id,
+        'happened_on' => '2026-06-14',
+        'movement_type' => 'expense',
+        'amount' => 99,
+        'description' => 'Amazon Shopping',
+        'account_id' => $account->id,
+        'category_id' => $category->id,
+        'source' => 'manual',
+    ]);
+
+    $response = $this->actingAs($user)
         ->get('/finanzas/flujo-planeado?month=2026-06')
         ->assertOk()
         ->assertSee('Amazon - Amazon Shopping')
-        ->assertSee('Vincular con movimiento')
-        ->assertSee('Pagado');
+        ->assertSee('Acciones')
+        ->assertSee('Marcar como pagado')
+        ->assertSee('Vincular movimiento existente')
+        ->assertSee('Pagar con tarjeta/credito')
+        ->assertSee('Marcar como no pagado')
+        ->assertSee('Editar pago')
+        ->assertSee('Eliminar del flujo')
+        ->assertSee('Monto coincide')
+        ->assertSee('Vincular este movimiento');
+
+    $html = $response->getContent();
+    $linkFormStart = strpos($html, 'action="' . route('finance.planned.link-movement', $payment) . '"');
+    $linkFormEnd = strpos($html, '</form>', $linkFormStart);
+    expect($linkFormStart)->not->toBeFalse();
+    expect($linkFormEnd)->not->toBeFalse();
+    $linkForm = substr($html, $linkFormStart, $linkFormEnd - $linkFormStart);
+
+    expect($linkForm)->not->toContain('paid_on');
 });
 
 it('links a planned payment to an existing movement', function () {
@@ -1247,7 +1358,51 @@ it('shows link action for paid planned payments without a linked movement', func
         ->get('/finanzas/flujo-planeado?month=2026-06')
         ->assertOk()
         ->assertSee('Amazon - Amazon Shopping')
-        ->assertSee('Vincular con movimiento');
+        ->assertSee('Vincular movimiento existente')
+        ->assertSee('Pagar con tarjeta/credito');
+});
+
+it('shows credit installment actions in a modal instead of loose table controls', function () {
+    $user = User::factory()->create();
+
+    app(FinanceCatalogService::class)->ensureForUser($user);
+
+    $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $category = Category::where('user_id', $user->id)->where('name', 'Comida')->firstOrFail();
+
+    $credit = CreditPurchase::create([
+        'user_id' => $user->id,
+        'purchase_date' => '2026-06-10',
+        'name' => 'Laptop',
+        'total_amount' => 1200,
+        'months' => 3,
+        'first_due_month' => '2026-06-01',
+        'due_day' => 20,
+        'account_id' => $account->id,
+        'category_id' => $category->id,
+        'status' => 'active',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $credit->id,
+        'period_month' => '2026-06-01',
+        'due_date' => '2026-06-20',
+        'installment_number' => 1,
+        'amount' => 400,
+        'status' => 'pending',
+    ]);
+
+    $this->actingAs($user)
+        ->get('/finanzas/flujo-planeado?month=2026-06')
+        ->assertOk()
+        ->assertSee('Laptop')
+        ->assertSee('Acciones de mensualidad')
+        ->assertSee('Marcar como pagado')
+        ->assertSee('Ya lo capture como gasto')
+        ->assertSee('Administrar credito')
+        ->assertDontSee('form-control form-control-sm mb-1', false)
+        ->assertDontSee('title="Ya lo capture como gasto"', false);
 });
 
 it('shows income and expense reports by day week fortnight month and year', function () {

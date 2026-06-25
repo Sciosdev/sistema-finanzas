@@ -5,6 +5,23 @@
     $money = fn ($value) => '$' . number_format((float) $value, 2);
     $nextMonthValue = \Carbon\Carbon::createFromFormat('Y-m', $monthValue)->addMonth()->format('Y-m');
     $editPaymentId = (int) request('edit');
+    $expenseMovements = $expenseMovements ?? collect();
+    $movementCandidatesForPayment = function ($payment) use ($expenseMovements) {
+        return $expenseMovements
+            ->sortBy(function ($movement) use ($payment) {
+                $amountDistance = abs((float) $movement->amount - (float) $payment->amount);
+                $dateDistance = $payment->due_date
+                    ? abs($movement->happened_on->diffInDays($payment->due_date, false))
+                    : 0;
+
+                return str_pad((string) round($amountDistance * 100), 12, '0', STR_PAD_LEFT)
+                    . str_pad((string) $dateDistance, 6, '0', STR_PAD_LEFT)
+                    . $movement->happened_on->format('Ymd');
+            })
+            ->take(8)
+            ->values();
+    };
+    $isMatchingAmount = fn ($movement, $payment) => abs((float) $movement->amount - (float) $payment->amount) < 0.01;
 @endphp
 
 @include('finance.partials.flash')
@@ -61,6 +78,195 @@
         </div>
     </div>
 </div>
+
+@foreach ($payments as $payment)
+    @php
+        $isCreditPaid = $payment->status === 'paid' && (bool) $payment->is_credit;
+        $linkedCredit = $payment->creditPurchase;
+        $overdue = in_array($payment->status, ['pending', 'overdue'], true)
+            && (
+                $payment->status === 'overdue'
+                || ($payment->due_date && $payment->due_date->copy()->startOfDay()->lt(today()->startOfDay()))
+            );
+        $displayStatus = $overdue ? 'overdue' : $payment->status;
+        $statusLabel = $payment->status === 'paid'
+            ? 'Pagado'
+            : ($payment->status === 'skipped' ? 'No pagado / pendiente de decision' : ($overdue ? 'Vencido' : 'Pendiente'));
+        $originLabel = match (true) {
+            $isCreditPaid && $linkedCredit => 'Pagado con credito: ' . $linkedCredit->name,
+            $isCreditPaid => 'Pagado con credito',
+            $payment->status === 'skipped' => 'No pagado / pendiente de decision',
+            $payment->status === 'paid' && (bool) $payment->movement_id => 'Pagado/vinculado',
+            $payment->status === 'paid' => 'Pagado/registrado',
+            $overdue => 'Vencido pendiente',
+            default => 'Pago planeado',
+        };
+        $paymentCandidates = $movementCandidatesForPayment($payment);
+        $defaultPaidOn = $payment->paid_on?->format('Y-m-d')
+            ?? $payment->due_date?->format('Y-m-d')
+            ?? now()->toDateString();
+        $canActAsUnpaid = in_array($payment->status, ['pending', 'overdue', 'skipped'], true);
+        $canLinkMovement = $payment->status !== 'paid' || (! $payment->movement_id && ! $payment->is_credit);
+        $canUseCreditPayment = $payment->status !== 'paid' || (! $payment->movement_id && ! $payment->is_credit);
+    @endphp
+    <div class="modal fade" id="planned-payment-actions-{{ $payment->id }}" tabindex="-1" aria-labelledby="planned-payment-actions-{{ $payment->id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="planned-payment-actions-{{ $payment->id }}-label">Acciones de pago</h5>
+                        <div class="text-muted small">{{ $payment->name }}</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="border rounded p-3 mb-3">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Monto</span>
+                                <span class="fw-semibold">{{ $money($payment->amount) }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Vencimiento</span>
+                                <span class="fw-semibold">{{ $payment->due_date?->format('Y-m-d') ?? '-' }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Estado</span>
+                                <span class="badge {{ $payment->status === 'paid' ? 'badge-soft-success' : ($overdue || $payment->status === 'skipped' ? 'badge-soft-danger' : 'badge-soft-warning') }}">{{ $statusLabel }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Cuenta</span>
+                                <span>{{ $payment->account?->name ?? '-' }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Categoria</span>
+                                <span>{{ $payment->category?->name ?? '-' }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Origen</span>
+                                <span>{{ $originLabel }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if ($canActAsUnpaid || $canUseCreditPayment)
+                        <div class="row g-3 mb-3">
+                            @if ($canActAsUnpaid)
+                                <div class="col-lg-6">
+                                    <form method="POST" action="{{ route('finance.planned.paid', $payment) }}" class="border rounded p-3 h-100">
+                                        @csrf
+                                        <label class="form-label">Fecha real de pago</label>
+                                        <input type="date" name="paid_on" class="form-control mb-3" value="{{ $defaultPaidOn }}">
+                                        <button type="submit" class="btn btn-success w-100">
+                                            <i data-lucide="check" class="me-1"></i>Marcar como pagado
+                                        </button>
+                                    </form>
+                                </div>
+                            @endif
+                            @if ($canUseCreditPayment)
+                                <div class="col-lg-6">
+                                    <form method="POST" action="{{ route('finance.planned.credit-paid', $payment) }}" class="border rounded p-3 h-100">
+                                        @csrf
+                                        <label class="form-label">Fecha de compra con tarjeta/credito</label>
+                                        <input type="date" name="paid_on" class="form-control mb-2" value="{{ $defaultPaidOn }}">
+                                        <select name="account_id" class="form-select mb-2">
+                                            <option value="">Tarjeta o cuenta de credito</option>
+                                            @foreach ($creditAccounts as $account)
+                                                <option value="{{ $account->id }}" @selected($payment->account_id === $account->id)>{{ $account->name }}</option>
+                                            @endforeach
+                                        </select>
+                                        <select name="credit_purchase_id" class="form-select mb-3">
+                                            <option value="">Credito existente</option>
+                                            @foreach ($creditPurchases as $creditPurchase)
+                                                <option value="{{ $creditPurchase->id }}">{{ $creditPurchase->name }}{{ $creditPurchase->account ? ' - ' . $creditPurchase->account->name : '' }}</option>
+                                            @endforeach
+                                        </select>
+                                        <button type="submit" class="btn btn-outline-warning w-100">
+                                            <i data-lucide="credit-card" class="me-1"></i>Pagar con tarjeta/credito
+                                        </button>
+                                    </form>
+                                </div>
+                            @endif
+                        </div>
+                    @endif
+
+                    @if ($canLinkMovement)
+                        <div class="border rounded p-3 mb-3">
+                            <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
+                                <div>
+                                    <h6 class="mb-1">Vincular movimiento existente</h6>
+                                    <div class="text-muted small">Usa la fecha ya capturada en el movimiento seleccionado.</div>
+                                </div>
+                                <a href="{{ route('finance.planned.link', $payment) }}" class="btn btn-sm btn-outline-secondary align-self-md-start">
+                                    Pantalla completa
+                                </a>
+                            </div>
+                            <div class="list-group">
+                                @forelse ($paymentCandidates as $movement)
+                                    <div class="list-group-item">
+                                        <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
+                                            <div>
+                                                <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                                    <span class="fw-semibold">{{ $movement->happened_on?->format('Y-m-d') ?? '-' }}</span>
+                                                    @if ($isMatchingAmount($movement, $payment))
+                                                        <span class="badge badge-soft-success">Monto coincide</span>
+                                                    @endif
+                                                </div>
+                                                <div>{{ $movement->description }}</div>
+                                                <div class="text-muted small">
+                                                    {{ $movement->account?->name ?? 'Sin cuenta' }} | {{ $movement->category?->name ?? 'Sin categoria' }}
+                                                </div>
+                                            </div>
+                                            <div class="d-flex flex-column align-items-lg-end gap-2">
+                                                <span class="fw-semibold">{{ $money($movement->amount) }}</span>
+                                                <form method="POST" action="{{ route('finance.planned.link-movement', $payment) }}">
+                                                    @csrf
+                                                    <input type="hidden" name="movement_id" value="{{ $movement->id }}">
+                                                    <button type="submit" class="btn btn-sm btn-outline-success w-100">
+                                                        <i data-lucide="link" class="me-1"></i>Vincular este movimiento
+                                                    </button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @empty
+                                    <div class="text-muted small">No hay movimientos reales de gasto en este mes.</div>
+                                @endforelse
+                            </div>
+                        </div>
+                    @endif
+
+                    <div class="row g-2">
+                        @if (in_array($payment->status, ['pending', 'overdue'], true))
+                            <div class="col-md-4">
+                                <form method="POST" action="{{ route('finance.planned.skip', $payment) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-outline-danger w-100">
+                                        <i data-lucide="x" class="me-1"></i>Marcar como no pagado
+                                    </button>
+                                </form>
+                            </div>
+                        @endif
+                        <div class="col-md-4">
+                            <a href="{{ route('finance.planned.index', ['month' => $monthValue, 'edit' => $payment->id]) }}" class="btn btn-outline-primary w-100">
+                                <i data-lucide="pencil" class="me-1"></i>Editar pago
+                            </a>
+                        </div>
+                        <div class="col-md-4">
+                            <form method="POST" action="{{ route('finance.planned.destroy', $payment) }}">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="btn btn-outline-danger w-100">
+                                    <i data-lucide="trash-2" class="me-1"></i>Eliminar del flujo
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+@endforeach
 
 <div class="card">
     <div class="card-header">
@@ -232,94 +438,9 @@
                                 <span class="badge {{ $originClass }}">{{ $originLabel }}</span>
                             </td>
                             <td class="text-end">
-                                @if (in_array($payment->status, ['pending', 'overdue'], true))
-                                    <div class="d-flex flex-column flex-xxl-row align-items-end gap-2">
-                                        <a href="{{ route('finance.planned.index', ['month' => $monthValue, 'edit' => $payment->id]) }}" class="btn btn-sm btn-outline-primary" title="Editar">
-                                            <i data-lucide="pencil"></i>
-                                        </a>
-                                        <form method="POST" action="{{ route('finance.planned.paid', $payment) }}">
-                                            @csrf
-                                            <input type="date" name="paid_on" class="form-control form-control-sm mb-1" value="{{ $payment->due_date?->format('Y-m-d') ?? now()->toDateString() }}" title="Fecha real de pago">
-                                            <button type="submit" class="btn btn-sm btn-success" title="Pagado">
-                                                <i data-lucide="check"></i>
-                                            </button>
-                                        </form>
-                                        <a href="{{ route('finance.planned.link', $payment) }}" class="btn btn-sm btn-outline-success" title="Vincular con movimiento">
-                                            <i data-lucide="link"></i>
-                                        </a>
-                                        <form method="POST" action="{{ route('finance.planned.credit-paid', $payment) }}" class="d-flex flex-column gap-1" title="Cubrir con tarjeta o credito">
-                                            @csrf
-                                            <input type="date" name="paid_on" class="form-control form-control-sm" value="{{ $payment->due_date?->format('Y-m-d') ?? now()->toDateString() }}" title="Fecha de compra con tarjeta">
-                                            <select name="account_id" class="form-select form-select-sm" title="Tarjeta o cuenta de credito">
-                                                <option value="">Tarjeta</option>
-                                                @foreach ($creditAccounts as $account)
-                                                    <option value="{{ $account->id }}" @selected($payment->account_id === $account->id)>{{ $account->name }}</option>
-                                                @endforeach
-                                            </select>
-                                            <select name="credit_purchase_id" class="form-select form-select-sm" title="Credito ya agregado">
-                                                <option value="">Ligar credito existente</option>
-                                                @foreach ($creditPurchases as $creditPurchase)
-                                                    <option value="{{ $creditPurchase->id }}">{{ $creditPurchase->name }}{{ $creditPurchase->account ? ' - ' . $creditPurchase->account->name : '' }}</option>
-                                                @endforeach
-                                            </select>
-                                            <button type="submit" class="btn btn-sm btn-outline-warning" title="Pagado con credito">
-                                                <i data-lucide="credit-card"></i>
-                                            </button>
-                                        </form>
-                                        <form method="POST" action="{{ route('finance.planned.skip', $payment) }}">
-                                            @csrf
-                                            <button type="submit" class="btn btn-sm btn-outline-danger" title="No pagado / pendiente de decisión">
-                                                <i data-lucide="x"></i>
-                                            </button>
-                                        </form>
-                                        <form method="POST" action="{{ route('finance.planned.destroy', $payment) }}">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Quitar del flujo">
-                                                <i data-lucide="trash-2"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                @else
-                                    <div class="d-inline-flex align-items-center gap-2">
-                                        <a href="{{ route('finance.planned.index', ['month' => $monthValue, 'edit' => $payment->id]) }}" class="btn btn-sm btn-outline-primary" title="Editar">
-                                            <i data-lucide="pencil"></i>
-                                        </a>
-                                        @if ($payment->status === 'paid' && ! $payment->movement_id)
-                                            <a href="{{ route('finance.planned.link', $payment) }}" class="btn btn-sm btn-outline-success" title="Vincular con movimiento">
-                                                <i data-lucide="link"></i>
-                                            </a>
-                                        @endif
-                                        @if ($payment->status === 'paid' && ! $payment->movement_id && ! $payment->is_credit)
-                                            <form method="POST" action="{{ route('finance.planned.credit-paid', $payment) }}" class="d-flex flex-column gap-1" title="Ligar a credito">
-                                                @csrf
-                                                <input type="hidden" name="paid_on" value="{{ $payment->paid_on?->format('Y-m-d') ?? now()->toDateString() }}">
-                                                <select name="account_id" class="form-select form-select-sm" title="Tarjeta o cuenta de credito">
-                                                    <option value="">Tarjeta</option>
-                                                    @foreach ($creditAccounts as $account)
-                                                        <option value="{{ $account->id }}" @selected($payment->account_id === $account->id)>{{ $account->name }}</option>
-                                                    @endforeach
-                                                </select>
-                                                <select name="credit_purchase_id" class="form-select form-select-sm" title="Credito ya agregado">
-                                                    <option value="">Credito existente</option>
-                                                    @foreach ($creditPurchases as $creditPurchase)
-                                                        <option value="{{ $creditPurchase->id }}">{{ $creditPurchase->name }}{{ $creditPurchase->account ? ' - ' . $creditPurchase->account->name : '' }}</option>
-                                                    @endforeach
-                                                </select>
-                                                <button type="submit" class="btn btn-sm btn-outline-warning" title="Ligar como pagado con credito">
-                                                    <i data-lucide="credit-card"></i>
-                                                </button>
-                                            </form>
-                                        @endif
-                                        <form method="POST" action="{{ route('finance.planned.destroy', $payment) }}" class="d-inline">
-                                            @csrf
-                                            @method('DELETE')
-                                            <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Quitar del flujo">
-                                                <i data-lucide="trash-2"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                @endif
+                                <button type="button" class="btn btn-sm btn-outline-primary w-100" style="min-width: 118px" data-bs-toggle="modal" data-bs-target="#planned-payment-actions-{{ $payment->id }}">
+                                    <i data-lucide="list-checks" class="me-1"></i>Acciones
+                                </button>
                             </td>
                         </tr>
                         @if ($editPaymentId === $payment->id)
@@ -460,24 +581,9 @@
                                 <span class="badge {{ $originClass }}">{{ $originLabel }}</span>
                             </td>
                             <td class="text-end">
-                                @if (in_array($installment->status, ['pending', 'overdue'], true))
-                                    <div class="d-flex flex-column flex-xxl-row align-items-end gap-2">
-                                        <form method="POST" action="{{ route('finance.credits.installments.paid', $installment) }}">
-                                            @csrf
-                                            <input type="date" name="paid_on" class="form-control form-control-sm mb-1" value="{{ $installment->due_date?->format('Y-m-d') ?? now()->toDateString() }}" title="Fecha real de pago">
-                                            <button type="submit" class="btn btn-sm btn-success" title="Pagado">
-                                                <i data-lucide="check"></i>
-                                            </button>
-                                        </form>
-                                        <form method="POST" action="{{ route('finance.credits.installments.registered', $installment) }}">
-                                            @csrf
-                                            <input type="date" name="paid_on" class="form-control form-control-sm mb-1" value="{{ $installment->due_date?->format('Y-m-d') ?? now()->toDateString() }}" title="Fecha real de pago">
-                                            <button type="submit" class="btn btn-sm btn-outline-success" title="Ya lo capture como gasto">
-                                                <i data-lucide="link"></i>
-                                            </button>
-                                        </form>
-                                    </div>
-                                @endif
+                                <button type="button" class="btn btn-sm btn-outline-primary w-100" style="min-width: 118px" data-bs-toggle="modal" data-bs-target="#credit-installment-actions-{{ $installment->id }}">
+                                    <i data-lucide="list-checks" class="me-1"></i>Acciones
+                                </button>
                             </td>
                         </tr>
                     @empty
@@ -490,4 +596,104 @@
         </div>
     </div>
 </div>
+
+@foreach ($creditInstallments as $installment)
+    @php
+        $credit = $installment->creditPurchase;
+        $overdue = in_array($installment->status, ['pending', 'overdue'], true)
+            && (
+                $installment->status === 'overdue'
+                || ($installment->due_date && $installment->due_date->copy()->startOfDay()->lt(today()->startOfDay()))
+            );
+        $statusLabel = $installment->status === 'paid'
+            ? 'Pagado'
+            : ($installment->status === 'skipped' ? 'No pagado / pendiente de decision' : ($overdue ? 'Vencido' : 'Pendiente'));
+        $originLabel = match (true) {
+            $installment->status === 'skipped' => 'No pagado / pendiente de decision',
+            $installment->status === 'paid' && (bool) $installment->movement_id => 'Pagado/vinculado',
+            $installment->status === 'paid' => 'Pagado/registrado',
+            $overdue => 'Credito vencido',
+            default => 'Credito',
+        };
+        $defaultPaidOn = $installment->paid_on?->format('Y-m-d')
+            ?? $installment->due_date?->format('Y-m-d')
+            ?? now()->toDateString();
+    @endphp
+    <div class="modal fade" id="credit-installment-actions-{{ $installment->id }}" tabindex="-1" aria-labelledby="credit-installment-actions-{{ $installment->id }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="credit-installment-actions-{{ $installment->id }}-label">Acciones de mensualidad</h5>
+                        <div class="text-muted small">{{ $credit?->name ?? 'Credito' }} - {{ $installment->installment_number }} / {{ $credit?->months ?? '-' }}</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="border rounded p-3 mb-3">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Monto</span>
+                                <span class="fw-semibold">{{ $money($installment->amount) }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Vencimiento</span>
+                                <span class="fw-semibold">{{ $installment->due_date?->format('Y-m-d') ?? '-' }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Estado</span>
+                                <span class="badge {{ $installment->status === 'paid' ? 'badge-soft-success' : ($overdue || $installment->status === 'skipped' ? 'badge-soft-danger' : 'badge-soft-warning') }}">{{ $statusLabel }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Cuenta</span>
+                                <span>{{ $credit?->account?->name ?? '-' }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Categoria</span>
+                                <span>{{ $credit?->category?->name ?? '-' }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Origen</span>
+                                <span>{{ $originLabel }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if (in_array($installment->status, ['pending', 'overdue'], true))
+                        <div class="row g-3 mb-3">
+                            <div class="col-lg-6">
+                                <form method="POST" action="{{ route('finance.credits.installments.paid', $installment) }}" class="border rounded p-3 h-100">
+                                    @csrf
+                                    <label class="form-label">Fecha real de pago</label>
+                                    <input type="date" name="paid_on" class="form-control mb-3" value="{{ $defaultPaidOn }}">
+                                    <button type="submit" class="btn btn-success w-100">
+                                        <i data-lucide="check" class="me-1"></i>Marcar como pagado
+                                    </button>
+                                </form>
+                            </div>
+                            <div class="col-lg-6">
+                                <form method="POST" action="{{ route('finance.credits.installments.registered', $installment) }}" class="border rounded p-3 h-100">
+                                    @csrf
+                                    <label class="form-label">Fecha ya capturada</label>
+                                    <input type="date" name="paid_on" class="form-control mb-3" value="{{ $defaultPaidOn }}">
+                                    <button type="submit" class="btn btn-outline-success w-100">
+                                        <i data-lucide="link" class="me-1"></i>Ya lo capture como gasto
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    @else
+                        <div class="alert alert-success mb-3">
+                            Esta mensualidad ya esta marcada como pagada.
+                        </div>
+                    @endif
+
+                    <a href="{{ route('finance.credits.index') }}" class="btn btn-outline-primary w-100">
+                        <i data-lucide="credit-card" class="me-1"></i>Administrar credito
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+@endforeach
 @endsection

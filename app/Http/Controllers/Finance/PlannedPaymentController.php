@@ -67,6 +67,14 @@ class PlannedPaymentController extends Controller
             ->orderBy('name')
             ->get();
 
+        $expenseMovements = Movement::with(['account', 'category', 'person'])
+            ->where('user_id', $user->id)
+            ->where('movement_type', 'expense')
+            ->whereBetween('happened_on', [$start->toDateString(), $end->toDateString()])
+            ->orderByDesc('happened_on')
+            ->orderByDesc('id')
+            ->get();
+
         return view('finance.planned.index', [
             'payments' => $payments,
             'creditInstallments' => $creditInstallments,
@@ -75,6 +83,7 @@ class PlannedPaymentController extends Controller
             'accounts' => $accounts,
             'creditAccounts' => $creditAccounts,
             'creditPurchases' => $creditPurchases,
+            'expenseMovements' => $expenseMovements,
             'categories' => $this->categoriesFor($user, 'expense'),
             'people' => $this->peopleFor($user),
         ]);

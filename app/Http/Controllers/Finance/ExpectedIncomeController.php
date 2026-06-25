@@ -50,6 +50,14 @@ class ExpectedIncomeController extends Controller
         $receivedTotal = round($incomeRows->sum(fn (array $income) => (float) $income['received_amount']), 2);
         $expectedTotal = round($incomeRows->sum(fn (array $income) => (float) $income['amount']), 2);
 
+        $incomeMovements = Movement::with(['account', 'category', 'person'])
+            ->where('user_id', $user->id)
+            ->where('movement_type', 'income')
+            ->whereBetween('happened_on', [$start->toDateString(), $end->toDateString()])
+            ->orderByDesc('happened_on')
+            ->orderByDesc('id')
+            ->get();
+
         return view('finance.expected-incomes.index', [
             'incomeRows' => $incomeRows,
             'incomeTotals' => [
@@ -57,6 +65,7 @@ class ExpectedIncomeController extends Controller
                 'received' => $receivedTotal,
                 'pending' => round(max(0, $expectedTotal - $receivedTotal), 2),
             ],
+            'incomeMovements' => $incomeMovements,
             'monthValue' => $start->format('Y-m'),
             'editIncomeId' => (int) $request->query('edit'),
             'accounts' => $this->accountsFor($user),

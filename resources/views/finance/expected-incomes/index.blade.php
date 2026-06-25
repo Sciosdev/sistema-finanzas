@@ -6,6 +6,23 @@
     $defaultIncomeAccount = $accounts->firstWhere('name', 'NU') ?? $accounts->first();
     $nextMonthValue = \Carbon\Carbon::createFromFormat('Y-m', $monthValue)->addMonth()->format('Y-m');
     $editIncomeId = $editIncomeId ?? (int) request('edit');
+    $incomeMovements = $incomeMovements ?? collect();
+    $movementCandidatesForIncome = function (array $income) use ($incomeMovements) {
+        return $incomeMovements
+            ->sortBy(function ($movement) use ($income) {
+                $amountDistance = abs((float) $movement->amount - (float) $income['amount']);
+                $dateDistance = $income['due_date']
+                    ? abs($movement->happened_on->diffInDays($income['due_date'], false))
+                    : 0;
+
+                return str_pad((string) round($amountDistance * 100), 12, '0', STR_PAD_LEFT)
+                    . str_pad((string) $dateDistance, 6, '0', STR_PAD_LEFT)
+                    . $movement->happened_on->format('Ymd');
+            })
+            ->take(8)
+            ->values();
+    };
+    $isMatchingIncomeAmount = fn ($movement, array $income) => abs((float) $movement->amount - (float) $income['amount']) < 0.01;
 @endphp
 
 @include('finance.partials.flash')
@@ -243,87 +260,9 @@
                                 @endif
                             </td>
                             <td class="text-end">
-                                @if (in_array($income['status'], ['pending', 'partial', 'overdue'], true))
-                                    <div class="d-flex flex-column flex-xxl-row align-items-end gap-2">
-                                        @if ($income['kind'] === 'expected')
-                                            <a href="{{ route('finance.expected-incomes.index', ['month' => $monthValue, 'edit' => $income['id']]) }}" class="btn btn-sm btn-outline-primary" title="Editar">
-                                                <i data-lucide="pencil"></i>
-                                            </a>
-                                        @endif
-                                        <form method="POST" action="{{ $income['kind'] === 'rental-contract' ? route('finance.san-juan.rentals.received', $income['id']) : route('finance.expected-incomes.received', $income['id']) }}">
-                                            @csrf
-                                            @if ($income['kind'] === 'rental-contract')
-                                                <input type="hidden" name="month" value="{{ $monthValue }}">
-                                            @endif
-                                            <select name="account_id" class="form-select form-select-sm mb-1" title="Cuenta destino">
-                                                @foreach ($accounts as $account)
-                                                    <option value="{{ $account->id }}" @selected(($income['account_id'] ?? $defaultIncomeAccount?->id) === $account->id)>{{ $account->name }}</option>
-                                                @endforeach
-                                            </select>
-                                            <input type="number" name="amount" class="form-control form-control-sm text-end mb-1" step="0.01" min="0.01" value="{{ $remaining }}" title="Monto recibido">
-                                            <input type="date" name="received_on" class="form-control form-control-sm mb-1" value="{{ $income['due_date']?->format('Y-m-d') ?? now()->toDateString() }}" title="Fecha real de cobro">
-                                            <button type="submit" class="btn btn-sm btn-success" title="Recibido y crear movimiento">
-                                                <i data-lucide="check"></i>
-                                            </button>
-                                        </form>
-                                        @if ($income['kind'] === 'expected')
-                                            <a href="{{ route('finance.expected-incomes.link', $income['id']) }}" class="btn btn-sm btn-outline-success" title="Vincular con movimiento">
-                                                <i data-lucide="link"></i>
-                                            </a>
-                                            <form method="POST" action="{{ route('finance.expected-incomes.registered', $income['id']) }}">
-                                                @csrf
-                                                <input type="date" name="received_on" class="form-control form-control-sm mb-1" value="{{ $income['due_date']?->format('Y-m-d') ?? now()->toDateString() }}" title="Fecha real de cobro">
-                                                <button type="submit" class="btn btn-sm btn-outline-success" title="Ya lo capture como ingreso">
-                                                    <i data-lucide="link"></i>
-                                                </button>
-                                            </form>
-                                            <form method="POST" action="{{ route('finance.expected-incomes.skip', $income['id']) }}">
-                                                @csrf
-                                                <button type="submit" class="btn btn-sm btn-outline-danger" title="No recibido">
-                                                    <i data-lucide="x"></i>
-                                                </button>
-                                            </form>
-                                            <form method="POST" action="{{ route('finance.expected-incomes.destroy', $income['id']) }}">
-                                                @csrf
-                                                @method('DELETE')
-                                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Eliminar">
-                                                    <i data-lucide="trash-2"></i>
-                                                </button>
-                                            </form>
-                                        @else
-                                            <a href="{{ route('finance.san-juan.index', ['month' => $monthValue]) }}" class="btn btn-sm btn-outline-primary" title="Editar contrato">
-                                                <i data-lucide="home"></i>
-                                            </a>
-                                        @endif
-                                    </div>
-                                @else
-                                    @if ($income['kind'] === 'expected')
-                                        <div class="d-inline-flex align-items-center gap-2">
-                                            <a href="{{ route('finance.expected-incomes.index', ['month' => $monthValue, 'edit' => $income['id']]) }}" class="btn btn-sm btn-link text-primary p-0" title="Editar">
-                                                <i data-lucide="pencil"></i>
-                                            </a>
-                                            @if ($isLinked)
-                                                <form method="POST" action="{{ route('finance.expected-incomes.unlink-movement', $income['id']) }}" class="d-inline">
-                                                    @csrf
-                                                    <button type="submit" class="btn btn-sm btn-link text-warning p-0" title="Desligar movimiento">
-                                                        <i data-lucide="unlink"></i>
-                                                    </button>
-                                                </form>
-                                            @else
-                                                <a href="{{ route('finance.expected-incomes.link', $income['id']) }}" class="btn btn-sm btn-link text-success p-0" title="Vincular con movimiento">
-                                                    <i data-lucide="link"></i>
-                                                </a>
-                                            @endif
-                                            <form method="POST" action="{{ route('finance.expected-incomes.destroy', $income['id']) }}" class="d-inline">
-                                                @csrf
-                                                @method('DELETE')
-                                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Eliminar">
-                                                    <i data-lucide="trash-2"></i>
-                                                </button>
-                                            </form>
-                                        </div>
-                                    @endif
-                                @endif
+                                <button type="button" class="btn btn-sm btn-outline-primary w-100" style="min-width: 118px" data-bs-toggle="modal" data-bs-target="#expected-income-actions-{{ $income['kind'] }}-{{ $income['id'] }}">
+                                    <i data-lucide="list-checks" class="me-1"></i>Acciones
+                                </button>
                             </td>
                         </tr>
                         @if ($income['kind'] === 'expected' && $editIncomeId === $income['id'])
@@ -412,4 +351,272 @@
         </div>
     </div>
 </div>
+
+@foreach ($incomeRows as $income)
+    @php
+        $remaining = (float) ($income['amount_due'] ?? max(0, (float) $income['amount'] - (float) $income['received_amount']));
+        $paymentCount = (int) ($income['payment_count'] ?? 0);
+        $payments = $income['payments'] ?? collect();
+        $isLinked = $paymentCount > 0;
+        $overdue = in_array($income['status'], ['pending', 'partial', 'overdue'], true)
+            && $income['due_date']
+            && $income['due_date']->copy()->startOfDay()->lt(today()->startOfDay())
+            && $remaining > 0;
+        $statusLabel = $income['status'] === 'received'
+            ? 'Recibido'
+            : ($income['status'] === 'skipped' ? 'No recibido' : ($income['status'] === 'partial' ? ($overdue ? 'Parcial vencido' : 'Parcial') : ($overdue ? 'Vencido' : 'Pendiente')));
+        $originLabel = $income['kind'] === 'rental-contract'
+            ? 'Contrato San Juan'
+            : ($isLinked ? 'Ingreso con abonos' : 'Ingreso esperado');
+        $defaultReceivedOn = $income['due_date']?->format('Y-m-d') ?? now()->toDateString();
+        $defaultAccountId = $income['account_id'] ?? $defaultIncomeAccount?->id;
+        $canReceive = in_array($income['status'], ['pending', 'partial', 'overdue', 'skipped'], true) && $remaining > 0;
+        $canSkip = $income['kind'] === 'expected' && in_array($income['status'], ['pending', 'partial', 'overdue'], true);
+        $incomeCandidates = $income['kind'] === 'expected' ? $movementCandidatesForIncome($income) : collect();
+    @endphp
+    <div class="modal fade" id="expected-income-actions-{{ $income['kind'] }}-{{ $income['id'] }}" tabindex="-1" aria-labelledby="expected-income-actions-{{ $income['kind'] }}-{{ $income['id'] }}-label" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <div>
+                        <h5 class="modal-title" id="expected-income-actions-{{ $income['kind'] }}-{{ $income['id'] }}-label">Acciones de ingreso</h5>
+                        <div class="text-muted small">{{ $income['name'] }}</div>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="border rounded p-3 mb-3">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Monto esperado</span>
+                                <span class="fw-semibold">{{ $money($income['amount']) }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Recibido</span>
+                                <span class="fw-semibold text-success">{{ $money($income['received_amount']) }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Saldo</span>
+                                <span class="fw-semibold {{ $remaining > 0 ? 'text-warning' : 'text-success' }}">{{ $money($remaining) }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Fecha esperada</span>
+                                <span>{{ $income['due_date']?->format('Y-m-d') ?? '-' }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Estado</span>
+                                <span class="badge {{ $income['status'] === 'received' ? 'badge-soft-success' : ($overdue || $income['status'] === 'skipped' ? 'badge-soft-danger' : 'badge-soft-warning') }}">{{ $statusLabel }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Origen</span>
+                                <span>{{ $originLabel }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Cuenta</span>
+                                <span>{{ $accounts->firstWhere('id', $income['account_id'])?->name ?? '-' }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Categoria</span>
+                                <span>{{ $income['category'] }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Persona</span>
+                                <span>{{ $income['person'] }}</span>
+                            </div>
+                            <div class="col-md-4">
+                                <span class="text-muted small d-block">Abonos</span>
+                                <span>{{ $paymentCount }}</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    @if ($payments->isNotEmpty())
+                        <div class="border rounded p-3 mb-3">
+                            <h6 class="mb-3">Abonos registrados</h6>
+                            <div class="list-group">
+                                @foreach ($payments as $payment)
+                                    <div class="list-group-item">
+                                        <div class="d-flex flex-column flex-md-row justify-content-between gap-2">
+                                            <div>
+                                                <div class="fw-semibold">{{ $payment->paid_on?->format('Y-m-d') ?? '-' }} - {{ $money($payment->amount_applied) }}</div>
+                                                <div class="text-muted small">{{ $payment->movement?->description ?? 'Marcado como registrado sin movimiento ligado' }}</div>
+                                            </div>
+                                            @if ($payment->movement)
+                                                <span class="badge badge-soft-primary align-self-md-start">Ligado</span>
+                                            @else
+                                                <span class="badge badge-soft-warning align-self-md-start">Sin movimiento</span>
+                                            @endif
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        </div>
+                    @endif
+
+                    @if ($income['kind'] === 'rental-contract')
+                        @if ($canReceive)
+                            <form method="POST" action="{{ route('finance.san-juan.rentals.received', $income['id']) }}" class="border rounded p-3 mb-3">
+                                @csrf
+                                <input type="hidden" name="month" value="{{ $monthValue }}">
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <label class="form-label">Cuenta destino</label>
+                                        <select name="account_id" class="form-select">
+                                            @foreach ($accounts as $account)
+                                                <option value="{{ $account->id }}" @selected($defaultAccountId === $account->id)>{{ $account->name }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Monto recibido</label>
+                                        <input type="number" name="amount" class="form-control text-end" step="0.01" min="0.01" value="{{ $remaining }}">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Fecha real de cobro</label>
+                                        <input type="date" name="received_on" class="form-control" value="{{ $defaultReceivedOn }}">
+                                    </div>
+                                    <div class="col-12">
+                                        <button type="submit" class="btn btn-success w-100">
+                                            <i data-lucide="check" class="me-1"></i>Registrar renta recibida
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        @endif
+                        <a href="{{ route('finance.san-juan.index', ['month' => $monthValue]) }}" class="btn btn-outline-primary w-100">
+                            <i data-lucide="home" class="me-1"></i>Administrar contrato
+                        </a>
+                    @else
+                        @if ($canReceive)
+                            <div class="row g-3 mb-3">
+                                <div class="col-lg-6">
+                                    <form method="POST" action="{{ route('finance.expected-incomes.received', $income['id']) }}" class="border rounded p-3 h-100">
+                                        @csrf
+                                        <label class="form-label">Cuenta destino</label>
+                                        <select name="account_id" class="form-select mb-2">
+                                            @foreach ($accounts as $account)
+                                                <option value="{{ $account->id }}" @selected($defaultAccountId === $account->id)>{{ $account->name }}</option>
+                                            @endforeach
+                                        </select>
+                                        <label class="form-label">Monto recibido</label>
+                                        <input type="number" name="amount" class="form-control text-end mb-2" step="0.01" min="0.01" value="{{ $remaining }}">
+                                        <label class="form-label">Fecha real de cobro</label>
+                                        <input type="date" name="received_on" class="form-control mb-3" value="{{ $defaultReceivedOn }}">
+                                        <button type="submit" class="btn btn-success w-100">
+                                            <i data-lucide="check" class="me-1"></i>Marcar como recibido
+                                        </button>
+                                    </form>
+                                </div>
+                                <div class="col-lg-6">
+                                    <form method="POST" action="{{ route('finance.expected-incomes.registered', $income['id']) }}" class="border rounded p-3 h-100">
+                                        @csrf
+                                        <label class="form-label">Fecha ya capturada</label>
+                                        <input type="date" name="received_on" class="form-control mb-3" value="{{ $defaultReceivedOn }}">
+                                        <button type="submit" class="btn btn-outline-success w-100">
+                                            <i data-lucide="link" class="me-1"></i>Ya lo capture como ingreso
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        @endif
+
+                        @if (! $isLinked || $remaining > 0)
+                            <div class="border rounded p-3 mb-3">
+                                <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3">
+                                    <div>
+                                        <h6 class="mb-1">Vincular movimiento existente</h6>
+                                        <div class="text-muted small">Usa la fecha ya capturada en el movimiento seleccionado.</div>
+                                    </div>
+                                    <a href="{{ route('finance.expected-incomes.link', $income['id']) }}" class="btn btn-sm btn-outline-secondary align-self-md-start">
+                                        Pantalla completa
+                                    </a>
+                                </div>
+                                <div class="list-group">
+                                    @forelse ($incomeCandidates as $movement)
+                                        @php
+                                            $alreadyLinked = $payments->contains('movement_id', $movement->id);
+                                            $defaultApplied = min((float) $movement->amount, $remaining > 0 ? $remaining : (float) $movement->amount);
+                                        @endphp
+                                        <div class="list-group-item">
+                                            <div class="d-flex flex-column flex-lg-row justify-content-between gap-3">
+                                                <div>
+                                                    <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                                                        <span class="fw-semibold">{{ $movement->happened_on?->format('Y-m-d') ?? '-' }}</span>
+                                                        @if ($isMatchingIncomeAmount($movement, $income))
+                                                            <span class="badge badge-soft-success">Monto coincide</span>
+                                                        @endif
+                                                        @if ($movement->is_rent)
+                                                            <span class="badge badge-soft-success">Renta</span>
+                                                        @endif
+                                                        @if ($alreadyLinked)
+                                                            <span class="badge badge-soft-primary">Ya ligado</span>
+                                                        @endif
+                                                    </div>
+                                                    <div>{{ $movement->description }}</div>
+                                                    <div class="text-muted small">
+                                                        {{ $movement->account?->name ?? 'Sin cuenta' }} | {{ $movement->category?->name ?? 'Sin categoria' }} | {{ $movement->person?->name ?? 'Sin persona' }}
+                                                    </div>
+                                                </div>
+                                                <div class="d-flex flex-column align-items-lg-end gap-2">
+                                                    <span class="fw-semibold text-success">{{ $money($movement->amount) }}</span>
+                                                    <form method="POST" action="{{ route('finance.expected-incomes.link-movement', $income['id']) }}" class="d-flex flex-column gap-2">
+                                                        @csrf
+                                                        <input type="hidden" name="movement_id" value="{{ $movement->id }}">
+                                                        <input type="number" name="amount_applied" class="form-control form-control-sm text-end" step="0.01" min="0.01" max="{{ $movement->amount }}" value="{{ $defaultApplied }}" @disabled($alreadyLinked)>
+                                                        <button type="submit" class="btn btn-sm btn-outline-success w-100" @disabled($alreadyLinked)>
+                                                            <i data-lucide="link" class="me-1"></i>Aplicar abono
+                                                        </button>
+                                                    </form>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    @empty
+                                        <div class="text-muted small">No hay movimientos reales de ingreso en este mes.</div>
+                                    @endforelse
+                                </div>
+                            </div>
+                        @endif
+
+                        <div class="row g-2">
+                            @if ($isLinked)
+                                <div class="col-md-4">
+                                    <form method="POST" action="{{ route('finance.expected-incomes.unlink-movement', $income['id']) }}">
+                                        @csrf
+                                        <button type="submit" class="btn btn-outline-warning w-100">
+                                            <i data-lucide="unlink" class="me-1"></i>Desligar abonos
+                                        </button>
+                                    </form>
+                                </div>
+                            @endif
+                            @if ($canSkip)
+                                <div class="col-md-4">
+                                    <form method="POST" action="{{ route('finance.expected-incomes.skip', $income['id']) }}">
+                                        @csrf
+                                        <button type="submit" class="btn btn-outline-danger w-100">
+                                            <i data-lucide="x" class="me-1"></i>Marcar como no recibido
+                                        </button>
+                                    </form>
+                                </div>
+                            @endif
+                            <div class="col-md-4">
+                                <a href="{{ route('finance.expected-incomes.index', ['month' => $monthValue, 'edit' => $income['id']]) }}" class="btn btn-outline-primary w-100">
+                                    <i data-lucide="pencil" class="me-1"></i>Editar ingreso
+                                </a>
+                            </div>
+                            <div class="col-md-4">
+                                <form method="POST" action="{{ route('finance.expected-incomes.destroy', $income['id']) }}">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-outline-danger w-100">
+                                        <i data-lucide="trash-2" class="me-1"></i>Eliminar ingreso
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    @endif
+                </div>
+            </div>
+        </div>
+    </div>
+@endforeach
 @endsection
