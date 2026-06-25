@@ -182,7 +182,7 @@
         min-width: 34px;
     }
 
-    .finance-dashboard-grid.is-layout-editing .dashboard-widget[data-dashboard-resizable="true"] > .card {
+    .finance-dashboard-grid.is-layout-editing .dashboard-widget > .card {
         border-color: rgba(34, 185, 86, .28);
         padding-top: 2.4rem;
     }
@@ -280,7 +280,7 @@
 <div class="row g-3 finance-dashboard-grid" id="financeDashboardGrid"
      data-storage-key="finance-dashboard-order-{{ auth()->id() }}"
      data-size-storage-key="finance-dashboard-sizes-{{ auth()->id() }}">
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="income-real" data-dashboard-resizable="true">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="income-real">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -294,7 +294,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="projected-income" data-dashboard-resizable="true">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="projected-income">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -308,7 +308,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="expenses-real" data-dashboard-resizable="true">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="expenses-real">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -322,7 +322,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="expected-leftover" data-dashboard-resizable="true">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="expected-leftover">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -336,7 +336,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="real-total-cut" data-dashboard-resizable="true">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="real-total-cut">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -352,7 +352,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="cut-difference" data-dashboard-resizable="true">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="cut-difference">
         <div class="card">
             <div class="card-body">
                 <p class="mb-2 card-title">Diferencia de conciliación</p>
@@ -364,7 +364,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="amount-missing" data-dashboard-resizable="true">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="amount-missing">
         <div class="card">
             <div class="card-body">
                 <p class="mb-2 card-title">Saldo disponible después de obligaciones</p>
@@ -376,7 +376,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="san-juan-expenses" data-dashboard-resizable="true">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="san-juan-expenses">
         <div class="card">
             <div class="card-body">
                 <p class="mb-2 card-title">Egresos San Juan</p>
@@ -386,7 +386,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="san-juan-profit" data-dashboard-resizable="true">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="san-juan-profit">
         <div class="card">
             <div class="card-body">
                 <p class="mb-2 card-title">Utilidad San Juan</p>
@@ -1200,7 +1200,7 @@
         const managedClasses = ['col-xl-3', 'col-xl-4', 'col-xl-5', 'col-xl-6', 'col-xl-7', 'col-12', 'col-md-6'];
 
         const widgets = () => Array.from(grid.querySelectorAll('[data-dashboard-widget]'));
-        const resizableWidgets = () => widgets().filter((widget) => widget.dataset.dashboardResizable === 'true');
+        const resizableWidgets = () => widgets();
 
         const saveOrder = () => {
             localStorage.setItem(storageKey, JSON.stringify(widgets().map((widget) => widget.dataset.dashboardWidget)));
@@ -1227,7 +1227,11 @@
                 return 1;
             }
 
-            if (widget.classList.contains('col-xl-6')) {
+            if (
+                widget.classList.contains('col-xl-5')
+                || widget.classList.contains('col-xl-6')
+                || widget.classList.contains('col-xl-7')
+            ) {
                 return 2;
             }
 
@@ -1264,7 +1268,13 @@
             const sizes = readSizes();
 
             resizableWidgets().forEach((widget) => {
-                applySize(widget, sizes[widget.dataset.dashboardWidget] || defaultSizeFor(widget), false);
+                const savedSize = sizes[widget.dataset.dashboardWidget];
+
+                if (savedSize) {
+                    applySize(widget, savedSize, false);
+                } else {
+                    widget.dataset.dashboardSize = String(defaultSizeFor(widget));
+                }
             });
         };
 
@@ -1324,30 +1334,28 @@
                 widget.setAttribute('draggable', 'true');
             }, { passive: true });
 
-            if (widget.dataset.dashboardResizable === 'true') {
-                const sizePanel = document.createElement('div');
-                sizePanel.className = 'dashboard-widget-size-panel';
-                sizePanel.setAttribute('aria-label', 'Tamaño del cuadro');
+            const sizePanel = document.createElement('div');
+            sizePanel.className = 'dashboard-widget-size-panel';
+            sizePanel.setAttribute('aria-label', 'Tamaño del cuadro');
 
-                Object.entries(sizeOptions).forEach(([size, option]) => {
-                    const button = document.createElement('button');
-                    button.type = 'button';
-                    button.className = 'btn btn-sm btn-outline-secondary';
-                    button.dataset.dashboardSize = size;
-                    button.textContent = option.label;
-                    button.title = `${option.label} por fila`;
-                    button.setAttribute('aria-pressed', 'false');
-                    button.addEventListener('click', (event) => {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        applySize(widget, Number(size));
-                    });
-                    sizePanel.appendChild(button);
+            Object.entries(sizeOptions).forEach(([size, option]) => {
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'btn btn-sm btn-outline-secondary';
+                button.dataset.dashboardSize = size;
+                button.textContent = option.label;
+                button.title = `${option.label} por fila`;
+                button.setAttribute('aria-pressed', 'false');
+                button.addEventListener('click', (event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    applySize(widget, Number(size));
                 });
+                sizePanel.appendChild(button);
+            });
 
-                card.appendChild(sizePanel);
-                setSizeButtonState(widget, Number(widget.dataset.dashboardSize || defaultSizeFor(widget)));
-            }
+            card.appendChild(sizePanel);
+            setSizeButtonState(widget, Number(widget.dataset.dashboardSize || defaultSizeFor(widget)));
         });
 
         if (window.lucide) {
