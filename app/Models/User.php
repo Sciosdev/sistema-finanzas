@@ -52,6 +52,13 @@ class User extends Authenticatable
         ];
     }
 
+    public function isFinanceOwner(): bool
+    {
+        $ownerEmail = trim((string) config('finance.owner_email'));
+
+        return $ownerEmail !== '' && strcasecmp($this->email, $ownerEmail) === 0;
+    }
+
     public function financeAccounts(): HasMany
     {
         return $this->hasMany(Account::class);

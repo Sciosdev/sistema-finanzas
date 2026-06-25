@@ -20,6 +20,7 @@ afterEach(function () {
     config()->set('database.default', $this->originalDatabaseDefault);
     config()->set('database.connections.mysql', $this->originalMysqlConnection);
     config()->set('finance.external_backup_path', $this->originalExternalBackupPath);
+    config()->set('finance.owner_email', null);
     File::deleteDirectory(storage_path('app/private/finance-backups'));
     File::deleteDirectory(storage_path('app/private/testing-external-backups'));
     Carbon::setTestNow();
@@ -186,6 +187,7 @@ it('stores a generated database backup flash with a protected download link', fu
 
     app()->instance(FinanceBackupService::class, fakeDatabaseDumpFinanceBackupService());
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     configureMysqlBackupConnectionForTests();
 
     $this->actingAs($user)
@@ -201,6 +203,7 @@ it('stores a generated migration package flash with a protected download link', 
 
     app()->instance(FinanceBackupService::class, fakeMigrationFinanceBackupService());
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
 
     $this->actingAs($user)
         ->post(route('finance.security.backups.migration'))
@@ -215,6 +218,7 @@ it('shows an immediate download button after creating a migration package', func
 
     app()->instance(FinanceBackupService::class, fakeMigrationFinanceBackupService());
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
 
     $this->actingAs($user)
         ->followingRedirects()
@@ -227,6 +231,7 @@ it('shows an immediate download button after creating a migration package', func
 
 it('downloads an existing private backup file from a protected route', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     $directory = storage_path('app/private/finance-backups/database');
     File::ensureDirectoryExists($directory);
     File::put($directory . DIRECTORY_SEPARATOR . 'manual.sql', '-- manual backup');
@@ -239,6 +244,7 @@ it('downloads an existing private backup file from a protected route', function 
 
 it('rejects manipulated backup download paths', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
 
     $this->actingAs($user)
         ->get('/finanzas/seguridad/backups/database/%2E%2E%2F.env')

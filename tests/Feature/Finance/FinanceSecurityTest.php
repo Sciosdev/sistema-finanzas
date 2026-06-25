@@ -14,6 +14,7 @@ afterEach(function () {
     File::deleteDirectory(storage_path('app/private/finance-backups'));
     File::deleteDirectory(storage_path('app/private/finance-exports'));
     config()->set('finance.external_backup_path', null);
+    config()->set('finance.owner_email', null);
     Carbon::setTestNow();
 });
 
@@ -69,6 +70,7 @@ function createSecuritySnapshot(User $user, string $entityType, string $expiresA
 it('shows the security screen with backups exports snapshots and failures', function () {
     Carbon::setTestNow('2026-06-22 12:00:00');
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
 
     $databaseDirectory = storage_path('app/private/finance-backups/database');
     $fullDirectory = storage_path('app/private/finance-backups/full');
@@ -113,6 +115,7 @@ it('redirects guests away from the security screen', function () {
 
 it('records database backup failures', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     app()->instance(FinanceBackupService::class, failingFinanceBackupServiceForSecurity('No se pudo crear el backup de BD: mysqldump no esta disponible.'));
 
     $this->actingAs($user)
@@ -134,6 +137,7 @@ it('records database backup failures', function () {
 
 it('records full backup failures', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     app()->instance(FinanceBackupService::class, failingFinanceBackupServiceForSecurity('No se pudo crear el backup completo: zip fallo.'));
 
     $this->actingAs($user)
@@ -151,6 +155,7 @@ it('records full backup failures', function () {
 
 it('records external backup failures', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     $localDirectory = storage_path('app/private/finance-backups/database');
     File::ensureDirectoryExists($localDirectory);
     File::put($localDirectory . DIRECTORY_SEPARATOR . 'manual.sql', '-- backup');
@@ -173,6 +178,7 @@ it('records external backup failures', function () {
 
 it('records invalid backup downloads as failures', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
 
     $this->actingAs($user)
         ->get(route('finance.security.backups.download', ['type' => 'database', 'filename' => 'missing.sql']))
@@ -188,6 +194,7 @@ it('records invalid backup downloads as failures', function () {
 
 it('records undo failures without storing the full token', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     $token = 'super-secret-token-that-should-not-be-stored';
 
     $this->actingAs($user)
@@ -204,6 +211,7 @@ it('records undo failures without storing the full token', function () {
 
 it('filters failures by module status and date', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     SystemFailure::create([
         'user_id' => $user->id,
         'module' => 'backup',
@@ -235,6 +243,7 @@ it('filters failures by module status and date', function () {
 
 it('marks a failure as resolved', function () {
     $user = User::factory()->create();
+    config()->set('finance.owner_email', $user->email);
     $failure = SystemFailure::create([
         'user_id' => $user->id,
         'module' => 'backup',

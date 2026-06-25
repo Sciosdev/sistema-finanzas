@@ -39,7 +39,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
     Route::prefix('finanzas')->name('finance.')->group(function () {
         Route::get('', [FinanceDashboardController::class, 'index'])->name('dashboard');
         Route::get('reportes', [FinanceReportController::class, 'index'])->name('reports.index');
-        Route::get('reportes/exportar', [FinanceReportController::class, 'export'])->name('reports.export');
+        Route::get('reportes/exportar', [FinanceReportController::class, 'export'])->middleware('finance.owner')->name('reports.export');
         Route::get('importar-historico', [HistoricalImportController::class, 'index'])->name('imports.historical.index');
         Route::get('importar-historico/plantilla', [HistoricalImportController::class, 'template'])->name('imports.historical.template');
         Route::post('importar-historico/vista-previa', [HistoricalImportController::class, 'preview'])->name('imports.historical.preview');
@@ -48,24 +48,26 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::post('revision-mensual/{key}/aplicar', [MonthlyReviewController::class, 'apply'])->name('monthly-review.apply');
         Route::post('revision-mensual/{key}/ignorar', [MonthlyReviewController::class, 'ignore'])->name('monthly-review.ignore');
         Route::get('operacion', [FinanceOperationController::class, 'index'])->name('operations.index');
-        Route::get('seguridad', [FinanceSecurityController::class, 'index'])->name('security.index');
-        Route::get('diagnostico', [FinanceHealthController::class, 'index'])->name('health.index');
-        Route::post('seguridad/deshacer/{token}', [FinanceSecurityController::class, 'undoDelete'])->name('security.undo-delete');
-        Route::post('seguridad/backups/database', [FinanceSecurityController::class, 'createDatabaseBackup'])->name('security.backups.database');
-        Route::post('seguridad/backups/full', [FinanceSecurityController::class, 'createFullBackup'])->name('security.backups.full');
-        Route::post('seguridad/backups/migration', [FinanceSecurityController::class, 'createMigrationPackage'])->name('security.backups.migration');
-        Route::post('seguridad/backups/externo', [FinanceSecurityController::class, 'createExternalBackup'])->name('security.backups.external');
-        Route::get('seguridad/backups/{type}/{filename}', [FinanceSecurityController::class, 'downloadBackup'])
-            ->where(['type' => 'database|full|migration', 'filename' => '[^/]+'])
-            ->name('security.backups.download');
-        Route::post('seguridad/fallas/{failure}/resolver', [FinanceSecurityController::class, 'resolveFailure'])->name('security.failures.resolve');
+        Route::middleware('finance.owner')->group(function () {
+            Route::get('seguridad', [FinanceSecurityController::class, 'index'])->name('security.index');
+            Route::get('diagnostico', [FinanceHealthController::class, 'index'])->name('health.index');
+            Route::post('seguridad/deshacer/{token}', [FinanceSecurityController::class, 'undoDelete'])->name('security.undo-delete');
+            Route::post('seguridad/backups/database', [FinanceSecurityController::class, 'createDatabaseBackup'])->name('security.backups.database');
+            Route::post('seguridad/backups/full', [FinanceSecurityController::class, 'createFullBackup'])->name('security.backups.full');
+            Route::post('seguridad/backups/migration', [FinanceSecurityController::class, 'createMigrationPackage'])->name('security.backups.migration');
+            Route::post('seguridad/backups/externo', [FinanceSecurityController::class, 'createExternalBackup'])->name('security.backups.external');
+            Route::get('seguridad/backups/{type}/{filename}', [FinanceSecurityController::class, 'downloadBackup'])
+                ->where(['type' => 'database|full|migration', 'filename' => '[^/]+'])
+                ->name('security.backups.download');
+            Route::post('seguridad/fallas/{failure}/resolver', [FinanceSecurityController::class, 'resolveFailure'])->name('security.failures.resolve');
+        });
 
         Route::get('cuentas', [AccountController::class, 'index'])->name('accounts.index');
         Route::post('cuentas', [AccountController::class, 'store'])->name('accounts.store');
         Route::put('cuentas/{account}', [AccountController::class, 'update'])->name('accounts.update');
 
         Route::get('movimientos', [MovementController::class, 'index'])->name('movements.index');
-        Route::get('movimientos/exportar', [MovementController::class, 'export'])->name('movements.export');
+        Route::get('movimientos/exportar', [MovementController::class, 'export'])->middleware('finance.owner')->name('movements.export');
         Route::post('movimientos', [MovementController::class, 'store'])->name('movements.store');
         Route::get('movimientos/{movement}/editar', [MovementController::class, 'edit'])->name('movements.edit');
         Route::put('movimientos/{movement}', [MovementController::class, 'update'])->name('movements.update');
