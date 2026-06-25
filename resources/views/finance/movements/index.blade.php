@@ -8,11 +8,28 @@
 @include('finance.partials.flash')
 
 <div class="row align-items-center mb-3">
-    <div class="col-md-6">
+    <div class="col-12">
         <h4 class="mb-0 fw-semibold">Movimientos</h4>
     </div>
-    <div class="col-md-6">
-        <form method="GET" action="{{ route('finance.movements.index') }}" class="d-flex flex-wrap justify-content-md-end gap-2">
+</div>
+
+{{-- 1. Nuevo movimiento --}}
+<div class="card">
+    <div class="card-header">
+        <h4 class="card-title mb-0">Nuevo movimiento</h4>
+    </div>
+    <div class="card-body">
+        @include('finance.partials.movement-form')
+    </div>
+</div>
+
+{{-- 2. Filtros del historial --}}
+<div class="card">
+    <div class="card-header">
+        <h4 class="card-title mb-0">Filtros del historial</h4>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="{{ route('finance.movements.index') }}" class="d-flex flex-wrap gap-2">
             <div class="input-group" style="max-width: 320px;">
                 <span class="input-group-text">
                     <i data-lucide="search"></i>
@@ -56,15 +73,116 @@
     </div>
 </div>
 
+{{-- 3. Historial de movimientos --}}
 <div class="card">
-    <div class="card-header">
-        <h4 class="card-title mb-0">Nuevo movimiento</h4>
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <h4 class="card-title mb-0">Historial</h4>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            @if (request()->filled('q'))
+                <span class="badge badge-soft-primary">Búsqueda: {{ request('q') }}</span>
+            @endif
+            <span class="badge badge-soft-secondary">{{ $movements->total() }} movimientos</span>
+        </div>
     </div>
-    <div class="card-body">
-        @include('finance.partials.movement-form')
+    <div class="card-body p-0">
+        <div class="table-responsive">
+            <table class="table table-hover mb-0">
+                <thead>
+                    <tr>
+                        <th style="width: 36px;">
+                            <input type="checkbox" id="bulk-select-all" class="form-check-input" title="Seleccionar todos los visibles">
+                        </th>
+                        <th>Fecha</th>
+                        <th>Descripción</th>
+                        <th>Tipo</th>
+                        <th>Cuenta</th>
+                        <th>Categoría</th>
+                        <th>Persona</th>
+                        <th class="text-end">Monto</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($movements as $movement)
+                        <tr>
+                            <td>
+                                <input type="checkbox" name="ids[]" value="{{ $movement->id }}" form="bulk-movements-form" class="form-check-input bulk-row-check">
+                            </td>
+                            <td>{{ $movement->happened_on->format('Y-m-d') }}</td>
+                            <td>
+                                {{ $movement->description }}
+                                @if ($movement->is_unknown)
+                                    <span class="badge badge-soft-dark ms-1">?</span>
+                                @endif
+                                @if ($movement->is_san_juan)
+                                    <span class="badge badge-soft-danger ms-1">SNJ</span>
+                                @endif
+                                @if ($movement->is_rent)
+                                    <span class="badge badge-soft-success ms-1">Renta</span>
+                                @endif
+                            </td>
+                            <td>{{ \App\Support\FinanceLabels::movementType($movement->movement_type) }}</td>
+                            <td>{{ $movement->account?->name ?? '-' }}</td>
+                            <td>{{ $movement->category?->name ?? '-' }}</td>
+                            <td>{{ $movement->person?->name ?? '-' }}</td>
+                            <td class="text-end {{ $movement->movement_type === 'expense' ? 'text-danger' : 'text-success' }}">{{ $money($movement->amount) }}</td>
+                            <td class="text-end">
+                                <div class="d-inline-flex align-items-center gap-2">
+                                    <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue, 'return_to' => request()->fullUrl()]) }}" class="btn btn-sm btn-link text-primary p-0" title="Editar">
+                                        <i data-lucide="pencil"></i>
+                                    </a>
+                                    <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}" onsubmit="return confirm('¿Eliminar este movimiento? Podrás deshacerlo durante 2 minutos.')">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Eliminar">
+                                            <i data-lucide="trash-2"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="9" class="text-center text-muted py-4">Sin movimientos</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+                @if ($movements->count() > 0)
+                    {{-- 4. Encabezados repetidos al final (solo nombres de columnas) --}}
+                    <tfoot>
+                        <tr>
+                            <th style="width: 36px;">
+                                <input type="checkbox" id="bulk-select-all-bottom" class="form-check-input" title="Seleccionar todos los visibles">
+                            </th>
+                            <th>Fecha</th>
+                            <th>Descripción</th>
+                            <th>Tipo</th>
+                            <th>Cuenta</th>
+                            <th>Categoría</th>
+                            <th>Persona</th>
+                            <th class="text-end">Monto</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </tfoot>
+                @endif
+            </table>
+        </div>
     </div>
+    @if ($movements->hasPages())
+        <div class="card-footer d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+            <div class="text-muted small">
+                Mostrando {{ $movements->firstItem() }} a {{ $movements->lastItem() }} de {{ $movements->total() }} movimientos
+            </div>
+            {{ $movements->links() }}
+        </div>
+    @elseif ($movements->total() > 0)
+        <div class="card-footer text-muted small">
+            Mostrando {{ $movements->firstItem() }} a {{ $movements->lastItem() }} de {{ $movements->total() }} movimientos
+        </div>
+    @endif
 </div>
 
+{{-- 5. Aplicar cambios masivos (debajo del historial) --}}
 <form id="bulk-movements-form" method="POST" action="{{ route('finance.movements.bulk-update') }}" onsubmit="return financeBulkConfirm(this);">
     @csrf
     <input type="hidden" name="return_to" value="{{ request()->fullUrl() }}">
@@ -79,7 +197,7 @@
         </div>
         <div class="card-body">
             <p class="text-muted small mb-3">
-                Los cambios se aplican <strong>solo a los movimientos seleccionados</strong> en la lista de abajo.
+                Los cambios se aplican <strong>solo a los movimientos seleccionados</strong> en la lista de arriba.
                 Deja un campo en <em>“No cambiar”</em> para no sobrescribirlo.
             </p>
             <div class="row g-2">
@@ -154,96 +272,6 @@
         </div>
     </div>
 </form>
-
-<div class="card">
-    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
-        <h4 class="card-title mb-0">Historial</h4>
-        <div class="d-flex flex-wrap align-items-center gap-2">
-            @if (request()->filled('q'))
-                <span class="badge badge-soft-primary">Búsqueda: {{ request('q') }}</span>
-            @endif
-            <span class="badge badge-soft-secondary">{{ $movements->total() }} movimientos</span>
-        </div>
-    </div>
-    <div class="card-body p-0">
-        <div class="table-responsive">
-            <table class="table table-hover mb-0">
-                <thead>
-                    <tr>
-                        <th style="width: 36px;">
-                            <input type="checkbox" id="bulk-select-all" class="form-check-input" title="Seleccionar todos los visibles">
-                        </th>
-                        <th>Fecha</th>
-                        <th>Descripción</th>
-                        <th>Tipo</th>
-                        <th>Cuenta</th>
-                        <th>Categoría</th>
-                        <th>Persona</th>
-                        <th class="text-end">Monto</th>
-                        <th></th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @forelse ($movements as $movement)
-                        <tr>
-                            <td>
-                                <input type="checkbox" name="ids[]" value="{{ $movement->id }}" form="bulk-movements-form" class="form-check-input bulk-row-check">
-                            </td>
-                            <td>{{ $movement->happened_on->format('Y-m-d') }}</td>
-                            <td>
-                                {{ $movement->description }}
-                                @if ($movement->is_unknown)
-                                    <span class="badge badge-soft-dark ms-1">?</span>
-                                @endif
-                                @if ($movement->is_san_juan)
-                                    <span class="badge badge-soft-danger ms-1">SNJ</span>
-                                @endif
-                                @if ($movement->is_rent)
-                                    <span class="badge badge-soft-success ms-1">Renta</span>
-                                @endif
-                            </td>
-                            <td>{{ \App\Support\FinanceLabels::movementType($movement->movement_type) }}</td>
-                            <td>{{ $movement->account?->name ?? '-' }}</td>
-                            <td>{{ $movement->category?->name ?? '-' }}</td>
-                            <td>{{ $movement->person?->name ?? '-' }}</td>
-                            <td class="text-end {{ $movement->movement_type === 'expense' ? 'text-danger' : 'text-success' }}">{{ $money($movement->amount) }}</td>
-                            <td class="text-end">
-                                <div class="d-inline-flex align-items-center gap-2">
-                                    <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue, 'return_to' => request()->fullUrl()]) }}" class="btn btn-sm btn-link text-primary p-0" title="Editar">
-                                        <i data-lucide="pencil"></i>
-                                    </a>
-                                    <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}" onsubmit="return confirm('¿Eliminar este movimiento? Podrás deshacerlo durante 2 minutos.')">
-                                        @csrf
-                                        @method('DELETE')
-                                        <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Eliminar">
-                                            <i data-lucide="trash-2"></i>
-                                        </button>
-                                    </form>
-                                </div>
-                            </td>
-                        </tr>
-                    @empty
-                        <tr>
-                            <td colspan="9" class="text-center text-muted py-4">Sin movimientos</td>
-                        </tr>
-                    @endforelse
-                </tbody>
-            </table>
-        </div>
-    </div>
-    @if ($movements->hasPages())
-        <div class="card-footer d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
-            <div class="text-muted small">
-                Mostrando {{ $movements->firstItem() }} a {{ $movements->lastItem() }} de {{ $movements->total() }} movimientos
-            </div>
-            {{ $movements->links() }}
-        </div>
-    @elseif ($movements->total() > 0)
-        <div class="card-footer text-muted small">
-            Mostrando {{ $movements->firstItem() }} a {{ $movements->lastItem() }} de {{ $movements->total() }} movimientos
-        </div>
-    @endif
-</div>
 @endsection
 
 @section('scripts')
@@ -260,13 +288,14 @@
             }
         }
 
-        var selectAll = document.getElementById('bulk-select-all');
-        if (selectAll) {
-            selectAll.addEventListener('change', function () {
-                rowChecks().forEach(function (c) { c.checked = selectAll.checked; });
+        var selectAllToggles = Array.prototype.slice.call(document.querySelectorAll('#bulk-select-all, #bulk-select-all-bottom'));
+        selectAllToggles.forEach(function (toggle) {
+            toggle.addEventListener('change', function () {
+                rowChecks().forEach(function (c) { c.checked = toggle.checked; });
+                selectAllToggles.forEach(function (other) { other.checked = toggle.checked; });
                 refreshCount();
             });
-        }
+        });
 
         document.addEventListener('change', function (e) {
             if (e.target && e.target.classList && e.target.classList.contains('bulk-row-check')) {
