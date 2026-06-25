@@ -88,7 +88,7 @@ it('registers a free credit payment without marking installments as paid', funct
 });
 
 it('deletes and restores a free credit payment with its generated movement', function () {
-    $user = User::factory()->create();
+    $user = makeFinanceOwner(User::factory()->create());
     $credit = createCreditForFreePaymentTest($user);
 
     $this->actingAs($user)

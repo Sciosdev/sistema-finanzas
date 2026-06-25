@@ -17,7 +17,7 @@ function createFinanceUserForDeleteSnapshots(): User
 
     app(FinanceCatalogService::class)->ensureForUser($user);
 
-    return $user;
+    return makeFinanceOwner($user);
 }
 
 it('deletes a movement and restores it before two minutes', function () {

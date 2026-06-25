@@ -18,7 +18,7 @@ function createFinanceUserForCreditInstallmentDeleteSnapshots(): User
 
     app(FinanceCatalogService::class)->ensureForUser($user);
 
-    return $user;
+    return makeFinanceOwner($user);
 }
 
 function createCreditWithInstallmentsForIndividualSnapshot(User $user): CreditPurchase

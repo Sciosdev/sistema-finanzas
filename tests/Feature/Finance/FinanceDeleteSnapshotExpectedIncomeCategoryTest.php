@@ -17,7 +17,7 @@ function createFinanceUserForExpectedIncomeCategorySnapshots(): User
 
     app(FinanceCatalogService::class)->ensureForUser($user);
 
-    return $user;
+    return makeFinanceOwner($user);
 }
 
 it('deletes a pending expected income and restores it before two minutes', function () {

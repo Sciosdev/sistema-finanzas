@@ -27,6 +27,15 @@ it('rejects an authenticated non owner from protected finance routes', function 
         ->assertForbidden();
 });
 
+it('blocks everyone from owner routes when no finance owner email is configured', function () {
+    $user = User::factory()->create(['email' => 'user@example.com']);
+    config()->set('finance.owner_email', '');
+
+    $this->actingAs($user)
+        ->get(route('finance.security.index'))
+        ->assertForbidden();
+});
+
 it('redirects guests to login before checking finance ownership', function () {
     config()->set('finance.owner_email', 'owner@example.com');
 

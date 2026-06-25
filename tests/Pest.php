@@ -45,3 +45,18 @@ function something()
 {
     // ..
 }
+
+/**
+ * Marca al usuario indicado como dueño financiero durante el test, de modo que
+ * pueda acceder a las rutas protegidas por el middleware `finance.owner`
+ * (seguridad, diagnóstico, undo-delete, backups, exportaciones).
+ *
+ * El middleware sigue activo: solo los tests que explícitamente declaran un
+ * dueño obtienen acceso; los demás siguen recibiendo 403.
+ */
+function makeFinanceOwner(\App\Models\User $user): \App\Models\User
+{
+    config()->set('finance.owner_email', $user->email);
+
+    return $user;
+}

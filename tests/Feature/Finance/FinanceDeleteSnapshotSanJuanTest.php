@@ -17,7 +17,7 @@ function createFinanceUserForSanJuanDeleteSnapshots(): User
 
     app(FinanceCatalogService::class)->ensureForUser($user);
 
-    return $user;
+    return makeFinanceOwner($user);
 }
 
 it('deletes a San Juan rental contract and restores it before two minutes', function () {
