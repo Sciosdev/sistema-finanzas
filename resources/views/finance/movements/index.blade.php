@@ -36,6 +36,9 @@
             <button class="btn btn-outline-primary" type="submit">
                 <i data-lucide="filter" class="me-1"></i>Filtrar
             </button>
+            <a class="btn btn-outline-info" href="{{ route('finance.movements.suggestions.index', request()->only(['month', 'type', 'q'])) }}" title="Sugerencias de clasificación">
+                <i data-lucide="wand-2" class="me-1"></i>Sugerencias
+            </a>
             @if (auth()->user()?->isFinanceOwner())
             <a class="btn btn-outline-success" href="{{ route('finance.movements.export', request()->only(['month', 'type', 'q']) + ['format' => 'xlsx']) }}">
                 <i data-lucide="file-spreadsheet" class="me-1"></i>Excel

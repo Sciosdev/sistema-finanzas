@@ -9,6 +9,7 @@ use App\Services\Finance\FinanceCsvExportService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceSummaryService;
+use App\Services\Finance\MovementClassificationSuggestionService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,7 @@ class MovementController extends Controller
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
         private readonly FinanceCsvExportService $csvExports,
+        private readonly MovementClassificationSuggestionService $suggestions,
     ) {
     }
 
@@ -315,6 +317,143 @@ class MovementController extends Controller
 
         // Reconstruye solo path + query (descarta esquema/host) para forzar mismo origen.
         return $path . (isset($parts['query']) ? '?' . $parts['query'] : '');
+    }
+
+    public function suggestions(Request $request)
+    {
+        $user = $request->user();
+        $this->catalogs->ensureForUser($user);
+
+        [$start, $end] = $this->summaryService->monthRange($request->query('month', now()->format('Y-m')));
+        $perPage = (int) $request->query('per_page', 50);
+        $perPage = max(10, min(500, $perPage));
+
+        $movements = Movement::with(['account', 'category', 'person'])
+            ->where('user_id', $user->id)
+            ->whereBetween('happened_on', [$start->toDateString(), $end->toDateString()])
+            ->when($request->query('type'), fn ($query, $type) => $query->where('movement_type', $type))
+            ->when($request->boolean('only_without_category'), fn ($query) => $query->whereNull('category_id'))
+            ->when($request->boolean('only_unknown'), fn ($query) => $query->where('is_unknown', true))
+            ->when(trim((string) $request->query('q')) !== '', function ($query) use ($request) {
+                $search = trim((string) $request->query('q'));
+                $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
+                $query->where(function ($inner) use ($like) {
+                    $inner->where('description', 'like', $like)->orWhere('notes', 'like', $like);
+                });
+            })
+            ->orderByDesc('happened_on')
+            ->orderByDesc('id')
+            ->paginate($perPage)
+            ->withQueryString();
+
+        $suggestions = $this->suggestions->suggest($user, $movements->getCollection());
+
+        return view('finance.movements.suggestions', [
+            'movements' => $movements,
+            'suggestions' => $suggestions,
+            'monthValue' => $start->format('Y-m'),
+            'perPage' => $perPage,
+            'filters' => [
+                'q' => $request->query('q'),
+                'type' => $request->query('type'),
+                'confidence' => $request->query('confidence'),
+                'only_without_category' => $request->boolean('only_without_category'),
+                'only_unknown' => $request->boolean('only_unknown'),
+                'only_with_suggestion' => $request->boolean('only_with_suggestion'),
+            ],
+            'returnTo' => $request->fullUrl(),
+        ]);
+    }
+
+    public function applySuggestions(Request $request)
+    {
+        $user = $request->user();
+        $this->catalogs->ensureForUser($user);
+
+        $validated = $request->validate([
+            'ids' => ['array'],
+            'ids.*' => ['integer'],
+            'apply_category' => ['nullable', 'in:0,1'],
+            'apply_person' => ['nullable', 'in:0,1'],
+            'apply_account' => ['nullable', 'in:0,1'],
+            'apply_flags' => ['nullable', 'in:0,1'],
+            'return_to' => ['nullable', 'string'],
+        ]);
+
+        $redirectTo = $this->safeMovementsReturnTo($request, $validated['return_to'] ?? null);
+
+        $ids = collect($validated['ids'] ?? [])
+            ->map(fn ($id) => (int) $id)
+            ->filter()
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            return redirect($redirectTo)->with('error', 'No seleccionaste movimientos para aplicar sugerencias.');
+        }
+
+        $applyCategory = (bool) ((int) ($validated['apply_category'] ?? 0));
+        $applyPerson = (bool) ((int) ($validated['apply_person'] ?? 0));
+        $applyAccount = (bool) ((int) ($validated['apply_account'] ?? 0));
+        $applyFlags = (bool) ((int) ($validated['apply_flags'] ?? 0));
+
+        if (! ($applyCategory || $applyPerson || $applyAccount || $applyFlags)) {
+            return redirect($redirectTo)->with('error', 'No elegiste qué sugerencias aplicar.');
+        }
+
+        // Solo movimientos del usuario; cualquier id ajeno se ignora.
+        $movements = Movement::where('user_id', $user->id)
+            ->whereIn('id', $ids->all())
+            ->get();
+
+        if ($movements->isEmpty()) {
+            return redirect($redirectTo)->with('error', 'No se encontraron movimientos tuyos en la selección.');
+        }
+
+        // Se recalculan las sugerencias en el servidor: nunca se confía en
+        // valores enviados por el cliente, solo en catálogos existentes.
+        $suggestions = $this->suggestions->suggest($user, $movements);
+
+        $updatedCount = DB::transaction(function () use ($movements, $suggestions, $applyCategory, $applyPerson, $applyAccount, $applyFlags) {
+            $count = 0;
+
+            foreach ($movements as $movement) {
+                $suggestion = $suggestions[$movement->id] ?? null;
+                if (! $suggestion) {
+                    continue;
+                }
+
+                $changes = [];
+
+                if ($applyCategory && ! empty($suggestion['category'])) {
+                    $changes['category_id'] = $suggestion['category']['id'];
+                }
+                if ($applyPerson && ! empty($suggestion['person'])) {
+                    $changes['person_id'] = $suggestion['person']['id'];
+                }
+                if ($applyAccount && ! empty($suggestion['account'])) {
+                    $changes['account_id'] = $suggestion['account']['id'];
+                }
+                if ($applyFlags && ! empty($suggestion['flags'])) {
+                    foreach ($suggestion['flags'] as $flag => $value) {
+                        $changes[$flag] = (bool) $value;
+                    }
+                }
+
+                if ($changes !== []) {
+                    $movement->update($changes);
+                    $count++;
+                }
+            }
+
+            return $count;
+        });
+
+        if ($updatedCount === 0) {
+            return redirect($redirectTo)->with('error', 'Los movimientos seleccionados no tenían sugerencias aplicables.');
+        }
+
+        return redirect($redirectTo)->with('success', "Se actualizaron {$updatedCount} movimiento(s) con sus sugerencias.");
     }
 
     private function validateMovement(Request $request): array

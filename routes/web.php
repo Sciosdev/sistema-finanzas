@@ -78,6 +78,8 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::get('movimientos/exportar', [MovementController::class, 'export'])->middleware('finance.owner')->name('movements.export');
         Route::post('movimientos', [MovementController::class, 'store'])->name('movements.store');
         Route::post('movimientos/actualizacion-masiva', [MovementController::class, 'bulkUpdate'])->name('movements.bulk-update');
+        Route::get('movimientos/sugerencias', [MovementController::class, 'suggestions'])->name('movements.suggestions.index');
+        Route::post('movimientos/sugerencias/aplicar', [MovementController::class, 'applySuggestions'])->name('movements.suggestions.apply');
         Route::get('movimientos/{movement}/editar', [MovementController::class, 'edit'])->name('movements.edit');
         Route::put('movimientos/{movement}', [MovementController::class, 'update'])->name('movements.update');
         Route::delete('movimientos/{movement}', [MovementController::class, 'destroy'])->name('movements.destroy');
