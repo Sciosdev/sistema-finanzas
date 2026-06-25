@@ -507,5 +507,17 @@
 @endsection
 
 @section('scripts')
-    @vite(['resources/js/pages/finance-reports.js'])
+    @php
+        $financeReportsEntry = 'resources/js/pages/finance-reports.js';
+        $viteManifestPath = public_path('build/manifest.json');
+        $viteManifest = is_file($viteManifestPath)
+            ? json_decode((string) file_get_contents($viteManifestPath), true)
+            : [];
+        $financeReportsAssetAvailable = is_file(public_path('hot'))
+            || (is_array($viteManifest) && isset($viteManifest[$financeReportsEntry]));
+    @endphp
+
+    @if ($financeReportsAssetAvailable)
+        @vite([$financeReportsEntry])
+    @endif
 @endsection
