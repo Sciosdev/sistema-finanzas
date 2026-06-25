@@ -42,7 +42,9 @@ it('shows the finance dashboard to authenticated users', function () {
         ->assertSee('Saldo proyectado antes de obligaciones')
         ->assertSee('Oportunidades de mejora')
         ->assertSee('Nuevo movimiento')
-        ->assertSee('Corte diario');
+        ->assertSee('Corte diario')
+        ->assertSee('Diseño')
+        ->assertSee('data-dashboard-resizable');
 });
 
 it('lets authenticated users edit their movements', function () {

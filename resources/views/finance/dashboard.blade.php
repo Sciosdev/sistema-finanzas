@@ -163,6 +163,42 @@
         z-index: 5;
     }
 
+    .dashboard-widget-size-panel {
+        align-items: center;
+        background: rgba(15, 23, 42, .92);
+        border: 1px solid rgba(148, 163, 184, .28);
+        border-radius: 6px;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, .22);
+        display: none;
+        gap: .35rem;
+        left: .75rem;
+        padding: .35rem;
+        position: absolute;
+        top: .75rem;
+        z-index: 6;
+    }
+
+    .dashboard-widget-size-panel .btn {
+        min-width: 34px;
+    }
+
+    .finance-dashboard-grid.is-layout-editing .dashboard-widget[data-dashboard-resizable="true"] > .card {
+        border-color: rgba(34, 185, 86, .28);
+        padding-top: 2.4rem;
+    }
+
+    .finance-dashboard-grid.is-layout-editing .dashboard-widget-size-panel {
+        display: flex;
+    }
+
+    .finance-dashboard-grid.is-layout-editing .dashboard-widget .stretched-link {
+        pointer-events: none;
+    }
+
+    .finance-dashboard-grid.is-layout-editing .dashboard-widget-handle {
+        opacity: 1;
+    }
+
     .dashboard-widget-handle:active {
         cursor: grabbing;
     }
@@ -177,6 +213,18 @@
             opacity: .78;
         }
     }
+
+    @media (max-width: 575.98px) {
+        .dashboard-widget-size-panel {
+            left: .5rem;
+            right: .5rem;
+            top: .5rem;
+        }
+
+        .dashboard-widget-size-panel .btn {
+            flex: 1;
+        }
+    }
 </style>
 
 @include('finance.partials.flash')
@@ -186,7 +234,10 @@
         <h4 class="mb-0 fw-semibold">Finanzas</h4>
     </div>
     <div class="col-md-6">
-        <form method="GET" action="{{ route('finance.dashboard') }}" class="d-flex justify-content-md-end gap-2">
+        <form method="GET" action="{{ route('finance.dashboard') }}" class="d-flex justify-content-md-end gap-2 flex-wrap">
+            <button class="btn btn-outline-secondary" type="button" id="toggleDashboardLayout" title="Editar diseño" aria-pressed="false">
+                <i data-lucide="layout-grid" class="me-1"></i>Diseño
+            </button>
             <button class="btn btn-outline-secondary" type="button" id="resetDashboardOrder" title="Restablecer orden">
                 <i data-lucide="rotate-ccw"></i>
             </button>
@@ -226,8 +277,10 @@
     </div>
 @endif
 
-<div class="row g-3 finance-dashboard-grid" id="financeDashboardGrid" data-storage-key="finance-dashboard-order-{{ auth()->id() }}">
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="income-real">
+<div class="row g-3 finance-dashboard-grid" id="financeDashboardGrid"
+     data-storage-key="finance-dashboard-order-{{ auth()->id() }}"
+     data-size-storage-key="finance-dashboard-sizes-{{ auth()->id() }}">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="income-real" data-dashboard-resizable="true">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -241,7 +294,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="projected-income">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="projected-income" data-dashboard-resizable="true">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -255,7 +308,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="expenses-real">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="expenses-real" data-dashboard-resizable="true">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -269,7 +322,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="expected-leftover">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="expected-leftover" data-dashboard-resizable="true">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -283,7 +336,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="real-total-cut">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="real-total-cut" data-dashboard-resizable="true">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
                 <div>
@@ -299,7 +352,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="cut-difference">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="cut-difference" data-dashboard-resizable="true">
         <div class="card">
             <div class="card-body">
                 <p class="mb-2 card-title">Diferencia de conciliación</p>
@@ -311,7 +364,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="amount-missing">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="amount-missing" data-dashboard-resizable="true">
         <div class="card">
             <div class="card-body">
                 <p class="mb-2 card-title">Saldo disponible después de obligaciones</p>
@@ -323,7 +376,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="san-juan-expenses">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="san-juan-expenses" data-dashboard-resizable="true">
         <div class="card">
             <div class="card-body">
                 <p class="mb-2 card-title">Egresos San Juan</p>
@@ -333,7 +386,7 @@
         </div>
     </div>
 
-    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="san-juan-profit">
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="san-juan-profit" data-dashboard-resizable="true">
         <div class="card">
             <div class="card-body">
                 <p class="mb-2 card-title">Utilidad San Juan</p>
@@ -1133,13 +1186,86 @@
         }
 
         const storageKey = grid.dataset.storageKey || 'finance-dashboard-order';
+        const sizeStorageKey = grid.dataset.sizeStorageKey || 'finance-dashboard-sizes';
         const resetButton = document.getElementById('resetDashboardOrder');
+        const layoutButton = document.getElementById('toggleDashboardLayout');
         let draggedWidget = null;
+        let layoutEditing = false;
+        const sizeOptions = {
+            4: { label: '4', classes: ['col-xl-3', 'col-md-6'] },
+            3: { label: '3', classes: ['col-xl-4', 'col-md-6'] },
+            2: { label: '2', classes: ['col-xl-6', 'col-md-6'] },
+            1: { label: '1', classes: ['col-12'] },
+        };
+        const managedClasses = ['col-xl-3', 'col-xl-4', 'col-xl-5', 'col-xl-6', 'col-xl-7', 'col-12', 'col-md-6'];
 
         const widgets = () => Array.from(grid.querySelectorAll('[data-dashboard-widget]'));
+        const resizableWidgets = () => widgets().filter((widget) => widget.dataset.dashboardResizable === 'true');
 
         const saveOrder = () => {
             localStorage.setItem(storageKey, JSON.stringify(widgets().map((widget) => widget.dataset.dashboardWidget)));
+        };
+
+        const readSizes = () => {
+            try {
+                const sizes = JSON.parse(localStorage.getItem(sizeStorageKey) || '{}');
+
+                return sizes && typeof sizes === 'object' ? sizes : {};
+            } catch (error) {
+                return {};
+            }
+        };
+
+        const saveSize = (widget, size) => {
+            const sizes = readSizes();
+            sizes[widget.dataset.dashboardWidget] = Number(size);
+            localStorage.setItem(sizeStorageKey, JSON.stringify(sizes));
+        };
+
+        const defaultSizeFor = (widget) => {
+            if (widget.classList.contains('col-12')) {
+                return 1;
+            }
+
+            if (widget.classList.contains('col-xl-6')) {
+                return 2;
+            }
+
+            if (widget.classList.contains('col-xl-4')) {
+                return 3;
+            }
+
+            return 4;
+        };
+
+        const setSizeButtonState = (widget, size) => {
+            widget.querySelectorAll('[data-dashboard-size]').forEach((button) => {
+                const isActive = Number(button.dataset.dashboardSize) === Number(size);
+                button.classList.toggle('btn-primary', isActive);
+                button.classList.toggle('btn-outline-secondary', !isActive);
+                button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+            });
+        };
+
+        const applySize = (widget, size, shouldPersist = true) => {
+            const option = sizeOptions[size] || sizeOptions[4];
+
+            managedClasses.forEach((className) => widget.classList.remove(className));
+            option.classes.forEach((className) => widget.classList.add(className));
+            widget.dataset.dashboardSize = String(size);
+            setSizeButtonState(widget, size);
+
+            if (shouldPersist) {
+                saveSize(widget, size);
+            }
+        };
+
+        const restoreSizes = () => {
+            const sizes = readSizes();
+
+            resizableWidgets().forEach((widget) => {
+                applySize(widget, sizes[widget.dataset.dashboardWidget] || defaultSizeFor(widget), false);
+            });
         };
 
         const restoreOrder = () => {
@@ -1173,6 +1299,7 @@
         };
 
         restoreOrder();
+        restoreSizes();
 
         widgets().forEach((widget) => {
             const card = widget.querySelector(':scope > .card');
@@ -1196,6 +1323,31 @@
             handle.addEventListener('touchstart', () => {
                 widget.setAttribute('draggable', 'true');
             }, { passive: true });
+
+            if (widget.dataset.dashboardResizable === 'true') {
+                const sizePanel = document.createElement('div');
+                sizePanel.className = 'dashboard-widget-size-panel';
+                sizePanel.setAttribute('aria-label', 'Tamaño del cuadro');
+
+                Object.entries(sizeOptions).forEach(([size, option]) => {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'btn btn-sm btn-outline-secondary';
+                    button.dataset.dashboardSize = size;
+                    button.textContent = option.label;
+                    button.title = `${option.label} por fila`;
+                    button.setAttribute('aria-pressed', 'false');
+                    button.addEventListener('click', (event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        applySize(widget, Number(size));
+                    });
+                    sizePanel.appendChild(button);
+                });
+
+                card.appendChild(sizePanel);
+                setSizeButtonState(widget, Number(widget.dataset.dashboardSize || defaultSizeFor(widget)));
+            }
         });
 
         if (window.lucide) {
@@ -1250,9 +1402,20 @@
             });
         });
 
+        if (layoutButton) {
+            layoutButton.addEventListener('click', () => {
+                layoutEditing = !layoutEditing;
+                grid.classList.toggle('is-layout-editing', layoutEditing);
+                layoutButton.classList.toggle('btn-primary', layoutEditing);
+                layoutButton.classList.toggle('btn-outline-secondary', !layoutEditing);
+                layoutButton.setAttribute('aria-pressed', layoutEditing ? 'true' : 'false');
+            });
+        }
+
         if (resetButton) {
             resetButton.addEventListener('click', () => {
                 localStorage.removeItem(storageKey);
+                localStorage.removeItem(sizeStorageKey);
                 window.location.reload();
             });
         }
