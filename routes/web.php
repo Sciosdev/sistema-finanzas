@@ -13,6 +13,7 @@ use App\Http\Controllers\Finance\FinancePendingController;
 use App\Http\Controllers\Finance\FinanceReportController;
 use App\Http\Controllers\Finance\FinanceSecurityController;
 use App\Http\Controllers\Finance\FinanceTriageController;
+use App\Http\Controllers\Finance\FinanceUserController;
 use App\Http\Controllers\Finance\HistoricalImportController;
 use App\Http\Controllers\Finance\MovementController;
 use App\Http\Controllers\Finance\MonthlyReviewController;
@@ -59,6 +60,8 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::middleware('finance.owner')->group(function () {
             Route::get('seguridad', [FinanceSecurityController::class, 'index'])->name('security.index');
             Route::get('diagnostico', [FinanceHealthController::class, 'index'])->name('health.index');
+            Route::get('usuarios', [FinanceUserController::class, 'index'])->name('users.index');
+            Route::post('usuarios', [FinanceUserController::class, 'store'])->name('users.store');
             Route::post('seguridad/deshacer/{token}', [FinanceSecurityController::class, 'undoDelete'])->name('security.undo-delete');
             Route::post('seguridad/backups/database', [FinanceSecurityController::class, 'createDatabaseBackup'])->name('security.backups.database');
             Route::post('seguridad/backups/full', [FinanceSecurityController::class, 'createFullBackup'])->name('security.backups.full');

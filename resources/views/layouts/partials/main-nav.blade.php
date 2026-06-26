@@ -140,6 +140,15 @@
 
                @if (auth()->user()?->isFinanceOwner())
                <li class="menu-item">
+                    <a class="menu-link" href="{{ route('finance.users.index') }}">
+                         <span class="nav-icon">
+                              <i data-lucide="users"></i>
+                         </span>
+                         <span class="nav-text">Usuarios</span>
+                    </a>
+               </li>
+
+               <li class="menu-item">
                     <a class="menu-link" href="{{ route('finance.security.index') }}">
                          <span class="nav-icon">
                               <i data-lucide="shield-check"></i>
