@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
+use App\Models\Finance\Account;
 use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
@@ -313,8 +314,22 @@ class PlannedPaymentController extends Controller
         $months = (int) ($data['months'] ?? 1);
         $accountId = $data['account_id'] ?? $payment->account_id;
         $total = round((float) $payment->amount, 2);
+
+        // Por defecto la primera mensualidad cae en el mes/día del pago planeado.
         $firstMonth = $payment->period_month->copy()->startOfMonth();
         $dueDay = $payment->due_date?->day;
+
+        // Si la tarjeta tiene ciclo configurado (corte/pago), calcula la fecha real
+        // de pago con ese ciclo, igual que la creacion normal de creditos. Asi un
+        // cargo hecho despues del corte se va al estado de cuenta del mes siguiente.
+        $account = $accountId ? Account::where('user_id', $user->id)->find($accountId) : null;
+        if ($account && $account->hasCreditCycle()) {
+            $due = $account->firstDueDateFor($paidOn->copy());
+            if ($due) {
+                $firstMonth = $due->copy()->startOfMonth();
+                $dueDay = (int) $due->day;
+            }
+        }
 
         $credit = DB::transaction(function () use ($user, $payment, $paidOn, $months, $accountId, $total, $firstMonth, $dueDay) {
             $credit = CreditPurchase::create([

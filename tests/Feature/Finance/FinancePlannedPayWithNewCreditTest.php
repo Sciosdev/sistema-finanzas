@@ -71,6 +71,50 @@ it('pays a planned payment by creating a new credit in one action', function () 
         ->and($payment->movement_id)->toBeNull();
 });
 
+it('uses the card credit cycle for the new credit due dates when configured', function () {
+    $user = plannedCreditUser();
+    $card = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    // Corte día 10, pago día 27. Compra hoy (15-jun) cae despues del corte, asi
+    // que su estado de cuenta y pago se van al mes SIGUIENTE (julio), no a junio.
+    $card->update(['statement_day' => 10, 'payment_day' => 27]);
+
+    $payment = makePlannedPayment($user);
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.credit-new', $payment), [
+            'account_id' => $card->id,
+            'months' => 1,
+        ])
+        ->assertSessionHas('success');
+
+    $credit = CreditPurchase::where('user_id', $user->id)->where('name', 'Youtube Premium')->firstOrFail();
+
+    expect($credit->first_due_month->toDateString())->toBe('2026-07-01')
+        ->and((int) $credit->due_day)->toBe(27)
+        ->and($credit->installments()->first()->due_date->toDateString())->toBe('2026-07-27');
+});
+
+it('keeps the planned period and day when the card has no credit cycle', function () {
+    $user = plannedCreditUser();
+    $card = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $card->update(['statement_day' => null, 'payment_day' => null]);
+
+    $payment = makePlannedPayment($user);
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.credit-new', $payment), [
+            'account_id' => $card->id,
+            'months' => 1,
+        ])
+        ->assertSessionHas('success');
+
+    $credit = CreditPurchase::where('user_id', $user->id)->where('name', 'Youtube Premium')->firstOrFail();
+
+    expect($credit->first_due_month->toDateString())->toBe('2026-06-01')
+        ->and((int) $credit->due_day)->toBe(27)
+        ->and($credit->installments()->first()->due_date->toDateString())->toBe('2026-06-27');
+});
+
 it('does not create an expense movement when paying with a new credit', function () {
     $user = plannedCreditUser();
     $payment = makePlannedPayment($user);
