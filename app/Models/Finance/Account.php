@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Carbon\Carbon;
 
 class Account extends Model
 {
@@ -42,6 +43,9 @@ class Account extends Model
         'type',
         'color',
         'opening_balance',
+        'credit_limit',
+        'statement_day',
+        'payment_day',
         'display_order',
         'is_active',
         'notes',
@@ -51,8 +55,47 @@ class Account extends Model
     {
         return [
             'opening_balance' => 'decimal:2',
+            'credit_limit' => 'decimal:2',
+            'statement_day' => 'integer',
+            'payment_day' => 'integer',
             'is_active' => 'boolean',
         ];
+    }
+
+    /**
+     * Indica si la tarjeta tiene configurado su ciclo (día de corte y de pago).
+     */
+    public function hasCreditCycle(): bool
+    {
+        return ! empty($this->statement_day) && ! empty($this->payment_day);
+    }
+
+    /**
+     * Calcula la fecha real de pago de una compra hecha con esta tarjeta.
+     *
+     * Regla: si la compra ocurre en/antes del día de corte, entra en el estado
+     * de cuenta de ese mes; si ocurre después, pasa al siguiente. El pago cae en
+     * el día de pago; si ese día es menor o igual al de corte, se paga el mes
+     * siguiente al corte, si no, el mismo mes.
+     */
+    public function firstDueDateFor(Carbon $purchaseDate): ?Carbon
+    {
+        if (! $this->hasCreditCycle()) {
+            return null;
+        }
+
+        $statementDay = (int) $this->statement_day;
+        $paymentDay = (int) $this->payment_day;
+
+        $closeMonth = $purchaseDate->day <= $statementDay
+            ? $purchaseDate->copy()->startOfMonth()
+            : $purchaseDate->copy()->startOfMonth()->addMonth();
+
+        $dueMonth = $paymentDay <= $statementDay
+            ? $closeMonth->copy()->addMonth()
+            : $closeMonth->copy();
+
+        return $dueMonth->day(min($paymentDay, $dueMonth->daysInMonth));
     }
 
     public static function typeOptions(): array

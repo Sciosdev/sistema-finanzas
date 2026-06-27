@@ -46,6 +46,21 @@
                         <label class="form-check-label" for="new_account_active">Activa para capturas nuevas</label>
                     </div>
                 </div>
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label">Límite de crédito</label>
+                    <input type="number" name="credit_limit" class="form-control" step="0.01" min="0" value="{{ old('credit_limit') }}" placeholder="Solo tarjetas">
+                </div>
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label">Día de corte</label>
+                    <input type="number" name="statement_day" class="form-control" min="1" max="31" value="{{ old('statement_day') }}" placeholder="Ej. 31">
+                </div>
+                <div class="col-xl-2 col-md-4">
+                    <label class="form-label">Día de pago</label>
+                    <input type="number" name="payment_day" class="form-control" min="1" max="31" value="{{ old('payment_day') }}" placeholder="Ej. 15">
+                </div>
+                <div class="col-12">
+                    <small class="text-muted">El día de corte y de pago aplican a tarjetas de crédito: con ellos el sistema calcula solo la fecha de pago de cada crédito que cargues a esa tarjeta.</small>
+                </div>
                 <div class="col-xl-10">
                     <label class="form-label">Notas</label>
                     <input type="text" name="notes" class="form-control" value="{{ old('notes') }}" placeholder="Uso, banco, tarjeta, límite o aclaración interna">
@@ -89,6 +104,9 @@
                         <th>Tipo</th>
                         <th>Color</th>
                         <th>Orden</th>
+                        <th>Límite</th>
+                        <th>Corte</th>
+                        <th>Pago</th>
                         <th>Estado</th>
                         <th>Notas</th>
                         <th class="text-end">Acción</th>
@@ -116,6 +134,15 @@
                             </td>
                             <td style="width: 110px;">
                                 <input form="{{ $formId }}" type="number" name="display_order" class="form-control form-control-sm" min="0" max="9999" value="{{ $account->display_order }}">
+                            </td>
+                            <td style="width: 120px;">
+                                <input form="{{ $formId }}" type="number" name="credit_limit" class="form-control form-control-sm" step="0.01" min="0" value="{{ $account->credit_limit }}" placeholder="-">
+                            </td>
+                            <td style="width: 90px;">
+                                <input form="{{ $formId }}" type="number" name="statement_day" class="form-control form-control-sm" min="1" max="31" value="{{ $account->statement_day }}" placeholder="-">
+                            </td>
+                            <td style="width: 90px;">
+                                <input form="{{ $formId }}" type="number" name="payment_day" class="form-control form-control-sm" min="1" max="31" value="{{ $account->payment_day }}" placeholder="-">
                             </td>
                             <td style="min-width: 150px;">
                                 <input form="{{ $formId }}" type="hidden" name="is_active" value="0">

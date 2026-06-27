@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
+use App\Models\Finance\Account;
 use App\Models\Finance\CreditFreePayment;
 use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
@@ -75,7 +76,7 @@ class CreditPurchaseController extends Controller
         $user = $request->user();
         $this->catalogs->ensureForUser($user);
 
-        $data = $this->creditData($request, $user);
+        $data = $this->applyCardCycle($user, $this->creditData($request, $user));
         $amounts = $this->creditAmounts($data);
 
         $credit = CreditPurchase::create([
@@ -109,7 +110,7 @@ class CreditPurchaseController extends Controller
 
         $user = $request->user();
         $this->catalogs->ensureForUser($user);
-        $data = $this->creditData($request, $user);
+        $data = $this->applyCardCycle($user, $this->creditData($request, $user));
         $amounts = $this->creditAmounts($data);
 
         $credit->update([
@@ -329,6 +330,34 @@ class CreditPurchaseController extends Controller
                 'label' => 'Deshacer',
                 'expires_at' => $snapshot->expires_at,
             ]);
+    }
+
+    /**
+     * Si el crédito se carga a una tarjeta con ciclo configurado (día de corte
+     * y de pago), calcula automáticamente el primer mes y día de pago reales a
+     * partir de la fecha de compra. No cambia montos ni mensualidades.
+     *
+     * @param array<string, mixed> $data
+     * @return array<string, mixed>
+     */
+    private function applyCardCycle($user, array $data): array
+    {
+        if (empty($data['account_id'])) {
+            return $data;
+        }
+
+        $account = Account::where('user_id', $user->id)->find($data['account_id']);
+
+        if ($account && $account->hasCreditCycle()) {
+            $due = $account->firstDueDateFor(Carbon::parse($data['purchase_date']));
+
+            if ($due) {
+                $data['first_due_month'] = $due->format('Y-m');
+                $data['due_day'] = $due->day;
+            }
+        }
+
+        return $data;
     }
 
     private function creditData(Request $request, $user): array
