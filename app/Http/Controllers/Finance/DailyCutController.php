@@ -5,10 +5,9 @@ namespace App\Http\Controllers\Finance;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
 use App\Models\Finance\DailyCut;
-use App\Models\Finance\Movement;
-use App\Models\User;
 use App\Services\Finance\AutomaticYieldService;
 use App\Services\Finance\FinanceCatalogService;
+use App\Services\Finance\FinanceCutSuggestionService;
 use App\Services\Finance\FinanceSummaryService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -21,6 +20,7 @@ class DailyCutController extends Controller
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceSummaryService $summaryService,
         private readonly AutomaticYieldService $automaticYieldService,
+        private readonly FinanceCutSuggestionService $cutSuggestions,
     ) {
     }
 
@@ -38,68 +38,16 @@ class DailyCutController extends Controller
             ->get();
 
         $accounts = $this->accountsFor($user);
+        $suggestion = $this->cutSuggestions->suggest($user, $accounts, today());
 
         return view('finance.cuts.index', [
             'cuts' => $cuts,
             'monthValue' => $start->format('Y-m'),
             'accounts' => $accounts,
-            'suggestedBalances' => $this->suggestedCutBalances($user, $accounts, today()),
+            'suggestedBalances' => $suggestion['suggested'],
+            'previousBalances' => $suggestion['previous'],
+            'previousCutDate' => $suggestion['previous_cut_date'],
         ]);
-    }
-
-    /**
-     * Calcula el saldo esperado por cuenta para el nuevo corte: parte del último
-     * corte y le suma los ingresos/rendimientos y le resta los egresos de cada
-     * cuenta capturados después de esa fecha. Es solo una sugerencia editable;
-     * no escribe nada ni cambia cálculos del corte.
-     *
-     * @param \Illuminate\Support\Collection<int, \App\Models\Finance\Account> $accounts
-     * @return array<int, float>
-     */
-    private function suggestedCutBalances(User $user, $accounts, Carbon $targetDate): array
-    {
-        $lastCut = DailyCut::with('balances')
-            ->where('user_id', $user->id)
-            ->orderByDesc('cut_date')
-            ->first();
-
-        if (! $lastCut) {
-            return [];
-        }
-
-        $baseline = $lastCut->balances
-            ->keyBy('account_id')
-            ->map(fn ($balance) => (float) $balance->balance);
-
-        $movements = Movement::query()
-            ->where('user_id', $user->id)
-            ->whereNotNull('account_id')
-            ->whereDate('happened_on', '>', $lastCut->cut_date->toDateString())
-            ->whereDate('happened_on', '<=', $targetDate->toDateString())
-            ->get(['account_id', 'movement_type', 'amount']);
-
-        $delta = [];
-        foreach ($movements as $movement) {
-            $sign = match ($movement->movement_type) {
-                'income', 'yield' => 1,
-                'expense' => -1,
-                default => 0,
-            };
-
-            if ($sign === 0) {
-                continue;
-            }
-
-            $delta[$movement->account_id] = ($delta[$movement->account_id] ?? 0) + $sign * (float) $movement->amount;
-        }
-
-        $suggested = [];
-        foreach ($accounts as $account) {
-            $base = (float) ($baseline[$account->id] ?? 0);
-            $suggested[$account->id] = round(max(0, $base + ($delta[$account->id] ?? 0)), 2);
-        }
-
-        return $suggested;
     }
 
     public function store(Request $request)

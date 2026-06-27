@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Finance;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
 use App\Services\Finance\FinanceCatalogService;
+use App\Services\Finance\FinanceCutSuggestionService;
 use App\Services\Finance\FinanceReminderService;
 use App\Services\Finance\FinanceSummaryService;
 use Illuminate\Http\Request;
@@ -17,6 +18,7 @@ class FinanceDashboardController extends Controller
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceReminderService $reminders,
+        private readonly FinanceCutSuggestionService $cutSuggestions,
     ) {
     }
 
@@ -27,15 +29,20 @@ class FinanceDashboardController extends Controller
 
         $month = $request->query('month', now()->format('Y-m'));
         $summary = $this->summaryService->monthSummary($user, $month);
+        $accounts = $this->accountsFor($user);
+        $cutSuggestion = $this->cutSuggestions->suggest($user, $accounts, today());
 
         return view('finance.dashboard', [
             'summary' => $summary,
-            'accounts' => $this->accountsFor($user),
+            'accounts' => $accounts,
             'categories' => $this->categoriesFor($user),
             'people' => $this->peopleFor($user),
             'reminderSummary' => $this->reminders->dashboardReminders($user),
             'reminderTypes' => FinanceReminderService::TYPES,
             'reminderVehicles' => FinanceReminderService::VEHICLES,
+            'suggestedBalances' => $cutSuggestion['suggested'],
+            'previousBalances' => $cutSuggestion['previous'],
+            'previousCutDate' => $cutSuggestion['previous_cut_date'],
         ]);
     }
 }
