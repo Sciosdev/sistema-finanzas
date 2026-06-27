@@ -4,8 +4,17 @@
 @include('finance.partials.flash')
 
 <div class="row align-items-center mb-3">
-    <div class="col-md-12">
+    <div class="col-md-7">
         <h4 class="mb-0 fw-semibold">Categorías</h4>
+    </div>
+    <div class="col-md-5 text-md-end mt-2 mt-md-0">
+        <form method="POST" action="{{ route('finance.categories.apply-colors') }}" class="d-inline"
+              onsubmit="return confirm('Se aplicarán colores representativos a las categorías reconocidas. Podrás ajustar cualquiera a mano después. ¿Continuar?');">
+            @csrf
+            <button type="submit" class="btn btn-outline-primary">
+                <i data-lucide="palette" class="me-1"></i>Aplicar colores sugeridos
+            </button>
+        </form>
     </div>
 </div>
 

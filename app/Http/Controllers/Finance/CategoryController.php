@@ -157,6 +157,105 @@ class CategoryController extends Controller
             ]);
     }
 
+    /**
+     * Paleta representativa por nombre de categoría (clave normalizada sin
+     * espacios ni acentos). Si el nombre no está aquí, se usa el color por grupo.
+     *
+     * @var array<string, string>
+     */
+    private const COLOR_BY_NAME = [
+        'rentassanjuan' => '#16a34a',
+        'andreacomida' => '#14b8a6',
+        'sciosfesi' => '#0d9488',
+        'rendimientonu' => '#a855f7',
+        'rendimientompw' => '#eab308',
+        'comida' => '#f97316',
+        'casa' => '#64748b',
+        'transporte' => '#0ea5e9',
+        'saldotelefonia' => '#06b6d4',
+        'gasolina' => '#ef4444',
+        'gasolinademoto' => '#f59e0b',
+        'ubercarro' => '#3b82f6',
+        'didicarro' => '#fb923c',
+        'ubercomida' => '#fdba74',
+        'didicomida' => '#fbbf24',
+        'rappi' => '#e11d48',
+        'sanjuangeneral' => '#dc2626',
+        'japam' => '#0891b2',
+        'limpiezajorge' => '#84cc16',
+        'creditotarjeta' => '#7c3aed',
+        'desconocido' => '#374151',
+        'entretenimiento' => '#2563eb',
+        'propinas' => '#f472b6',
+        'ropa' => '#ec4899',
+        'salud' => '#10b981',
+        'servicios' => '#6366f1',
+        'trabajo' => '#22c55e',
+        'rendimientos' => '#eab308',
+    ];
+
+    /**
+     * Color de respaldo por grupo (clave normalizada).
+     *
+     * @var array<string, string>
+     */
+    private const COLOR_BY_GROUP = [
+        'casa' => '#64748b',
+        'comida' => '#f97316',
+        'creditos' => '#7c3aed',
+        'diario' => '#22d3ee',
+        'gasolina' => '#ef4444',
+        'sanjuan' => '#dc2626',
+        'transporte' => '#0ea5e9',
+        'rendimientos' => '#eab308',
+        'trabajo' => '#10b981',
+        'revision' => '#374151',
+        'servicios' => '#6366f1',
+        'personal' => '#ec4899',
+    ];
+
+    public function applySuggestedColors(Request $request)
+    {
+        $user = $request->user();
+        $this->catalogs->ensureForUser($user);
+
+        $categories = Category::where('user_id', $user->id)->get();
+        $updated = 0;
+
+        DB::transaction(function () use ($categories, &$updated) {
+            foreach ($categories as $category) {
+                $color = $this->suggestedColorFor($category);
+
+                if ($color !== null && strcasecmp((string) $category->color, $color) !== 0) {
+                    $category->update(['color' => $color]);
+                    $updated++;
+                }
+            }
+        });
+
+        return back()->with(
+            'success',
+            $updated > 0
+                ? "Se aplicaron colores sugeridos a {$updated} categoría(s). Puedes ajustar cualquiera a mano."
+                : 'Tus categorías ya tienen los colores sugeridos.'
+        );
+    }
+
+    private function suggestedColorFor(Category $category): ?string
+    {
+        $name = $this->normalizedName($category->name);
+        if (isset(self::COLOR_BY_NAME[$name])) {
+            return self::COLOR_BY_NAME[$name];
+        }
+
+        $group = $this->normalizedName($category->group);
+        if ($group !== '' && isset(self::COLOR_BY_GROUP[$group])) {
+            return self::COLOR_BY_GROUP[$group];
+        }
+
+        return null;
+    }
+
     public function merge(Request $request, Category $category)
     {
         abort_unless($category->user_id === $request->user()->id, 403);

@@ -142,6 +142,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
 
         Route::get('categorias', [CategoryController::class, 'index'])->name('categories.index');
         Route::post('categorias', [CategoryController::class, 'store'])->name('categories.store');
+        Route::post('categorias/colores-sugeridos', [CategoryController::class, 'applySuggestedColors'])->name('categories.apply-colors');
         Route::put('categorias/{category}', [CategoryController::class, 'update'])->name('categories.update');
         Route::post('categorias/{category}/unificar', [CategoryController::class, 'merge'])->name('categories.merge');
         Route::delete('categorias/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
