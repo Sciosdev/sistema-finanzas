@@ -19,8 +19,11 @@ class FinanceBackupService
 
     public function createDatabaseBackup(): array
     {
-        $filename = 'finanzas-db-' . now()->format('Ymd-His') . '.sql';
+        $timestamp = now()->format('Ymd-His');
+        $sqlName = 'finanzas-db-' . $timestamp . '.sql';
+        $filename = 'finanzas-db-' . $timestamp . '.zip';
         $directory = $this->databaseBackupDirectory();
+        $sqlPath = $directory . DIRECTORY_SEPARATOR . $sqlName;
         $path = $directory . DIRECTORY_SEPARATOR . $filename;
 
         try {
@@ -31,16 +34,35 @@ class FinanceBackupService
                 throw new RuntimeException('El backup SQL automatico solo esta disponible para MySQL/MariaDB.');
             }
 
-            $this->runMysqlDump($connection, $path);
+            $this->runMysqlDump($connection, $sqlPath);
 
-            if (! is_file($path) || filesize($path) === 0) {
+            if (! is_file($sqlPath) || filesize($sqlPath) === 0) {
                 throw new RuntimeException('mysqldump no genero un archivo valido.');
             }
 
-            return $this->successPayload('database', $filename, $path, 'Backup de BD creado.');
+            // Se entrega el SQL dentro de un .zip para que el firewall (ModSecurity
+            // en HostGator) no bloquee la descarga del volcado en texto plano.
+            $zip = new ZipArchive();
+            if ($zip->open($path, ZipArchive::CREATE | ZipArchive::OVERWRITE) !== true) {
+                throw new RuntimeException('No se pudo abrir el archivo zip del backup de BD.');
+            }
+
+            $zip->addFile($sqlPath, 'database/' . $sqlName);
+            $zip->close();
+
+            @unlink($sqlPath);
+
+            if (! is_file($path) || filesize($path) === 0) {
+                throw new RuntimeException('No se genero un zip valido del backup de BD.');
+            }
+
+            return $this->successPayload('database', $filename, $path, 'Backup de BD creado (zip).');
         } catch (\Throwable $exception) {
             if (is_file($path)) {
                 @unlink($path);
+            }
+            if (is_file($sqlPath)) {
+                @unlink($sqlPath);
             }
 
             return [
@@ -228,8 +250,11 @@ class FinanceBackupService
             throw new RuntimeException('Nombre de archivo invalido.');
         }
 
-        $expectedExtension = $type === 'database' ? '.sql' : '.zip';
-        if (! str_ends_with(strtolower($filename), $expectedExtension)) {
+        // Los backups de BD ahora se generan en .zip; se aceptan también .sql
+        // por compatibilidad con respaldos antiguos ya descargados/almacenados.
+        $allowedExtensions = $type === 'database' ? ['.zip', '.sql'] : ['.zip'];
+        $lowerFilename = strtolower($filename);
+        if (! collect($allowedExtensions)->contains(fn (string $ext) => str_ends_with($lowerFilename, $ext))) {
             throw new RuntimeException('Extension de backup invalida.');
         }
 

@@ -8,6 +8,7 @@ use App\Models\Finance\SystemFailure;
 use App\Services\Finance\FinanceBackupService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceFailureReporter;
+use App\Services\Finance\FinanceMaintenanceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
@@ -18,6 +19,7 @@ class FinanceSecurityController extends Controller
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
         private readonly FinanceBackupService $backups,
         private readonly FinanceFailureReporter $failures,
+        private readonly FinanceMaintenanceService $maintenance,
     ) {
     }
 
@@ -66,6 +68,8 @@ class FinanceSecurityController extends Controller
                 ->distinct()
                 ->orderBy('module')
                 ->pluck('module'),
+            'maintenance' => $this->maintenance->status(),
+            'maintenanceResult' => session('maintenance_result'),
         ]);
     }
 

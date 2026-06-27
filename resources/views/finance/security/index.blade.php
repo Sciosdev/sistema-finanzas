@@ -119,6 +119,77 @@
     </div>
 </div>
 
+<div class="card border-warning border-opacity-50">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <h4 class="card-title mb-0"><i data-lucide="wrench" class="me-1"></i>Mantenimiento</h4>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="badge badge-soft-secondary">APP_ENV: {{ $maintenance['app_env'] ?? '-' }}</span>
+            <span class="badge badge-soft-secondary">DB: {{ $maintenance['db_connection'] ?? '-' }}</span>
+            <span class="badge {{ ($maintenance['migrations_table_exists'] ?? false) ? 'badge-soft-success' : 'badge-soft-danger' }}">
+                Tabla migrations: {{ ($maintenance['migrations_table_exists'] ?? false) ? 'sí' : 'no' }}
+            </span>
+            @if ($maintenance['has_pending'] ?? false)
+                <span class="badge badge-soft-warning">Hay migraciones pendientes</span>
+            @else
+                <span class="badge badge-soft-success">Sin migraciones pendientes</span>
+            @endif
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-warning">
+            <strong>Haz Backup BD antes de migrar.</strong> Usa el botón <em>“Backup solo BD”</em> o <em>“Paquete migracion”</em> de arriba (o phpMyAdmin) y descárgalo antes de ejecutar migraciones.
+        </div>
+
+        <h6 class="mb-2">Estado de migraciones (migrate:status)</h6>
+        <pre class="bg-body-tertiary p-3 rounded small mb-3" style="max-height: 260px; overflow:auto;">{{ $maintenance['status_output'] ?? 'Sin información.' }}</pre>
+
+        @if (! empty($maintenanceResult))
+            <h6 class="mb-2">Último resultado de mantenimiento</h6>
+            <div class="alert {{ ($maintenanceResult['ok'] ?? false) ? 'alert-success' : 'alert-danger' }}">
+                <div class="fw-semibold mb-1">Comando: <code>{{ $maintenanceResult['action'] ?? '-' }}</code> — {{ ($maintenanceResult['ok'] ?? false) ? 'OK' : 'Falló' }}</div>
+                <pre class="mb-0 small" style="white-space: pre-wrap;">{{ $maintenanceResult['output'] ?? '' }}</pre>
+            </div>
+        @endif
+
+        <div class="row g-3">
+            <div class="col-lg-6">
+                <form method="POST" action="{{ route('finance.maintenance.run-migrations') }}" class="border rounded p-3 h-100"
+                      onsubmit="return confirm('¿Ejecutar migraciones pendientes ahora? Asegúrate de tener backup de la BD.');">
+                    @csrf
+                    <h6 class="mb-1">Ejecutar migraciones pendientes</h6>
+                    <p class="text-muted small mb-2">Equivale a <code>php artisan migrate --force</code>. Solo aplica las pendientes.</p>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" value="1" name="confirm_backup" id="confirm_backup" required>
+                        <label class="form-check-label" for="confirm_backup">
+                            Confirmo que ya hice backup antes de ejecutar migraciones
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-warning">
+                        <i data-lucide="database" class="me-1"></i>Ejecutar migraciones
+                    </button>
+                </form>
+            </div>
+            <div class="col-lg-6">
+                <form method="POST" action="{{ route('finance.maintenance.clear-cache') }}" class="border rounded p-3 h-100"
+                      onsubmit="return confirm('¿Limpiar caché de configuración, rutas y vistas?');">
+                    @csrf
+                    <h6 class="mb-1">Limpiar caché</h6>
+                    <p class="text-muted small mb-2">Equivale a <code>php artisan optimize:clear</code>. No toca datos.</p>
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" value="1" name="confirm_clear" id="confirm_clear" required>
+                        <label class="form-check-label" for="confirm_clear">
+                            Confirmo limpiar la caché
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-outline-primary">
+                        <i data-lucide="eraser" class="me-1"></i>Limpiar caché
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="row g-3">
     <div class="col-xl-6">
         <div class="card h-100">

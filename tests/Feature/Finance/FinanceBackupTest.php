@@ -115,7 +115,7 @@ function fakeMigrationFinanceBackupService(): FinanceBackupService
     };
 }
 
-it('creates a database backup sql file in private storage', function () {
+it('creates a database backup zip containing the sql dump', function () {
     Carbon::setTestNow('2026-06-22 10:00:00');
     configureMysqlBackupConnectionForTests();
 
@@ -123,10 +123,15 @@ it('creates a database backup sql file in private storage', function () {
 
     expect($result['ok'])->toBeTrue();
     expect($result['type'])->toBe('database');
-    expect($result['name'])->toEndWith('.sql');
+    expect($result['name'])->toEndWith('.zip');
     expect($result['path'])->toBe('finance-backups/database/' . $result['name']);
     expect(File::exists($result['absolute_path']))->toBeTrue();
-    expect(File::get($result['absolute_path']))->toContain('finanzas_test');
+
+    $entries = collect(zipEntriesForFinanceBackup($result['absolute_path']));
+    $sqlEntry = $entries->first(fn (string $entry) => str_ends_with($entry, '.sql'));
+
+    expect($sqlEntry)->not->toBeNull();
+    expect(zipTextEntryForFinanceBackup($result['absolute_path'], $sqlEntry))->toContain('finanzas_test');
 });
 
 it('creates a full backup zip without env by default and excludes bulky folders', function () {
@@ -195,7 +200,7 @@ it('stores a generated database backup flash with a protected download link', fu
         ->assertRedirect()
         ->assertSessionHas('success')
         ->assertSessionHas('backup_download', fn (array $download) => $download['type'] === 'database'
-            && str_ends_with($download['name'], '.sql'));
+            && str_ends_with($download['name'], '.zip'));
 });
 
 it('stores a generated migration package flash with a protected download link', function () {

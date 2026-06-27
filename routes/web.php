@@ -8,6 +8,7 @@ use App\Http\Controllers\Finance\DailyCutController;
 use App\Http\Controllers\Finance\ExpectedIncomeController;
 use App\Http\Controllers\Finance\FinanceDashboardController;
 use App\Http\Controllers\Finance\FinanceHealthController;
+use App\Http\Controllers\Finance\FinanceMaintenanceController;
 use App\Http\Controllers\Finance\FinanceOperationController;
 use App\Http\Controllers\Finance\FinancePendingController;
 use App\Http\Controllers\Finance\FinanceReportController;
@@ -72,6 +73,8 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
                 ->where(['type' => 'database|full|migration', 'filename' => '[^/]+'])
                 ->name('security.backups.download');
             Route::post('seguridad/fallas/{failure}/resolver', [FinanceSecurityController::class, 'resolveFailure'])->name('security.failures.resolve');
+            Route::post('seguridad/mantenimiento/migrar', [FinanceMaintenanceController::class, 'runMigrations'])->name('maintenance.run-migrations');
+            Route::post('seguridad/mantenimiento/limpiar-cache', [FinanceMaintenanceController::class, 'clearOptimizationCache'])->name('maintenance.clear-cache');
         });
 
         Route::get('cuentas', [AccountController::class, 'index'])->name('accounts.index');
