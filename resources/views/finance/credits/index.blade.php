@@ -128,6 +128,8 @@
                             data-bs-target="#{{ $collapseId }}"
                             aria-expanded="false"
                             aria-controls="{{ $collapseId }}"
+                            data-credit-filter="creditor"
+                            data-creditor-key="{{ $creditor['key'] }}"
                         >
                             <div class="d-flex align-items-center justify-content-between gap-2">
                                 <span class="fw-semibold" style="color: {{ $style['text'] }};">{{ $creditor['name'] }}</span>
@@ -284,6 +286,28 @@
     </div>
 </div>
 
+@if ($credits->isNotEmpty())
+    <div class="card" id="credits-list-anchor">
+        <div class="card-body d-flex flex-wrap align-items-center gap-2">
+            <span class="text-muted small me-1"><i data-lucide="filter" class="me-1"></i>Filtrar lista de créditos:</span>
+            <button type="button" class="btn btn-sm btn-primary" data-credit-filter="all">Todos</button>
+            <button type="button" class="btn btn-sm btn-outline-warning" data-credit-filter="current-month">Este mes</button>
+            @foreach ($creditorSummaries as $creditor)
+                <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary"
+                    data-credit-filter="creditor"
+                    data-creditor-key="{{ $creditor['key'] }}"
+                >
+                    {{ $creditor['name'] }}
+                    <span class="badge text-bg-secondary ms-1">{{ $creditor['count'] }}</span>
+                </button>
+            @endforeach
+            <span class="ms-auto small text-muted" id="credits-filter-status">Mostrando {{ $credits->count() }} de {{ $credits->count() }} créditos</span>
+        </div>
+    </div>
+@endif
+
 @forelse ($credits as $credit)
     @php
         $totals = $creditTotals[$credit->id] ?? [
@@ -303,8 +327,11 @@
         $firstInstallment = $credit->installments->first();
         $monthlyAmount = $firstInstallment ? (float) $firstInstallment->amount : 0;
         $creditFormId = 'credit-form-' . $credit->id;
+        $creditCardItem = $creditorSummary ? collect($creditorSummary['credits'])->firstWhere('id', $credit->id) : null;
+        $creditCurrentDue = (float) ($creditCardItem['current_due'] ?? 0);
+        $creditorKey = $creditorSummary['key'] ?? 'sin-acreedor';
     @endphp
-    <div class="card" id="credit-{{ $credit->id }}" style="border-left: 4px solid {{ $creditorStyle['color'] }};">
+    <div class="card finance-credit-card" id="credit-{{ $credit->id }}" style="border-left: 4px solid {{ $creditorStyle['color'] }};" data-creditor-key="{{ $creditorKey }}" data-current-due="{{ $creditCurrentDue }}">
         <div class="card-header d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
             <div>
                 <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
@@ -580,4 +607,65 @@
         <div class="card-body text-center text-muted py-4">Sin créditos</div>
     </div>
 @endforelse
+@endsection
+
+@section('scripts')
+<script>
+    (function () {
+        var cards = Array.prototype.slice.call(document.querySelectorAll('.finance-credit-card'));
+        if (cards.length === 0) {
+            return;
+        }
+
+        var status = document.getElementById('credits-filter-status');
+        var anchor = document.getElementById('credits-list-anchor');
+        var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-credit-filter]'));
+
+        function setActive(filter, key) {
+            buttons.forEach(function (btn) {
+                var matches = btn.getAttribute('data-credit-filter') === filter
+                    && (filter !== 'creditor' || btn.getAttribute('data-creditor-key') === key);
+                btn.classList.toggle('active', matches);
+            });
+        }
+
+        function applyFilter(filter, key) {
+            var shown = 0;
+
+            cards.forEach(function (card) {
+                var show = true;
+
+                if (filter === 'creditor') {
+                    show = card.getAttribute('data-creditor-key') === key;
+                } else if (filter === 'current-month') {
+                    show = parseFloat(card.getAttribute('data-current-due') || '0') > 0;
+                }
+
+                card.style.display = show ? '' : 'none';
+                if (show) {
+                    shown++;
+                }
+            });
+
+            if (status) {
+                status.textContent = 'Mostrando ' + shown + ' de ' + cards.length + ' créditos';
+            }
+
+            setActive(filter, key);
+        }
+
+        buttons.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                var filter = btn.getAttribute('data-credit-filter');
+                var key = btn.getAttribute('data-creditor-key');
+
+                applyFilter(filter, key);
+
+                if (filter !== 'all' && anchor) {
+                    anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            });
+        });
+    })();
+</script>
 @endsection
