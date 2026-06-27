@@ -179,6 +179,33 @@
     </div>
 </div>
 
+<div class="card border border-info border-opacity-25">
+    <div class="card-header">
+        <h4 class="card-title mb-0">Créditos sin Onix</h4>
+        <p class="text-muted mb-0 small">La misma vista, pero sin contar el crédito del Onix (el carro).</p>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-xl-3 col-md-6">
+                <div class="text-muted small mb-1 text-center">Deuda por tarjeta</div>
+                <div id="reports-credit-by-card-donut-noonix" class="apex-charts" style="min-height: 260px;"></div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="text-muted small mb-1 text-center">Avance de créditos</div>
+                <div id="reports-credit-progress-donut-noonix" class="apex-charts" style="min-height: 260px;"></div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="text-muted small mb-1 text-center">Crédito disponible por tarjeta</div>
+                <div id="reports-credit-available-bar-noonix" class="apex-charts" style="min-height: 260px;"></div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="text-muted small mb-1 text-center">Pagos de crédito por mes</div>
+                <div id="reports-credit-upcoming-bar-noonix" class="apex-charts" style="min-height: 260px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header">
         <h4 class="card-title mb-0">Dónde bajarle al gasto</h4>
@@ -570,6 +597,10 @@
                     'reports-credit-progress-donut',
                     'reports-credit-available-bar',
                     'reports-credit-upcoming-bar',
+                    'reports-credit-by-card-donut-noonix',
+                    'reports-credit-progress-donut-noonix',
+                    'reports-credit-available-bar-noonix',
+                    'reports-credit-upcoming-bar-noonix',
                 ];
 
                 function money(value) {
@@ -853,6 +884,10 @@
                     renderDonut('reports-credit-progress-donut', data.creditProgress);
                     renderHorizontalBar('reports-credit-available-bar', data.creditAvailable);
                     renderHorizontalBar('reports-credit-upcoming-bar', data.creditUpcoming);
+                    renderDonut('reports-credit-by-card-donut-noonix', data.creditByCardNoOnix);
+                    renderDonut('reports-credit-progress-donut-noonix', data.creditProgressNoOnix);
+                    renderHorizontalBar('reports-credit-available-bar-noonix', data.creditAvailableNoOnix);
+                    renderHorizontalBar('reports-credit-upcoming-bar-noonix', data.creditUpcomingNoOnix);
                 }
 
                 function loadApexCharts(callback) {

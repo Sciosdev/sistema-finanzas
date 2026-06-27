@@ -253,6 +253,32 @@ class FinanceReportController extends Controller
             ->where('user_id', $user->id)
             ->get();
 
+        $full = $this->buildCreditChartSet($credits, $monthStart);
+        $noOnix = $this->buildCreditChartSet(
+            $credits->reject(fn (CreditPurchase $credit) => $this->isOnixCredit($credit))->values(),
+            $monthStart
+        );
+
+        return [
+            'creditByCard' => $full['byCard'],
+            'creditProgress' => $full['progress'],
+            'creditAvailable' => $full['available'],
+            'creditUpcoming' => $full['upcoming'],
+            'creditByCardNoOnix' => $noOnix['byCard'],
+            'creditProgressNoOnix' => $noOnix['progress'],
+            'creditAvailableNoOnix' => $noOnix['available'],
+            'creditUpcomingNoOnix' => $noOnix['upcoming'],
+        ];
+    }
+
+    /**
+     * Arma las 4 secciones de gráficas de crédito para un conjunto de créditos.
+     *
+     * @param Collection<int, CreditPurchase> $credits
+     * @return array{byCard: array, progress: array, available: array, upcoming: array}
+     */
+    private function buildCreditChartSet(Collection $credits, Carbon $monthStart): array
+    {
         $byCard = [];
         $totalPaid = 0.0;
         $totalPending = 0.0;
@@ -300,30 +326,36 @@ class FinanceReportController extends Controller
         }
 
         return [
-            'creditByCard' => [
+            'byCard' => [
                 'title' => 'Deuda por tarjeta',
                 'rows' => $byCard->filter(fn (array $card) => $card['pending'] > 0)
                     ->map(fn (array $card) => ['name' => $card['name'], 'amount' => round($card['pending'], 2), 'color' => $card['color']])
                     ->values(),
             ],
-            'creditProgress' => [
+            'progress' => [
                 'title' => 'Avance de créditos',
                 'rows' => collect([
                     ['name' => 'Pagado', 'amount' => round($totalPaid, 2), 'color' => '#22c55e'],
                     ['name' => 'Pendiente', 'amount' => round($totalPending, 2), 'color' => '#f59e0b'],
                 ])->filter(fn (array $row) => $row['amount'] > 0)->values(),
             ],
-            'creditAvailable' => [
+            'available' => [
                 'title' => 'Disponible por tarjeta',
                 'rows' => $byCard->filter(fn (array $card) => ! is_null($card['limit']))
                     ->map(fn (array $card) => ['name' => $card['name'], 'amount' => round(max(0, $card['limit'] - $card['pending']), 2), 'color' => '#22c55e'])
                     ->values(),
             ],
-            'creditUpcoming' => [
+            'upcoming' => [
                 'title' => 'Pagos de crédito por mes',
                 'rows' => $upcomingRows->filter(fn (array $row) => $row['amount'] > 0)->values(),
             ],
         ];
+    }
+
+    private function isOnixCredit(CreditPurchase $credit): bool
+    {
+        return str($credit->name)->ascii()->lower()->contains('onix')
+            || str($credit->account?->name ?? '')->ascii()->lower()->contains('onix');
     }
 
     private function sumByMovementType(Collection $movements, array $types): float

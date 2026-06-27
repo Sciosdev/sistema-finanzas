@@ -283,4 +283,8 @@ document.addEventListener('DOMContentLoaded', () => {
   renderDonut('reports-credit-progress-donut', data.creditProgress);
   renderHorizontalBar('reports-credit-available-bar', data.creditAvailable);
   renderHorizontalBar('reports-credit-upcoming-bar', data.creditUpcoming);
+  renderDonut('reports-credit-by-card-donut-noonix', data.creditByCardNoOnix);
+  renderDonut('reports-credit-progress-donut-noonix', data.creditProgressNoOnix);
+  renderHorizontalBar('reports-credit-available-bar-noonix', data.creditAvailableNoOnix);
+  renderHorizontalBar('reports-credit-upcoming-bar-noonix', data.creditUpcomingNoOnix);
 });
