@@ -214,19 +214,37 @@ class CategoryController extends Controller
         'personal' => '#ec4899',
     ];
 
+    /**
+     * Colores distintos de respaldo para categorías sin nombre ni grupo conocido,
+     * para que TODAS terminen con un color (y distinto entre ellas).
+     *
+     * @var list<string>
+     */
+    private const FALLBACK_PALETTE = [
+        '#0ea5e9', '#22c55e', '#a855f7', '#fb7185', '#14b8a6', '#f59e0b',
+        '#6366f1', '#ec4899', '#84cc16', '#06b6d4', '#f43f5e', '#eab308',
+        '#3b82f6', '#10b981', '#d946ef', '#fb923c', '#0d9488', '#facc15',
+    ];
+
     public function applySuggestedColors(Request $request)
     {
         $user = $request->user();
         $this->catalogs->ensureForUser($user);
 
-        $categories = Category::where('user_id', $user->id)->get();
+        $categories = Category::where('user_id', $user->id)
+            ->orderBy('group')
+            ->orderBy('type')
+            ->orderBy('name')
+            ->get();
+
         $updated = 0;
+        $fallbackIndex = 0;
 
-        DB::transaction(function () use ($categories, &$updated) {
+        DB::transaction(function () use ($categories, &$updated, &$fallbackIndex) {
             foreach ($categories as $category) {
-                $color = $this->suggestedColorFor($category);
+                $color = $this->suggestedColorFor($category, $fallbackIndex);
 
-                if ($color !== null && strcasecmp((string) $category->color, $color) !== 0) {
+                if (strcasecmp((string) $category->color, $color) !== 0) {
                     $category->update(['color' => $color]);
                     $updated++;
                 }
@@ -236,12 +254,12 @@ class CategoryController extends Controller
         return back()->with(
             'success',
             $updated > 0
-                ? "Se aplicaron colores sugeridos a {$updated} categoría(s). Puedes ajustar cualquiera a mano."
+                ? "Se aplicaron colores a {$updated} categoría(s). Puedes ajustar cualquiera a mano."
                 : 'Tus categorías ya tienen los colores sugeridos.'
         );
     }
 
-    private function suggestedColorFor(Category $category): ?string
+    private function suggestedColorFor(Category $category, int &$fallbackIndex): string
     {
         $name = $this->normalizedName($category->name);
         if (isset(self::COLOR_BY_NAME[$name])) {
@@ -253,7 +271,7 @@ class CategoryController extends Controller
             return self::COLOR_BY_GROUP[$group];
         }
 
-        return null;
+        return self::FALLBACK_PALETTE[$fallbackIndex++ % count(self::FALLBACK_PALETTE)];
     }
 
     public function merge(Request $request, Category $category)

@@ -49,21 +49,23 @@ it('falls back to a group color when the name is unknown', function () {
     expect($custom->fresh()->color)->toBe('#f97316');
 });
 
-it('keeps the current color when neither name nor group is known', function () {
+it('assigns a distinct fallback color to categories with unknown name and group', function () {
     $user = colorUser();
 
-    $custom = Category::create([
-        'user_id' => $user->id,
-        'name' => 'Categoria rara xyz',
-        'type' => 'expense',
-        'group' => 'Grupo Inexistente',
-        'color' => '#abcdef',
-        'is_active' => true,
+    $a = Category::create([
+        'user_id' => $user->id, 'name' => 'Categoria rara uno', 'type' => 'expense',
+        'group' => 'Grupo Inexistente A', 'color' => '#000000', 'is_active' => true,
+    ]);
+    $b = Category::create([
+        'user_id' => $user->id, 'name' => 'Categoria rara dos', 'type' => 'expense',
+        'group' => 'Grupo Inexistente B', 'color' => '#000000', 'is_active' => true,
     ]);
 
     $this->actingAs($user)->post(route('finance.categories.apply-colors'));
 
-    expect($custom->fresh()->color)->toBe('#abcdef');
+    expect($a->fresh()->color)->not->toBe('#000000')
+        ->and($b->fresh()->color)->not->toBe('#000000')
+        ->and($a->fresh()->color)->not->toBe($b->fresh()->color);
 });
 
 it('does not recolor another users categories', function () {
