@@ -68,6 +68,8 @@
                 </thead>
                 <tbody>
                     @forelse ($suggestions as $suggestion)
+                        @php($detailId = 'review-detail-' . $suggestion['key'])
+                        @php($affected = collect($suggestion['movements'] ?? []))
                         <tr>
                             <td>
                                 <div class="fw-semibold">{{ $suggestion['title'] }}</div>
@@ -80,7 +82,15 @@
                             <td style="min-width: 180px;">{{ $suggestion['current'] }}</td>
                             <td style="min-width: 180px;">{{ $suggestion['suggestion'] }}</td>
                             <td style="min-width: 260px;">{{ $suggestion['reason'] }}</td>
-                            <td class="text-end">{{ $suggestion['count'] }}</td>
+                            <td class="text-end">
+                                @if ($affected->isNotEmpty())
+                                    <button type="button" class="btn btn-sm btn-link p-0 text-decoration-none" data-bs-toggle="collapse" data-bs-target="#{{ $detailId }}" aria-expanded="false">
+                                        {{ $suggestion['count'] }} <i data-lucide="chevron-down"></i>
+                                    </button>
+                                @else
+                                    {{ $suggestion['count'] }}
+                                @endif
+                            </td>
                             <td class="text-end">
                                 <div class="d-inline-flex gap-2">
                                     @if ($suggestion['applyable'])
@@ -100,6 +110,43 @@
                                 </div>
                             </td>
                         </tr>
+                        @if ($affected->isNotEmpty())
+                            <tr>
+                                <td colspan="6" class="p-0 border-0">
+                                    <div class="collapse" id="{{ $detailId }}">
+                                        <div class="p-3 bg-body-tertiary">
+                                            <div class="small fw-semibold mb-2">Movimientos que afectaría ({{ $affected->count() }}):</div>
+                                            <div class="table-responsive">
+                                                <table class="table table-sm mb-0 align-middle">
+                                                    <thead>
+                                                        <tr>
+                                                            <th>Fecha</th>
+                                                            <th>Descripción</th>
+                                                            <th class="text-end">Monto</th>
+                                                            <th class="text-end"></th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        @foreach ($affected as $item)
+                                                            <tr>
+                                                                <td class="text-nowrap">{{ $item['date'] }}</td>
+                                                                <td>{{ $item['description'] }}</td>
+                                                                <td class="text-end text-nowrap">${{ number_format($item['amount'], 2) }}</td>
+                                                                <td class="text-end">
+                                                                    <a href="{{ route('finance.movements.edit', ['movement' => $item['id'], 'month' => $selectedMonth->format('Y-m')]) }}" class="btn btn-sm btn-link p-0" title="Editar movimiento">
+                                                                        <i data-lucide="pencil"></i>
+                                                                    </a>
+                                                                </td>
+                                                            </tr>
+                                                        @endforeach
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                        @endif
                     @empty
                         <tr>
                             <td colspan="6" class="text-center text-muted py-4">

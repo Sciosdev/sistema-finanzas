@@ -254,6 +254,7 @@ class FinanceMonthlyReviewService
                     'reason' => 'Son nombres muy parecidos. Por seguridad no se unifican automáticamente.',
                     'count' => $group->count(),
                     'movement_ids' => [],
+                    'movements' => [],
                     'applyable' => false,
                 ];
             })
@@ -286,6 +287,17 @@ class FinanceMonthlyReviewService
             'reason' => $reason,
             'count' => $movements->count(),
             'movement_ids' => $ids,
+            'movements' => $movements
+                ->filter(fn ($movement) => $movement instanceof Movement)
+                ->sortBy('happened_on')
+                ->map(fn (Movement $movement) => [
+                    'id' => $movement->id,
+                    'date' => optional($movement->happened_on)->format('Y-m-d'),
+                    'description' => $movement->description,
+                    'amount' => (float) $movement->amount,
+                ])
+                ->values()
+                ->all(),
             'applyable' => $applyable,
         ] + $extra;
     }
