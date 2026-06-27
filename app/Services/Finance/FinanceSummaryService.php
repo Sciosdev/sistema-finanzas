@@ -209,6 +209,77 @@ class FinanceSummaryService
         ];
     }
 
+    /**
+     * Ingresos (incluye rendimientos) y egresos de un mes. Sirve para comparar
+     * contra el mes anterior sin recalcular todo el resumen.
+     *
+     * @return array{income: float, expenses: float}
+     */
+    public function monthTotals(User $user, Carbon $month): array
+    {
+        [$start, $end] = $this->monthRange($month->format('Y-m'));
+
+        $query = Movement::query()
+            ->where('user_id', $user->id)
+            ->whereBetween('happened_on', [$start->toDateString(), $end->toDateString()]);
+
+        $income = $this->sumMoney((clone $query)->whereIn('movement_type', ['income', 'yield'])->sum('amount'));
+        $expenses = $this->sumMoney((clone $query)->where('movement_type', 'expense')->sum('amount'));
+
+        return [
+            'income' => $income,
+            'expenses' => $expenses,
+        ];
+    }
+
+    /**
+     * Línea de crédito agregada de las tarjetas que tienen límite configurado.
+     * Usa el mismo saldo pendiente por crédito (total − pagos − abonos) que la
+     * pantalla de Créditos, por lo que el "disponible" coincide con ella.
+     *
+     * @return array{has_limits: bool, limit: float, used: float, available: float, cards: int}
+     */
+    public function creditLineSummary(User $user): array
+    {
+        $accounts = \App\Models\Finance\Account::query()
+            ->where('user_id', $user->id)
+            ->whereNotNull('credit_limit')
+            ->get();
+
+        if ($accounts->isEmpty()) {
+            return ['has_limits' => false, 'limit' => 0.0, 'used' => 0.0, 'available' => 0.0, 'cards' => 0];
+        }
+
+        $usedByAccount = \App\Models\Finance\CreditPurchase::query()
+            ->with(['installments', 'freePayments'])
+            ->where('user_id', $user->id)
+            ->get()
+            ->groupBy('account_id')
+            ->map(function (Collection $credits) {
+                return $credits->sum(function ($credit) {
+                    $paid = (float) $credit->installments->sum('paid_amount')
+                        + (float) $credit->freePayments->sum('amount_applied');
+
+                    return max(0, (float) $credit->total_amount - $paid);
+                });
+            });
+
+        $limit = 0.0;
+        $used = 0.0;
+        foreach ($accounts as $account) {
+            $limit += (float) $account->credit_limit;
+            $used += (float) ($usedByAccount[$account->id] ?? 0);
+        }
+
+        return [
+            'has_limits' => true,
+            'limit' => $this->money($limit),
+            'used' => $this->money($used),
+            'available' => $this->money($limit - $used),
+            'cards' => $accounts->count(),
+        ];
+    }
+
     public function monthRange(?string $month = null): array
     {
         $date = $month

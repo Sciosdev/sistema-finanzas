@@ -214,6 +214,35 @@
         }
     }
 
+    .dashboard-widget-hide {
+        align-items: center;
+        background: rgba(127, 29, 29, .72);
+        border: 1px solid rgba(248, 113, 113, .4);
+        border-radius: 6px;
+        color: #fecaca;
+        cursor: pointer;
+        display: none;
+        height: 28px;
+        justify-content: center;
+        padding: 0;
+        position: absolute;
+        right: 3.4rem;
+        top: .75rem;
+        transition: background .15s ease;
+        width: 28px;
+        z-index: 6;
+    }
+
+    .dashboard-widget-hide:hover,
+    .dashboard-widget-hide:focus {
+        background: rgba(153, 27, 27, .92);
+        color: #fff;
+    }
+
+    .finance-dashboard-grid.is-layout-editing .dashboard-widget-hide {
+        display: flex;
+    }
+
     @media (min-width: 1200px) {
         .finance-dashboard-grid.is-smart-layout .dashboard-widget[data-dashboard-smart-width="true"] {
             width: var(--dashboard-smart-width);
@@ -231,9 +260,153 @@
             flex: 1;
         }
     }
+
+    /* Hero de bienvenida: saluda, resume cómo vas y cambia de color según tu mes. */
+    .finance-hero {
+        position: relative;
+        overflow: hidden;
+        border: 1px solid var(--hero-soft) !important;
+        background: linear-gradient(135deg, var(--hero-soft), transparent 72%);
+        animation: financeHeroIn .5s ease both;
+    }
+
+    .finance-hero::after {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto auto;
+        width: 220px;
+        height: 220px;
+        background: radial-gradient(circle at top right, var(--hero-soft), transparent 70%);
+        pointer-events: none;
+    }
+
+    .finance-hero-eyebrow {
+        color: var(--hero-accent);
+        letter-spacing: .04em;
+    }
+
+    .finance-hero-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 46px;
+        height: 46px;
+        border-radius: 14px;
+        color: var(--hero-accent);
+        background: var(--hero-soft);
+        flex: 0 0 auto;
+    }
+
+    .finance-hero-pill {
+        background: var(--bs-body-bg);
+        border: 1px solid var(--bs-border-color);
+        border-radius: .85rem;
+        padding: .6rem .9rem;
+        min-width: 9.5rem;
+    }
+
+    .finance-hero-pill .finance-hero-pill-label {
+        font-size: .72rem;
+        text-transform: uppercase;
+        letter-spacing: .03em;
+    }
+
+    @keyframes financeHeroIn {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: none; }
+    }
+
+    /* Levante sutil de los cuadros al pasar el cursor (fuera del modo Diseño). */
+    .finance-dashboard-grid:not(.is-layout-editing) .dashboard-widget > .card {
+        transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+    }
+
+    .finance-dashboard-grid:not(.is-layout-editing) .dashboard-widget > .card:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, .18);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .finance-hero { animation: none; }
+        .finance-dashboard-grid:not(.is-layout-editing) .dashboard-widget > .card:hover {
+            transform: none;
+        }
+    }
 </style>
 
 @include('finance.partials.flash')
+
+@php
+    $heroName = \Illuminate\Support\Str::of(auth()->user()->name ?? '')->trim()->explode(' ')->first() ?: 'por aquí';
+    $heroHour = (int) now()->format('G');
+    $heroGreeting = $heroHour < 12 ? 'Buenos días' : ($heroHour < 19 ? 'Buenas tardes' : 'Buenas noches');
+
+    $heroLeftover = (float) $summary['expected_leftover'];
+    $heroIncome = (float) $summary['total_income'];
+    $heroSavings = $heroIncome > 0 ? round($heroLeftover / $heroIncome * 100, 1) : null;
+    $heroHasOverdue = $overduePaymentTotal > 0 || $overdueExpectedTotal > 0;
+
+    if ($heroHasOverdue) {
+        $hero = ['accent' => '#ef4444', 'soft' => 'rgba(239, 68, 68, .16)', 'icon' => 'triangle-alert',
+            'title' => 'Tienes cosas vencidas por registrar',
+            'subtitle' => 'Hay pagos o ingresos vencidos. Revísalos para que tus números del mes cuadren.'];
+    } elseif ($heroLeftover < 0) {
+        $hero = ['accent' => '#f59e0b', 'soft' => 'rgba(245, 158, 11, .16)', 'icon' => 'trending-down',
+            'title' => 'Vas gastando más de lo que entró',
+            'subtitle' => 'Este mes los egresos superan a los ingresos. Buen momento para frenar un poco.'];
+    } elseif ($heroSavings !== null && $heroSavings >= 20) {
+        $hero = ['accent' => '#22c55e', 'soft' => 'rgba(34, 197, 94, .16)', 'icon' => 'sparkles',
+            'title' => '¡Vas muy bien este mes, ' . $heroName . '!',
+            'subtitle' => 'Llevas un ritmo de ahorro saludable. Sigue así.'];
+    } else {
+        $hero = ['accent' => '#6366f1', 'soft' => 'rgba(99, 102, 241, .16)', 'icon' => 'wallet',
+            'title' => 'Vas en orden',
+            'subtitle' => 'Tus números del mes están equilibrados. Aquí tienes el panorama.'];
+    }
+
+    $heroNextPayment = $summary['next_payments']->firstWhere('is_pending', true);
+@endphp
+
+<div class="finance-hero card border-0 mb-3" style="--hero-accent: {{ $hero['accent'] }}; --hero-soft: {{ $hero['soft'] }};">
+    <div class="card-body d-flex flex-column flex-xl-row align-items-xl-center justify-content-between gap-3">
+        <div class="d-flex align-items-center gap-3">
+            <span class="finance-hero-icon">
+                <i data-lucide="{{ $hero['icon'] }}" class="fs-24"></i>
+            </span>
+            <div>
+                <div class="finance-hero-eyebrow fw-semibold small mb-1">
+                    {{ $heroGreeting }}, {{ $heroName }} · {{ \Illuminate\Support\Str::ucfirst($summary['period_label']) }}
+                </div>
+                <h4 class="fw-bold mb-1">{{ $hero['title'] }}</h4>
+                <p class="mb-0 text-muted">{{ $hero['subtitle'] }}</p>
+            </div>
+        </div>
+        <div class="d-flex flex-wrap gap-2">
+            <div class="finance-hero-pill">
+                <div class="finance-hero-pill-label text-muted">Proyectado del mes</div>
+                <div class="fw-bold fs-5 {{ $heroLeftover >= 0 ? 'text-success' : 'text-danger' }}"
+                     data-countup="{{ $heroLeftover }}" data-countup-prefix="$" data-countup-decimals="2">{{ $money($heroLeftover) }}</div>
+            </div>
+            <a href="{{ route('finance.pending.index') }}" class="finance-hero-pill text-decoration-none">
+                <div class="finance-hero-pill-label text-muted">Pendientes</div>
+                <div class="fw-bold fs-5 {{ $pendingSummary['total'] > 0 ? 'text-warning' : 'text-success' }}"
+                     data-countup="{{ $pendingSummary['total'] }}" data-countup-decimals="0">{{ number_format($pendingSummary['total']) }}</div>
+            </a>
+            <div class="finance-hero-pill">
+                <div class="finance-hero-pill-label text-muted">Próximo pago</div>
+                @if ($heroNextPayment)
+                    <div class="fw-bold fs-5">{{ $money($heroNextPayment['amount_due']) }}</div>
+                    <div class="text-muted small text-truncate" style="max-width: 11rem;">
+                        {{ $heroNextPayment['name'] }}@if ($heroNextPayment['due_date']) · {{ $heroNextPayment['due_date']->translatedFormat('d M') }}@endif
+                    </div>
+                @else
+                    <div class="fw-bold fs-5 text-success">—</div>
+                    <div class="text-muted small">Sin pagos próximos</div>
+                @endif
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="row align-items-center mb-3">
     <div class="col-md-6">
@@ -247,7 +420,7 @@
             <button class="btn btn-outline-secondary" type="button" id="toggleDashboardAutoLayout" title="Ajuste inteligente" aria-pressed="true">
                 <i data-lucide="wand-sparkles" class="me-1"></i>Auto ajuste
             </button>
-            <button class="btn btn-outline-secondary" type="button" id="resetDashboardOrder" title="Restablecer orden">
+            <button class="btn btn-outline-secondary" type="button" id="resetDashboardOrder" title="Restablecer a distribución de fábrica">
                 <i data-lucide="rotate-ccw"></i>
             </button>
             <input type="month" name="month" class="form-control" style="max-width: 180px" value="{{ $summary['month_value'] }}">
@@ -287,9 +460,9 @@
 @endif
 
 <div class="row g-3 justify-content-center finance-dashboard-grid" id="financeDashboardGrid"
-     data-storage-key="finance-dashboard-order-{{ auth()->id() }}"
-     data-size-storage-key="finance-dashboard-sizes-{{ auth()->id() }}"
-     data-auto-layout-storage-key="finance-dashboard-auto-layout-{{ auth()->id() }}">
+     data-save-url="{{ route('finance.dashboard.layout') }}"
+     data-csrf="{{ csrf_token() }}"
+     data-server-layout='@json($dashboardLayout)'>
     <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="income-real">
         <div class="card">
             <div class="card-body d-flex align-items-center justify-content-between">
@@ -403,6 +576,95 @@
                 <h4 class="fw-bold mb-0 {{ $summary['san_juan_utility'] >= 0 ? 'text-success' : 'text-danger' }}">{{ $money($summary['san_juan_utility']) }}</h4>
             </div>
             <a href="{{ $dashboardDetailUrl('san-juan-profit') }}" class="stretched-link" aria-label="Ver detalle de utilidad San Juan"></a>
+        </div>
+    </div>
+
+    @if ($creditLine['has_limits'])
+        <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="credit-available">
+            <div class="card">
+                <div class="card-body d-flex align-items-center justify-content-between">
+                    <div>
+                        <p class="mb-2 card-title">Crédito disponible</p>
+                        <h4 class="fw-bold mb-0 text-info">{{ $money($creditLine['available']) }}</h4>
+                        <small class="text-muted">Usado {{ $money($creditLine['used']) }} de {{ $money($creditLine['limit']) }}</small>
+                    </div>
+                    <i data-lucide="credit-card" class="fs-32 text-info"></i>
+                </div>
+                <a href="{{ route('finance.credits.index') }}" class="stretched-link" aria-label="Ver créditos y tarjetas"></a>
+            </div>
+        </div>
+    @endif
+
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="pending-summary">
+        <div class="card">
+            <div class="card-body d-flex align-items-center justify-content-between">
+                <div>
+                    <p class="mb-2 card-title">Pendientes por resolver</p>
+                    <h4 class="fw-bold mb-0 {{ $pendingSummary['total'] > 0 ? 'text-warning' : 'text-success' }}">{{ number_format($pendingSummary['total']) }}</h4>
+                    <small class="text-muted">{{ $pendingSummary['total'] > 0 ? 'Cosas por revisar' : 'Todo al día' }}</small>
+                </div>
+                <i data-lucide="list-checks" class="fs-32 {{ $pendingSummary['total'] > 0 ? 'text-warning' : 'text-success' }}"></i>
+            </div>
+            <a href="{{ route('finance.pending.index') }}" class="stretched-link" aria-label="Ver pendientes por resolver"></a>
+        </div>
+    </div>
+
+    @php
+        $savingsRate = $summary['total_income'] > 0
+            ? round($summary['expected_leftover'] / $summary['total_income'] * 100, 1)
+            : null;
+        $savingsPositive = ($savingsRate ?? 0) >= 0;
+    @endphp
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="savings-rate">
+        <div class="card">
+            <div class="card-body">
+                <p class="mb-2 card-title">Tasa de ahorro del mes</p>
+                <h4 class="fw-bold mb-1 {{ $savingsPositive ? 'text-success' : 'text-danger' }}">{{ $savingsRate === null ? '—' : $savingsRate . '%' }}</h4>
+                <div class="progress mb-1" style="height: 6px;">
+                    <div class="progress-bar {{ $savingsPositive ? 'bg-success' : 'bg-danger' }}" role="progressbar"
+                         style="width: {{ max(0, min(100, $savingsRate ?? 0)) }}%"></div>
+                </div>
+                <small class="text-muted">De lo que entró, esto te queda</small>
+            </div>
+        </div>
+    </div>
+
+    @php
+        $cmpFormat = function (?float $change, bool $upIsGood) {
+            if ($change === null) {
+                return ['icon' => 'minus', 'class' => 'text-muted', 'text' => 'sin mes previo'];
+            }
+
+            $up = $change > 0;
+            $flat = abs($change) < 0.05;
+            $good = $flat ? true : ($up === $upIsGood);
+
+            return [
+                'icon' => $flat ? 'minus' : ($up ? 'arrow-up-right' : 'arrow-down-right'),
+                'class' => $flat ? 'text-muted' : ($good ? 'text-success' : 'text-danger'),
+                'text' => ($up ? '+' : '') . $change . '%',
+            ];
+        };
+        $incomeCmp = $cmpFormat($monthComparison['income_change'], true);
+        $expenseCmp = $cmpFormat($monthComparison['expenses_change'], false);
+    @endphp
+    <div class="col-xl-3 col-md-6 dashboard-widget" data-dashboard-widget="month-comparison">
+        <div class="card">
+            <div class="card-body">
+                <p class="mb-2 card-title">Vs {{ $monthComparison['previous_label'] }}</p>
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <span class="text-muted small">Ingresos</span>
+                    <span class="fw-semibold {{ $incomeCmp['class'] }}">
+                        <i data-lucide="{{ $incomeCmp['icon'] }}" class="fs-14"></i> {{ $incomeCmp['text'] }}
+                    </span>
+                </div>
+                <div class="d-flex justify-content-between align-items-center">
+                    <span class="text-muted small">Egresos</span>
+                    <span class="fw-semibold {{ $expenseCmp['class'] }}">
+                        <i data-lucide="{{ $expenseCmp['icon'] }}" class="fs-14"></i> {{ $expenseCmp['text'] }}
+                    </span>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1195,15 +1457,58 @@
             return;
         }
 
-        const storageKey = grid.dataset.storageKey || 'finance-dashboard-order';
-        const sizeStorageKey = grid.dataset.sizeStorageKey || 'finance-dashboard-sizes';
-        const autoLayoutStorageKey = grid.dataset.autoLayoutStorageKey || 'finance-dashboard-auto-layout';
+        const saveUrl = grid.dataset.saveUrl || '';
+        const csrfToken = grid.dataset.csrf || '';
         const resetButton = document.getElementById('resetDashboardOrder');
         const layoutButton = document.getElementById('toggleDashboardLayout');
         const autoLayoutButton = document.getElementById('toggleDashboardAutoLayout');
         let draggedWidget = null;
         let layoutEditing = false;
-        let smartLayoutEnabled = localStorage.getItem(autoLayoutStorageKey) !== '0';
+
+        // Distribución guardada en el servidor (orden, tamaños, ocultos,
+        // auto-ajuste). Es la fuente de verdad: te sigue en cualquier equipo y no
+        // se borra al limpiar el caché del navegador.
+        let layout = { order: [], sizes: {}, hidden: [], autoLayout: true };
+        try {
+            const parsed = JSON.parse(grid.dataset.serverLayout || 'null');
+            if (parsed && typeof parsed === 'object') {
+                layout.order = Array.isArray(parsed.order) ? parsed.order : [];
+                layout.sizes = (parsed.sizes && typeof parsed.sizes === 'object') ? parsed.sizes : {};
+                layout.hidden = Array.isArray(parsed.hidden) ? parsed.hidden : [];
+                layout.autoLayout = parsed.autoLayout !== false;
+            }
+        } catch (error) {
+            layout = { order: [], sizes: {}, hidden: [], autoLayout: true };
+        }
+
+        let persistTimer = null;
+        const persistLayout = (immediate) => {
+            if (!saveUrl) {
+                return;
+            }
+
+            clearTimeout(persistTimer);
+            const send = () => {
+                fetch(saveUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ layout: layout }),
+                }).catch(() => {});
+            };
+
+            if (immediate) {
+                send();
+            } else {
+                persistTimer = setTimeout(send, 400);
+            }
+        };
+
+        let smartLayoutEnabled = layout.autoLayout !== false;
         const sizeOptions = {
             4: { label: '4', classes: ['col-xl-3', 'col-md-6'] },
             3: { label: '3', classes: ['col-xl-4', 'col-md-6'] },
@@ -1240,23 +1545,117 @@
         };
 
         const saveOrder = () => {
-            localStorage.setItem(storageKey, JSON.stringify(widgets().map((widget) => widget.dataset.dashboardWidget)));
+            layout.order = widgets().map((widget) => widget.dataset.dashboardWidget);
+            persistLayout();
         };
 
-        const readSizes = () => {
-            try {
-                const sizes = JSON.parse(localStorage.getItem(sizeStorageKey) || '{}');
+        // --- Cuadros ocultos -------------------------------------------------
+        const readHidden = () => (Array.isArray(layout.hidden) ? layout.hidden : []);
 
-                return sizes && typeof sizes === 'object' ? sizes : {};
-            } catch (error) {
-                return {};
+        const saveHidden = (ids) => {
+            layout.hidden = ids;
+            persistLayout();
+        };
+
+        const isHidden = (widget) => widget.classList.contains('dashboard-widget-hidden');
+
+        const widgetLabel = (widget) => {
+            const title = widget.querySelector('.card-title');
+            const text = title ? title.textContent.trim() : '';
+
+            return text || widget.dataset.dashboardWidget;
+        };
+
+        // Bandeja con los cuadros ocultos (solo visible en modo Diseño).
+        const hiddenTray = document.createElement('div');
+        hiddenTray.id = 'dashboardHiddenTray';
+        hiddenTray.className = 'mb-3';
+        hiddenTray.style.display = 'none';
+        hiddenTray.innerHTML = '<div class="card border-secondary border-opacity-50 mb-0">'
+            + '<div class="card-body py-2">'
+            + '<div class="d-flex align-items-center flex-wrap gap-2">'
+            + '<span class="text-muted small"><i data-lucide="eye-off" class="fs-14 me-1"></i>Cuadros ocultos (toca para restaurar):</span>'
+            + '<span data-hidden-chips class="d-flex flex-wrap gap-2"></span>'
+            + '<button type="button" id="restoreAllHidden" class="btn btn-sm btn-outline-secondary ms-auto">Mostrar todos</button>'
+            + '</div></div></div>';
+        grid.parentNode.insertBefore(hiddenTray, grid);
+        const hiddenChips = hiddenTray.querySelector('[data-hidden-chips]');
+
+        const updateHiddenTray = () => {
+            const ids = readHidden();
+            hiddenChips.innerHTML = '';
+
+            ids.forEach((id) => {
+                const widget = grid.querySelector(`[data-dashboard-widget="${id}"]`);
+
+                if (!widget) {
+                    return;
+                }
+
+                const chip = document.createElement('button');
+                chip.type = 'button';
+                chip.className = 'btn btn-sm btn-outline-secondary';
+                chip.dataset.restore = id;
+                chip.innerHTML = '<i data-lucide="eye" class="fs-14 me-1"></i>' + widgetLabel(widget);
+                chip.addEventListener('click', () => restoreWidget(id));
+                hiddenChips.appendChild(chip);
+            });
+
+            hiddenTray.style.display = (layoutEditing && ids.length) ? '' : 'none';
+
+            if (window.lucide) {
+                window.lucide.createIcons();
             }
         };
 
+        const applyHidden = () => {
+            const ids = readHidden();
+
+            widgets().forEach((widget) => {
+                const hidden = ids.includes(widget.dataset.dashboardWidget);
+                widget.classList.toggle('dashboard-widget-hidden', hidden);
+                widget.classList.toggle('d-none', hidden);
+            });
+
+            updateHiddenTray();
+        };
+
+        const hideWidget = (widget) => {
+            const id = widget.dataset.dashboardWidget;
+            const ids = readHidden();
+
+            if (!ids.includes(id)) {
+                ids.push(id);
+                saveHidden(ids);
+            }
+
+            widget.classList.add('dashboard-widget-hidden', 'd-none');
+            applySmartLayout();
+            updateHiddenTray();
+        };
+
+        const restoreWidget = (id) => {
+            saveHidden(readHidden().filter((value) => value !== id));
+
+            const widget = grid.querySelector(`[data-dashboard-widget="${id}"]`);
+
+            if (widget) {
+                widget.classList.remove('dashboard-widget-hidden', 'd-none');
+            }
+
+            applySmartLayout();
+            updateHiddenTray();
+        };
+
+        hiddenTray.querySelector('#restoreAllHidden').addEventListener('click', () => {
+            readHidden().slice().forEach((id) => restoreWidget(id));
+        });
+
+        const readSizes = () => (layout.sizes && typeof layout.sizes === 'object' ? layout.sizes : {});
+
         const saveSize = (widget, size) => {
-            const sizes = readSizes();
-            sizes[widget.dataset.dashboardWidget] = Number(size);
-            localStorage.setItem(sizeStorageKey, JSON.stringify(sizes));
+            layout.sizes[widget.dataset.dashboardWidget] = Number(size);
+            persistLayout();
         };
 
         const defaultSizeFor = (widget) => {
@@ -1334,7 +1733,7 @@
             let row = [];
             let columns = 0;
 
-            widgets().forEach((widget) => {
+            widgets().filter((widget) => !isHidden(widget)).forEach((widget) => {
                 const widgetColumns = Math.min(12, Math.max(1, classColumnsFor(widget)));
 
                 if (row.length && columns + widgetColumns > 12) {
@@ -1381,13 +1780,7 @@
         };
 
         const restoreOrder = () => {
-            let order = [];
-
-            try {
-                order = JSON.parse(localStorage.getItem(storageKey) || '[]');
-            } catch (error) {
-                order = [];
-            }
+            const order = Array.isArray(layout.order) ? layout.order : [];
 
             order.forEach((id) => {
                 const widget = grid.querySelector(`[data-dashboard-widget="${id}"]`);
@@ -1400,7 +1793,7 @@
 
         const findInsertBefore = (clientX, clientY) => {
             return widgets()
-                .filter((widget) => widget !== draggedWidget)
+                .filter((widget) => widget !== draggedWidget && !isHidden(widget))
                 .find((widget) => {
                     const box = widget.getBoundingClientRect();
                     const isSameRow = clientY >= box.top && clientY <= box.bottom;
@@ -1412,6 +1805,7 @@
 
         restoreOrder();
         restoreSizes();
+        applyHidden();
         applySmartLayout();
         updateAutoLayoutButton();
 
@@ -1437,6 +1831,19 @@
             handle.addEventListener('touchstart', () => {
                 widget.setAttribute('draggable', 'true');
             }, { passive: true });
+
+            const hideButton = document.createElement('button');
+            hideButton.type = 'button';
+            hideButton.className = 'dashboard-widget-hide';
+            hideButton.title = 'Ocultar cuadro';
+            hideButton.setAttribute('aria-label', 'Ocultar cuadro');
+            hideButton.innerHTML = '<i data-lucide="eye-off" class="fs-16"></i>';
+            hideButton.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                hideWidget(widget);
+            });
+            card.appendChild(hideButton);
 
             const sizePanel = document.createElement('div');
             sizePanel.className = 'dashboard-widget-size-panel';
@@ -1522,13 +1929,15 @@
                 layoutButton.classList.toggle('btn-primary', layoutEditing);
                 layoutButton.classList.toggle('btn-outline-secondary', !layoutEditing);
                 layoutButton.setAttribute('aria-pressed', layoutEditing ? 'true' : 'false');
+                updateHiddenTray();
             });
         }
 
         if (autoLayoutButton) {
             autoLayoutButton.addEventListener('click', () => {
                 smartLayoutEnabled = !smartLayoutEnabled;
-                localStorage.setItem(autoLayoutStorageKey, smartLayoutEnabled ? '1' : '0');
+                layout.autoLayout = smartLayoutEnabled;
+                persistLayout();
                 applySmartLayout();
                 updateAutoLayoutButton();
             });
@@ -1536,12 +1945,80 @@
 
         if (resetButton) {
             resetButton.addEventListener('click', () => {
-                localStorage.removeItem(storageKey);
-                localStorage.removeItem(sizeStorageKey);
-                localStorage.removeItem(autoLayoutStorageKey);
-                window.location.reload();
+                if (!window.confirm('¿Restablecer el Resumen a su distribución de fábrica? Se perderá tu orden, tamaños y cuadros ocultos.')) {
+                    return;
+                }
+
+                // Restablecer = borrar la distribución guardada en el servidor.
+                if (saveUrl) {
+                    fetch(saveUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': csrfToken,
+                            'Accept': 'application/json',
+                        },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ layout: null }),
+                    }).finally(() => window.location.reload());
+                } else {
+                    window.location.reload();
+                }
             });
         }
+    });
+
+    // Animación count-up de los números del hero (mejora progresiva: si el JS no
+    // corre o el usuario pidió menos movimiento, se queda el valor ya renderizado).
+    document.addEventListener('DOMContentLoaded', function () {
+        const targets = document.querySelectorAll('[data-countup]');
+
+        if (!targets.length) {
+            return;
+        }
+
+        const numberFormat = (value, decimals) => value
+            .toFixed(decimals)
+            .replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+        const reduceMotion = window.matchMedia
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        targets.forEach((el) => {
+            const target = parseFloat(el.dataset.countup);
+
+            if (!isFinite(target)) {
+                return;
+            }
+
+            const decimals = parseInt(el.dataset.countupDecimals || '0', 10);
+            const prefix = el.dataset.countupPrefix || '';
+            const negative = target < 0;
+            const magnitude = Math.abs(target);
+
+            if (reduceMotion) {
+                return; // deja el valor ya impreso por el servidor
+            }
+
+            const duration = 850;
+            const start = performance.now();
+
+            const tick = (now) => {
+                const progress = Math.min(1, (now - start) / duration);
+                const eased = 1 - Math.pow(1 - progress, 3);
+                const current = magnitude * eased;
+                el.textContent = (negative ? '-' : '') + prefix + numberFormat(current, decimals);
+
+                if (progress < 1) {
+                    requestAnimationFrame(tick);
+                } else {
+                    el.textContent = (negative ? '-' : '') + prefix + numberFormat(magnitude, decimals);
+                }
+            };
+
+            el.textContent = (negative ? '-' : '') + prefix + numberFormat(0, decimals);
+            requestAnimationFrame(tick);
+        });
     });
 </script>
 @endsection

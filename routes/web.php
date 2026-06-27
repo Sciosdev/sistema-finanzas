@@ -49,6 +49,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
 
     Route::prefix('finanzas')->name('finance.')->group(function () {
         Route::get('', [FinanceDashboardController::class, 'index'])->name('dashboard');
+        Route::post('resumen/diseno', [FinanceDashboardController::class, 'saveLayout'])->name('dashboard.layout');
         Route::get('reportes', [FinanceReportController::class, 'index'])->name('reports.index');
         Route::get('reportes/exportar', [FinanceReportController::class, 'export'])->middleware('finance.owner')->name('reports.export');
         Route::get('importar-historico', [HistoricalImportController::class, 'index'])->name('imports.historical.index');
