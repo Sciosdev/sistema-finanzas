@@ -82,6 +82,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
 
         Route::get('cuentas', [AccountController::class, 'index'])->name('accounts.index');
         Route::post('cuentas', [AccountController::class, 'store'])->name('accounts.store');
+        Route::post('cuentas/colores-sugeridos', [AccountController::class, 'applySuggestedColors'])->name('accounts.apply-colors');
         Route::put('cuentas/{account}', [AccountController::class, 'update'])->name('accounts.update');
 
         Route::get('movimientos', [MovementController::class, 'index'])->name('movements.index');

@@ -8,6 +8,15 @@
         <h4 class="mb-0 fw-semibold">Cuentas financieras</h4>
         <p class="text-muted mb-0">Administra efectivo, bancos, tarjetas, créditos y billeteras sin perder historial.</p>
     </div>
+    <div class="col-md-4 text-md-end mt-2 mt-md-0">
+        <form method="POST" action="{{ route('finance.accounts.apply-colors') }}" class="d-inline"
+              onsubmit="return confirm('Se asignarán colores distintos a tus cuentas (marcas conocidas y colores únicos para el resto). Podrás ajustar cualquiera. ¿Continuar?');">
+            @csrf
+            <button type="submit" class="btn btn-outline-primary">
+                <i data-lucide="palette" class="me-1"></i>Aplicar colores sugeridos
+            </button>
+        </form>
+    </div>
 </div>
 
 <div class="card">
