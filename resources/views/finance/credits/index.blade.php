@@ -108,7 +108,7 @@
         <div class="card-header d-flex flex-column flex-lg-row justify-content-between gap-2">
             <div>
                 <h4 class="card-title mb-1">A quién se le debe</h4>
-                <p class="text-muted mb-0">Presiona una caja para ver los créditos agrupados por acreedor/tarjeta.</p>
+                <p class="text-muted mb-0">Presiona una caja para filtrar la lista y desplazarte a los créditos de ese acreedor/tarjeta.</p>
             </div>
             <span class="badge badge-soft-primary align-self-lg-center">Saldo pendiente real {{ $money($summary['pending'] ?? 0) }}</span>
         </div>
@@ -117,17 +117,13 @@
                 @foreach ($creditorSummaries as $creditor)
                     @php
                         $style = $creditor['style'];
-                        $collapseId = 'creditor-list-' . $creditor['key'];
                     @endphp
                     <div class="col-xl-3 col-lg-4 col-md-6">
                         <button
                             type="button"
                             class="w-100 text-start border-0 rounded-2 p-3 h-100"
-                            style="background: {{ $style['soft'] }}; border-left: 4px solid {{ $style['color'] }} !important;"
-                            data-bs-toggle="collapse"
-                            data-bs-target="#{{ $collapseId }}"
-                            aria-expanded="false"
-                            aria-controls="{{ $collapseId }}"
+                            style="background: {{ $style['soft'] }}; border-left: 4px solid {{ $style['color'] }} !important; cursor: pointer;"
+                            title="Filtrar la lista por {{ $creditor['name'] }}"
                             data-credit-filter="creditor"
                             data-creditor-key="{{ $creditor['key'] }}"
                         >
@@ -154,56 +150,6 @@
                                 </div>
                             </div>
                         </button>
-                        <div class="collapse mt-2" id="{{ $collapseId }}">
-                            <div class="border rounded-2 p-2" style="border-color: {{ $style['color'] }}55 !important;">
-                                <div class="small fw-semibold mb-2" style="color: {{ $style['text'] }};">
-                                    Se le deben estos créditos a {{ $creditor['name'] }}
-                                </div>
-                                <div class="table-responsive">
-                                    <table class="table table-sm mb-0 align-middle">
-                                        <thead>
-                                            <tr>
-                                                <th>Crédito</th>
-                                                <th class="text-end">Este mes</th>
-                                                <th class="text-end">Pagado mes</th>
-                                                <th class="text-end">Siguiente</th>
-                                                <th class="text-end">Saldo total</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            @foreach ($creditor['credits'] as $creditItem)
-                                                <tr>
-                                                    <td>
-                                                        <a href="#credit-{{ $creditItem['id'] }}" class="fw-semibold" style="color: {{ $style['text'] }};">
-                                                            {{ $creditItem['name'] }}
-                                                        </a>
-                                                        <div class="text-muted small">
-                                                            {{ \App\Support\FinanceLabels::creditStatus($creditItem['status']) }}
-                                                            @if ($creditItem['notes'])
-                                                                | {{ $creditItem['notes'] }}
-                                                            @endif
-                                                        </div>
-                                                    </td>
-                                                    <td class="text-end text-warning">
-                                                        {{ $money($creditItem['current_due']) }}
-                                                    </td>
-                                                    <td class="text-end text-success">
-                                                        {{ $money($creditItem['paid_this_month']) }}
-                                                    </td>
-                                                    <td class="text-end text-warning">
-                                                        {{ $money($creditItem['next_due']) }}
-                                                    </td>
-                                                    <td class="text-end">
-                                                        <span class="text-warning">{{ $money($creditItem['pending']) }}</span>
-                                                        <div class="text-muted small">de {{ $money($creditItem['total']) }}</div>
-                                                    </td>
-                                                </tr>
-                                            @endforeach
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 @endforeach
             </div>
