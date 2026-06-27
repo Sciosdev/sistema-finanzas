@@ -3,6 +3,7 @@
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Finance\AccountController;
 use App\Http\Controllers\Finance\CategoryController;
+use App\Http\Controllers\Finance\FinanceBuildDeployController;
 use App\Http\Controllers\Finance\CreditPurchaseController;
 use App\Http\Controllers\Finance\DailyCutController;
 use App\Http\Controllers\Finance\ExpectedIncomeController;
@@ -78,6 +79,9 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
             Route::post('seguridad/mantenimiento/limpiar-cache', [FinanceMaintenanceController::class, 'clearOptimizationCache'])->name('maintenance.clear-cache');
             Route::post('seguridad/restaurar', [FinanceRestoreController::class, 'restoreFromBackup'])->name('security.restore.backup');
             Route::post('seguridad/restaurar-subir', [FinanceRestoreController::class, 'restoreFromUpload'])->name('security.restore.upload');
+            Route::post('seguridad/build/subir', [FinanceBuildDeployController::class, 'uploadBuild'])->name('build.upload');
+            Route::post('seguridad/build/rollback', [FinanceBuildDeployController::class, 'rollbackBuild'])->name('build.rollback');
+            Route::post('seguridad/build/limpiar', [FinanceBuildDeployController::class, 'cleanupBuildBackups'])->name('build.cleanup');
         });
 
         Route::get('cuentas', [AccountController::class, 'index'])->name('accounts.index');

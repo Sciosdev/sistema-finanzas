@@ -215,6 +215,110 @@
     </div>
 </div>
 
+<div class="card border-info border-opacity-50">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <h4 class="card-title mb-0"><i data-lucide="upload-cloud" class="me-1"></i>Actualizar assets / public build</h4>
+        <div class="d-flex flex-wrap gap-2">
+            <span class="badge {{ ($buildDeploy['zip_supported'] ?? false) ? 'badge-soft-success' : 'badge-soft-danger' }}">
+                ZipArchive: {{ ($buildDeploy['zip_supported'] ?? false) ? 'disponible' : 'no disponible' }}
+            </span>
+            <span class="badge {{ ($buildDeploy['exists'] ?? false) ? 'badge-soft-success' : 'badge-soft-warning' }}">
+                public/build: {{ ($buildDeploy['exists'] ?? false) ? 'montado' : 'sin manifest' }}
+            </span>
+            @if ($buildDeploy['exists'] ?? false)
+                <span class="badge badge-soft-secondary">manifest: {{ $dateTime($buildDeploy['manifest_updated_at'] ?? null) }}</span>
+                <span class="badge badge-soft-secondary">tamaño: {{ $bytes($buildDeploy['size'] ?? 0) }}</span>
+            @endif
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-info mb-3">
+            <i data-lucide="info" class="me-1"></i>
+            <strong>Este proceso no toca la base de datos.</strong> Solo reemplaza <code>public/build</code> con el ZIP que generaste localmente con <code>npm run build</code>. No compila en el servidor ni ejecuta npm. Tras montar, limpia la caché con <code>optimize:clear</code>.
+        </div>
+
+        @unless ($buildDeploy['zip_supported'] ?? false)
+            <div class="alert alert-danger">
+                <i data-lucide="alert-triangle" class="me-1"></i>
+                <strong>ZipArchive no está disponible</strong> en este servidor (extensión PHP <code>zip</code>). No se puede montar el build desde aquí hasta habilitarla.
+            </div>
+        @endunless
+
+        <form method="POST" action="{{ route('finance.build.upload') }}" enctype="multipart/form-data"
+              class="border rounded p-3 mb-3"
+              onsubmit="return confirm('Se respaldará el build actual y se montará el nuevo public/build. ¿Continuar?');">
+            @csrf
+            <h6 class="mb-2">Subir y montar build</h6>
+            <div class="row g-2 align-items-end">
+                <div class="col-lg-6">
+                    <label class="form-label">Archivo build.zip (generado con npm run build)</label>
+                    <input type="file" name="build" accept=".zip" class="form-control" required @disabled(! ($buildDeploy['zip_supported'] ?? false))>
+                    <div class="form-text">Acepta el ZIP con <code>manifest.json</code> en la raíz o dentro de <code>build/</code>.</div>
+                </div>
+                <div class="col-lg-6">
+                    <div class="form-check mb-2">
+                        <input class="form-check-input" type="checkbox" value="1" name="confirm_build" id="confirm_build" required>
+                        <label class="form-check-label" for="confirm_build">
+                            Confirmo que este ZIP viene de <code>npm run build</code> local y contiene <code>manifest.json</code>
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-info" @disabled(! ($buildDeploy['zip_supported'] ?? false))>
+                        <i data-lucide="upload" class="me-1"></i>Subir y montar build
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <div class="d-flex flex-wrap align-items-end justify-content-between gap-2 mb-2">
+            <h6 class="mb-0">Respaldos del build</h6>
+            @if (! empty($buildDeploy['backups'] ?? []))
+                <span class="text-muted small">
+                    Último respaldo: <code>{{ $buildDeploy['backups'][0]['name'] }}</code>
+                    ({{ $bytes($buildDeploy['backups'][0]['size'] ?? 0) }}, {{ $dateTime($buildDeploy['backups'][0]['created_at'] ?? null) }})
+                </span>
+            @endif
+        </div>
+
+        @if (empty($buildDeploy['backups'] ?? []))
+            <p class="text-muted small mb-0">Aún no hay respaldos de build. Se crea uno automáticamente al montar un build nuevo.</p>
+        @else
+            <div class="row g-2 align-items-end">
+                <div class="col-lg-6">
+                    <form method="POST" action="{{ route('finance.build.rollback') }}" class="row g-2 align-items-end"
+                          onsubmit="return confirm('Se restaurará el build seleccionado como public/build. ¿Continuar?');">
+                        @csrf
+                        <div class="col-8">
+                            <label class="form-label">Restaurar build anterior</label>
+                            <select name="backup" class="form-select">
+                                @foreach ($buildDeploy['backups'] as $index => $backup)
+                                    <option value="{{ $backup['name'] }}">
+                                        {{ $backup['name'] }} — {{ $bytes($backup['size'] ?? 0) }}{{ $index === 0 ? ' (más reciente)' : '' }}
+                                    </option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="col-4 d-grid">
+                            <button type="submit" class="btn btn-outline-warning">
+                                <i data-lucide="history" class="me-1"></i>Rollback
+                            </button>
+                        </div>
+                    </form>
+                </div>
+                <div class="col-lg-6 d-grid">
+                    <form method="POST" action="{{ route('finance.build.cleanup') }}"
+                          onsubmit="return confirm('Se borrarán los respaldos antiguos dejando solo el más reciente. ¿Continuar?');">
+                        @csrf
+                        <label class="form-label">Limpieza</label>
+                        <button type="submit" class="btn btn-outline-secondary">
+                            <i data-lucide="trash-2" class="me-1"></i>Limpiar respaldos antiguos de build
+                        </button>
+                    </form>
+                </div>
+            </div>
+        @endif
+    </div>
+</div>
+
 <div class="card border-danger">
     <div class="card-header">
         <h4 class="card-title mb-0 text-danger"><i data-lucide="alert-triangle" class="me-1"></i>Restaurar (reemplaza TODA la base)</h4>
