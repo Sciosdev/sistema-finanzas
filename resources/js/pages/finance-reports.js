@@ -279,4 +279,8 @@ document.addEventListener('DOMContentLoaded', () => {
   renderHorizontalBar('reports-top-expenses-bar', data.topExpenses);
   renderCoverage(data.coverage || {});
   renderYearPerspective(data.yearPerspective || {});
+  renderDonut('reports-credit-by-card-donut', data.creditByCard);
+  renderDonut('reports-credit-progress-donut', data.creditProgress);
+  renderHorizontalBar('reports-credit-available-bar', data.creditAvailable);
+  renderHorizontalBar('reports-credit-upcoming-bar', data.creditUpcoming);
 });

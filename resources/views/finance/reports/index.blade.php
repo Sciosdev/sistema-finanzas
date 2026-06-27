@@ -154,6 +154,33 @@
 
 <div class="card">
     <div class="card-header">
+        <h4 class="card-title mb-0">Créditos y tarjetas</h4>
+        <p class="text-muted mb-0 small">Deuda por tarjeta, avance pagado, crédito disponible y pagos por mes.</p>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-xl-3 col-md-6">
+                <div class="text-muted small mb-1 text-center">Deuda por tarjeta</div>
+                <div id="reports-credit-by-card-donut" class="apex-charts" style="min-height: 260px;"></div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="text-muted small mb-1 text-center">Avance de créditos</div>
+                <div id="reports-credit-progress-donut" class="apex-charts" style="min-height: 260px;"></div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="text-muted small mb-1 text-center">Crédito disponible por tarjeta</div>
+                <div id="reports-credit-available-bar" class="apex-charts" style="min-height: 260px;"></div>
+            </div>
+            <div class="col-xl-3 col-md-6">
+                <div class="text-muted small mb-1 text-center">Pagos de crédito por mes</div>
+                <div id="reports-credit-upcoming-bar" class="apex-charts" style="min-height: 260px;"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
         <h4 class="card-title mb-0">Dónde bajarle al gasto</h4>
     </div>
     <div class="card-body">
@@ -539,6 +566,10 @@
                     'reports-top-expenses-bar',
                     'reports-coverage-bar',
                     'reports-year-perspective-column',
+                    'reports-credit-by-card-donut',
+                    'reports-credit-progress-donut',
+                    'reports-credit-available-bar',
+                    'reports-credit-upcoming-bar',
                 ];
 
                 function money(value) {
@@ -818,6 +849,10 @@
                     renderHorizontalBar('reports-top-expenses-bar', data.topExpenses);
                     renderCoverage(data.coverage || {});
                     renderYearPerspective(data.yearPerspective || {});
+                    renderDonut('reports-credit-by-card-donut', data.creditByCard);
+                    renderDonut('reports-credit-progress-donut', data.creditProgress);
+                    renderHorizontalBar('reports-credit-available-bar', data.creditAvailable);
+                    renderHorizontalBar('reports-credit-upcoming-bar', data.creditUpcoming);
                 }
 
                 function loadApexCharts(callback) {

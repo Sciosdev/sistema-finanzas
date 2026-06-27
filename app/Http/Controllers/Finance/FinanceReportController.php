@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
 use App\Models\Finance\Category;
+use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\ExpectedIncome;
 use App\Models\Finance\Movement;
 use App\Models\Finance\RentalContract;
+use App\Services\Finance\CreditFreePaymentService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceCsvExportService;
 use App\Services\Finance\FinanceSummaryService;
@@ -23,6 +25,7 @@ class FinanceReportController extends Controller
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceCsvExportService $csvExports,
+        private readonly CreditFreePaymentService $freePayments,
     ) {
     }
 
@@ -234,6 +237,91 @@ class FinanceReportController extends Controller
                 'pending' => $obligationPendingClean,
                 'overdue' => (float) $obligationTotals['overdue'],
                 'skipped' => (float) $obligationTotals['skipped'],
+            ],
+        ] + $this->creditChartData($user, $monthStart);
+    }
+
+    /**
+     * Gráficas de créditos: deuda por tarjeta, avance pagado, disponible por
+     * tarjeta y pagos por mes. Reutiliza los renderers donut/barra existentes.
+     *
+     * @return array<string, mixed>
+     */
+    private function creditChartData(User $user, Carbon $monthStart): array
+    {
+        $credits = CreditPurchase::with(['account', 'installments'])
+            ->where('user_id', $user->id)
+            ->get();
+
+        $byCard = [];
+        $totalPaid = 0.0;
+        $totalPending = 0.0;
+
+        foreach ($credits as $credit) {
+            $totals = $this->freePayments->totals($credit);
+            $paid = (float) ($totals['total_paid'] ?? 0);
+            $pending = (float) ($totals['balance_due'] ?? 0);
+            $totalPaid += $paid;
+            $totalPending += $pending;
+
+            $card = $credit->account?->name ?? 'Sin acreedor';
+            if (! isset($byCard[$card])) {
+                $byCard[$card] = [
+                    'name' => $card,
+                    'pending' => 0.0,
+                    'color' => $this->safeColor($credit->account?->color),
+                    'limit' => ($credit->account && $credit->account->credit_limit !== null)
+                        ? (float) $credit->account->credit_limit
+                        : null,
+                ];
+            }
+            $byCard[$card]['pending'] += $pending;
+        }
+
+        $byCard = collect($byCard)->values();
+
+        $monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+        $pendingInstallments = $credits
+            ->flatMap(fn (CreditPurchase $credit) => $credit->installments)
+            ->filter(fn ($installment) => in_array($installment->status, ['pending', 'overdue'], true));
+
+        $upcomingRows = collect();
+        for ($offset = 0; $offset < 6; $offset++) {
+            $month = $monthStart->copy()->startOfMonth()->addMonths($offset);
+            $sum = round($pendingInstallments
+                ->filter(fn ($installment) => $installment->period_month && $installment->period_month->isSameMonth($month))
+                ->sum(fn ($installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2);
+
+            $upcomingRows->push([
+                'name' => $monthNames[$month->month - 1] . ' ' . $month->format('y'),
+                'amount' => $sum,
+                'color' => '#8b5cf6',
+            ]);
+        }
+
+        return [
+            'creditByCard' => [
+                'title' => 'Deuda por tarjeta',
+                'rows' => $byCard->filter(fn (array $card) => $card['pending'] > 0)
+                    ->map(fn (array $card) => ['name' => $card['name'], 'amount' => round($card['pending'], 2), 'color' => $card['color']])
+                    ->values(),
+            ],
+            'creditProgress' => [
+                'title' => 'Avance de créditos',
+                'rows' => collect([
+                    ['name' => 'Pagado', 'amount' => round($totalPaid, 2), 'color' => '#22c55e'],
+                    ['name' => 'Pendiente', 'amount' => round($totalPending, 2), 'color' => '#f59e0b'],
+                ])->filter(fn (array $row) => $row['amount'] > 0)->values(),
+            ],
+            'creditAvailable' => [
+                'title' => 'Disponible por tarjeta',
+                'rows' => $byCard->filter(fn (array $card) => ! is_null($card['limit']))
+                    ->map(fn (array $card) => ['name' => $card['name'], 'amount' => round(max(0, $card['limit'] - $card['pending']), 2), 'color' => '#22c55e'])
+                    ->values(),
+            ],
+            'creditUpcoming' => [
+                'title' => 'Pagos de crédito por mes',
+                'rows' => $upcomingRows->filter(fn (array $row) => $row['amount'] > 0)->values(),
             ],
         ];
     }
