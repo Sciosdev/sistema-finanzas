@@ -50,8 +50,16 @@
 </div>
 
 <div class="card">
-    <div class="card-header">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
         <h4 class="card-title mb-0">Sugerencias</h4>
+        @if (($ignoredCount ?? 0) > 0)
+            <form method="POST" action="{{ route('finance.monthly-review.restore-ignored', ['month' => $selectedMonth->format('Y-m')]) }}">
+                @csrf
+                <button type="submit" class="btn btn-sm btn-outline-secondary">
+                    <i data-lucide="rotate-ccw" class="me-1"></i>Restaurar ignoradas ({{ $ignoredCount }})
+                </button>
+            </form>
+        @endif
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">

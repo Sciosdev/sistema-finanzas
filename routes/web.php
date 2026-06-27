@@ -55,6 +55,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::get('revision-mensual', [MonthlyReviewController::class, 'index'])->name('monthly-review.index');
         Route::post('revision-mensual/{key}/aplicar', [MonthlyReviewController::class, 'apply'])->name('monthly-review.apply');
         Route::post('revision-mensual/{key}/ignorar', [MonthlyReviewController::class, 'ignore'])->name('monthly-review.ignore');
+        Route::post('revision-mensual/restaurar-ignoradas', [MonthlyReviewController::class, 'restoreIgnored'])->name('monthly-review.restore-ignored');
         Route::get('operacion', [FinanceOperationController::class, 'index'])->name('operations.index');
         Route::get('pendientes', [FinancePendingController::class, 'index'])->name('pending.index');
         Route::middleware('finance.owner')->group(function () {
