@@ -41,13 +41,70 @@ class FinanceMaintenanceService
             $statusOutput = 'No se pudo obtener el estado de migraciones: ' . $exception->getMessage();
         }
 
+        $pending = $this->pendingMigrations();
+
         return [
             'app_env' => (string) app()->environment(),
             'db_connection' => (string) config('database.default'),
             'migrations_table_exists' => $migrationsTableExists,
             'status_output' => $statusOutput !== '' ? $statusOutput : 'Sin información de migraciones.',
-            'has_pending' => str_contains(mb_strtolower($statusOutput), 'pending'),
+            'pending' => $pending,
+            'pending_count' => count($pending),
+            'has_pending' => count($pending) > 0,
+            'has_destructive_pending' => (bool) collect($pending)->contains(fn (array $migration) => $migration['destructive']),
         ];
+    }
+
+    /**
+     * Lista las migraciones pendientes (archivos que aún no están registrados en
+     * la tabla migrations), marcando las que parecen poder borrar datos.
+     *
+     * @return array<int, array{name: string, destructive: bool}>
+     */
+    private function pendingMigrations(): array
+    {
+        try {
+            /** @var \Illuminate\Database\Migrations\Migrator $migrator */
+            $migrator = app('migrator');
+            $paths = array_unique(array_merge([database_path('migrations')], $migrator->paths()));
+            $files = $migrator->getMigrationFiles($paths);
+
+            $repository = $migrator->getRepository();
+            $ran = $repository->repositoryExists() ? $repository->getRan() : [];
+
+            $pending = [];
+            foreach ($files as $name => $path) {
+                if (in_array($name, $ran, true)) {
+                    continue;
+                }
+
+                $pending[] = [
+                    'name' => (string) $name,
+                    'destructive' => $this->isDestructiveMigrationContent((string) @file_get_contents($path)),
+                ];
+            }
+
+            return $pending;
+        } catch (Throwable) {
+            return [];
+        }
+    }
+
+    /**
+     * Heurística: detecta operaciones que podrían borrar datos en una migración
+     * (eliminar tablas/columnas, truncar o borrar registros). Solo es un aviso.
+     */
+    public function isDestructiveMigrationContent(string $contents): bool
+    {
+        $lower = mb_strtolower($contents);
+
+        foreach (['dropifexists', 'dropcolumn', 'schema::drop', 'droptable', 'drop table', 'truncate', 'delete from', 'wipe'] as $needle) {
+            if (str_contains($lower, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**

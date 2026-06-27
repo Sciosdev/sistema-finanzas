@@ -128,8 +128,11 @@
             <span class="badge {{ ($maintenance['migrations_table_exists'] ?? false) ? 'badge-soft-success' : 'badge-soft-danger' }}">
                 Tabla migrations: {{ ($maintenance['migrations_table_exists'] ?? false) ? 'sí' : 'no' }}
             </span>
-            @if ($maintenance['has_pending'] ?? false)
-                <span class="badge badge-soft-warning">Hay migraciones pendientes</span>
+            @if (($maintenance['pending_count'] ?? 0) > 0)
+                <span class="badge badge-soft-warning">{{ $maintenance['pending_count'] }} migración(es) pendiente(s)</span>
+                @if ($maintenance['has_destructive_pending'] ?? false)
+                    <span class="badge badge-soft-danger">posible pérdida de datos</span>
+                @endif
             @else
                 <span class="badge badge-soft-success">Sin migraciones pendientes</span>
             @endif
@@ -139,6 +142,28 @@
         <div class="alert alert-info">
             <strong>Backup automático antes de migrar.</strong> Al ejecutar migraciones, el sistema crea primero un <em>Paquete de migración</em> (zip) de respaldo; si ese backup falla, <strong>no</strong> migra. Aun así, te recomendamos tener también un backup descargado a tu equipo.
         </div>
+
+        @if (($maintenance['pending_count'] ?? 0) > 0)
+            <div class="alert alert-warning">
+                <strong>Hay {{ $maintenance['pending_count'] }} migración(es) pendiente(s).</strong> Revísalas y ejecútalas con el botón de abajo (se crea un backup automático antes).
+                <ul class="mb-0 mt-2">
+                    @foreach ($maintenance['pending'] as $pendingMigration)
+                        <li>
+                            <code>{{ $pendingMigration['name'] }}</code>
+                            @if ($pendingMigration['destructive'])
+                                <span class="badge badge-soft-danger ms-1">posible pérdida de datos</span>
+                            @endif
+                        </li>
+                    @endforeach
+                </ul>
+            </div>
+            @if ($maintenance['has_destructive_pending'] ?? false)
+                <div class="alert alert-danger">
+                    <i data-lucide="alert-triangle" class="me-1"></i>
+                    <strong>Aviso:</strong> una o más migraciones pendientes contienen operaciones que <strong>podrían borrar datos</strong> (eliminar tablas/columnas, TRUNCATE o DELETE). Se hará un backup automático antes, pero revisa bien antes de ejecutar.
+                </div>
+            @endif
+        @endif
 
         <h6 class="mb-2">Estado de migraciones (migrate:status)</h6>
         <pre class="bg-body-tertiary p-3 rounded small mb-3" style="max-height: 260px; overflow:auto;">{{ $maintenance['status_output'] ?? 'Sin información.' }}</pre>

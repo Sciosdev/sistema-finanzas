@@ -2,10 +2,30 @@
 
 use App\Models\User;
 use App\Services\Finance\FinanceBackupService;
+use App\Services\Finance\FinanceMaintenanceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 
 uses(RefreshDatabase::class);
+
+it('flags destructive migration content and ignores safe content', function () {
+    $service = app(FinanceMaintenanceService::class);
+
+    expect($service->isDestructiveMigrationContent('Schema::dropIfExists("finance_movements");'))->toBeTrue()
+        ->and($service->isDestructiveMigrationContent('$table->dropColumn("color");'))->toBeTrue()
+        ->and($service->isDestructiveMigrationContent('DB::statement("TRUNCATE TABLE x");'))->toBeTrue()
+        ->and($service->isDestructiveMigrationContent('$table->string("name");'))->toBeFalse()
+        ->and($service->isDestructiveMigrationContent('$table->decimal("amount", 12, 2)->nullable();'))->toBeFalse();
+});
+
+it('reports zero pending migrations when the database is up to date', function () {
+    $status = app(FinanceMaintenanceService::class)->status();
+
+    expect($status['pending_count'])->toBe(0)
+        ->and($status['has_pending'])->toBeFalse()
+        ->and($status['has_destructive_pending'])->toBeFalse()
+        ->and($status['pending'])->toBe([]);
+});
 
 afterEach(function () {
     config()->set('finance.owner_email', null);
