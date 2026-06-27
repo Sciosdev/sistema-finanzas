@@ -117,12 +117,11 @@ class FinanceMonthlyReviewService
     {
         return $movements
             ->whereNull('category_id')
+            ->filter(fn (Movement $movement) => $this->bestCategoryFor($movement, $categories) !== null)
             ->mapToGroups(function (Movement $movement) use ($categories) {
                 $category = $this->bestCategoryFor($movement, $categories);
 
-                return $category
-                    ? [$category->id => $movement]
-                    : [];
+                return [$category->id => $movement];
             })
             ->map(function (Collection $group, int|string $categoryId) use ($categories) {
                 $categoryId = (int) $categoryId;
@@ -152,12 +151,11 @@ class FinanceMonthlyReviewService
     {
         return $movements
             ->whereNull('person_id')
+            ->filter(fn (Movement $movement) => $this->bestPersonFor($movement, $people) !== null)
             ->mapToGroups(function (Movement $movement) use ($people) {
                 $person = $this->bestPersonFor($movement, $people);
 
-                return $person
-                    ? [$person->id => $movement]
-                    : [];
+                return [$person->id => $movement];
             })
             ->map(function (Collection $group, int|string $personId) use ($people) {
                 $personId = (int) $personId;
