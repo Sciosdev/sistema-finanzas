@@ -10,7 +10,7 @@
                 <label class="form-label">{{ $account->name }}</label>
                 <div class="input-group">
                     <span class="input-group-text">$</span>
-                    <input type="number" name="balances[{{ $account->id }}]" class="form-control" step="0.01" min="0" value="{{ old('balances.' . $account->id, 0) }}">
+                    <input type="number" name="balances[{{ $account->id }}]" class="form-control" step="0.01" min="0" value="{{ old('balances.' . $account->id, 0) }}" onfocus="this.select()" onmouseup="return false;">
                 </div>
             </div>
         @endforeach
