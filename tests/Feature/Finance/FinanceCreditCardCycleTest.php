@@ -84,6 +84,67 @@ it('auto sets the credit due date from the card cycle when creating a credit', f
         ->and($installment->due_date->toDateString())->toBe('2026-07-15');
 });
 
+it('derives the due date from the cycle even when the form omits first month and day', function () {
+    $user = cycleUser();
+    $nu = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $nu->update(['statement_day' => 31, 'payment_day' => 15]);
+
+    // El formulario con tarjeta de ciclo ya no envía first_due_month ni due_day.
+    $this->actingAs($user)
+        ->post(route('finance.credits.store'), [
+            'purchase_date' => '2026-06-27',
+            'name' => 'Compra sin fechas',
+            'amount_mode' => 'total',
+            'total_amount' => 100,
+            'months' => 1,
+            'account_id' => $nu->id,
+        ])
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
+
+    $credit = CreditPurchase::where('user_id', $user->id)->where('name', 'Compra sin fechas')->firstOrFail();
+    $installment = $credit->installments()->orderBy('installment_number')->firstOrFail();
+
+    expect($credit->first_due_month->format('Y-m'))->toBe('2026-07')
+        ->and((int) $credit->due_day)->toBe(15)
+        ->and($installment->due_date->toDateString())->toBe('2026-07-15');
+});
+
+it('falls back to the purchase month when no cycle and no first month is sent', function () {
+    $user = cycleUser();
+    $nu = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+
+    $this->actingAs($user)
+        ->post(route('finance.credits.store'), [
+            'purchase_date' => '2026-06-27',
+            'name' => 'Compra sin ciclo ni mes',
+            'amount_mode' => 'total',
+            'total_amount' => 100,
+            'months' => 1,
+            'account_id' => $nu->id,
+        ])
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
+
+    $credit = CreditPurchase::where('user_id', $user->id)->where('name', 'Compra sin ciclo ni mes')->firstOrFail();
+
+    expect($credit->first_due_month->format('Y-m'))->toBe('2026-06');
+});
+
+it('shows the cycle data attributes on the credit form account select', function () {
+    $user = cycleUser();
+    $nu = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $nu->update(['statement_day' => 10, 'payment_day' => 27]);
+
+    $this->actingAs($user)
+        ->get(route('finance.credits.index'))
+        ->assertOk()
+        ->assertSee('data-credit-account', false)
+        ->assertSee('data-has-cycle="1"', false)
+        ->assertSee('data-statement-day="10"', false)
+        ->assertSee('data-payment-day="27"', false);
+});
+
 it('keeps the manual due date when the card has no cycle', function () {
     $user = cycleUser();
     $nu = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();

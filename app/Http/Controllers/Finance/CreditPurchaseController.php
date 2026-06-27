@@ -424,11 +424,9 @@ class CreditPurchaseController extends Controller
      */
     private function applyCardCycle($user, array $data): array
     {
-        if (empty($data['account_id'])) {
-            return $data;
-        }
-
-        $account = Account::where('user_id', $user->id)->find($data['account_id']);
+        $account = ! empty($data['account_id'])
+            ? Account::where('user_id', $user->id)->find($data['account_id'])
+            : null;
 
         if ($account && $account->hasCreditCycle()) {
             $due = $account->firstDueDateFor(Carbon::parse($data['purchase_date']));
@@ -437,6 +435,13 @@ class CreditPurchaseController extends Controller
                 $data['first_due_month'] = $due->format('Y-m');
                 $data['due_day'] = $due->day;
             }
+        }
+
+        // Si la tarjeta tiene ciclo, el primer mes y el día de pago se calculan
+        // arriba y el formulario ni siquiera los pide. Si no se capturó primer
+        // mes (campo omitido), usa el mes de la compra como respaldo seguro.
+        if (empty($data['first_due_month'])) {
+            $data['first_due_month'] = Carbon::parse($data['purchase_date'])->format('Y-m');
         }
 
         return $data;
@@ -451,7 +456,7 @@ class CreditPurchaseController extends Controller
             'total_amount' => ['nullable', 'numeric', 'min:0.01'],
             'monthly_amount' => ['nullable', 'numeric', 'min:0.01'],
             'months' => ['required', 'integer', 'min:1', 'max:60'],
-            'first_due_month' => ['required', 'date_format:Y-m'],
+            'first_due_month' => ['nullable', 'date_format:Y-m'],
             'due_day' => ['nullable', 'integer', 'min:1', 'max:31'],
             'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'category_id' => ['nullable', 'integer', Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],

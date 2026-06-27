@@ -242,22 +242,29 @@
                     <label class="form-label">Meses</label>
                     <input type="number" name="months" class="form-control" min="1" max="60" value="{{ old('months', 1) }}" required>
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-2 js-cycle-field">
                     <label class="form-label">Primer mes</label>
-                    <input type="month" name="first_due_month" class="form-control" value="{{ old('first_due_month', now()->format('Y-m')) }}" required>
+                    <input type="month" name="first_due_month" class="form-control" value="{{ old('first_due_month', now()->format('Y-m')) }}">
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-2 js-cycle-field">
                     <label class="form-label">Día pago</label>
                     <input type="number" name="due_day" class="form-control" min="1" max="31" value="{{ old('due_day') }}">
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Cuenta</label>
-                    <select name="account_id" class="form-select">
+                    <select name="account_id" class="form-select" data-credit-account>
                         <option value="">-</option>
                         @foreach ($accounts as $account)
-                            <option value="{{ $account->id }}" @selected((string) old('account_id') === (string) $account->id)>{{ $account->name }}</option>
+                            <option value="{{ $account->id }}"
+                                @if ($account->hasCreditCycle()) data-has-cycle="1" data-statement-day="{{ (int) $account->statement_day }}" data-payment-day="{{ (int) $account->payment_day }}" @endif
+                                @selected((string) old('account_id') === (string) $account->id)>{{ $account->name }}</option>
                         @endforeach
                     </select>
+                </div>
+                <div class="col-12 js-cycle-note d-none">
+                    <div class="alert alert-info py-2 px-3 mb-0 small">
+                        <i data-lucide="info" class="me-1"></i><span class="js-cycle-note-text"></span>
+                    </div>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Categoría</label>
@@ -389,22 +396,29 @@
                     <label class="form-label">Meses</label>
                     <input type="number" name="months" class="form-control form-control-sm" min="1" max="60" value="{{ $credit->months }}" required>
                 </div>
-                <div class="col-md-2">
+                <div class="col-md-2 js-cycle-field">
                     <label class="form-label">Primer mes</label>
-                    <input type="month" name="first_due_month" class="form-control form-control-sm" value="{{ $credit->first_due_month->format('Y-m') }}" required>
+                    <input type="month" name="first_due_month" class="form-control form-control-sm" value="{{ $credit->first_due_month->format('Y-m') }}">
                 </div>
-                <div class="col-md-1">
+                <div class="col-md-1 js-cycle-field">
                     <label class="form-label">Día</label>
                     <input type="number" name="due_day" class="form-control form-control-sm" min="1" max="31" value="{{ $credit->due_day }}">
                 </div>
                 <div class="col-md-2">
                     <label class="form-label">Cuenta</label>
-                    <select name="account_id" class="form-select form-select-sm">
+                    <select name="account_id" class="form-select form-select-sm" data-credit-account>
                         <option value="">-</option>
                         @foreach ($accounts as $account)
-                            <option value="{{ $account->id }}" @selected($credit->account_id === $account->id)>{{ $account->name }}</option>
+                            <option value="{{ $account->id }}"
+                                @if ($account->hasCreditCycle()) data-has-cycle="1" data-statement-day="{{ (int) $account->statement_day }}" data-payment-day="{{ (int) $account->payment_day }}" @endif
+                                @selected($credit->account_id === $account->id)>{{ $account->name }}</option>
                         @endforeach
                     </select>
+                </div>
+                <div class="col-12 js-cycle-note d-none">
+                    <div class="alert alert-info py-2 px-3 mb-0 small">
+                        <i data-lucide="info" class="me-1"></i><span class="js-cycle-note-text"></span>
+                    </div>
                 </div>
                 <div class="col-md-2">
                     <label class="form-label">Categoría</label>
@@ -661,6 +675,97 @@
                     anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             });
+        });
+    })();
+
+    // Cuando la tarjeta seleccionada ya tiene su ciclo (corte/pago) en Cuentas,
+    // el sistema calcula sola la fecha de pago: ocultamos "Primer mes" y "Día
+    // pago" y mostramos cuándo se pagará. Si la cuenta no tiene ciclo, se siguen
+    // capturando a mano. Misma regla que Account::firstDueDateFor en el servidor.
+    (function () {
+        var MONTHS = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+            'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
+
+        function computeDue(purchaseStr, statementDay, paymentDay) {
+            var parts = String(purchaseStr).split('-');
+            if (parts.length < 3) {
+                return null;
+            }
+            var year = parseInt(parts[0], 10);
+            var month = parseInt(parts[1], 10) - 1; // 0-based
+            var day = parseInt(parts[2], 10);
+
+            var closeTotal = year * 12 + month;
+            if (day > statementDay) {
+                closeTotal += 1;
+            }
+            var dueTotal = closeTotal;
+            if (paymentDay <= statementDay) {
+                dueTotal += 1;
+            }
+
+            var dueYear = Math.floor(dueTotal / 12);
+            var dueMonth = dueTotal % 12;
+            var daysInMonth = new Date(dueYear, dueMonth + 1, 0).getDate();
+            var dueDay = Math.min(paymentDay, daysInMonth);
+
+            return { year: dueYear, month: dueMonth, day: dueDay };
+        }
+
+        function update(form) {
+            var select = form.querySelector('[data-credit-account]');
+            if (!select) {
+                return;
+            }
+            var option = select.options[select.selectedIndex];
+            var hasCycle = option && option.getAttribute('data-has-cycle') === '1';
+            var fields = form.querySelectorAll('.js-cycle-field');
+            var note = form.querySelector('.js-cycle-note');
+            var noteText = form.querySelector('.js-cycle-note-text');
+
+            for (var i = 0; i < fields.length; i++) {
+                fields[i].classList.toggle('d-none', !!hasCycle);
+            }
+
+            if (!hasCycle) {
+                if (note) { note.classList.add('d-none'); }
+                return;
+            }
+
+            var statementDay = parseInt(option.getAttribute('data-statement-day'), 10);
+            var paymentDay = parseInt(option.getAttribute('data-payment-day'), 10);
+            var cardName = option.textContent.trim();
+            var cycleText = ' (corte día ' + statementDay + ', pago día ' + paymentDay + ')';
+
+            var purchase = form.querySelector('input[name="purchase_date"]');
+            var text;
+            var due = purchase && purchase.value ? computeDue(purchase.value, statementDay, paymentDay) : null;
+
+            if (due) {
+                text = 'Con el ciclo de ' + cardName + cycleText + ', este crédito se pagará el '
+                    + due.day + ' de ' + MONTHS[due.month] + ' de ' + due.year
+                    + '. No necesitas capturar primer mes ni día de pago.';
+            } else {
+                text = 'La fecha de pago se calcula con el ciclo de ' + cardName + cycleText
+                    + '. No necesitas capturar primer mes ni día de pago.';
+            }
+
+            if (noteText) { noteText.textContent = text; }
+            if (note) { note.classList.remove('d-none'); }
+        }
+
+        var selects = document.querySelectorAll('[data-credit-account]');
+        Array.prototype.forEach.call(selects, function (select) {
+            var form = select.closest('form');
+            if (!form) {
+                return;
+            }
+            select.addEventListener('change', function () { update(form); });
+            var purchase = form.querySelector('input[name="purchase_date"]');
+            if (purchase) {
+                purchase.addEventListener('change', function () { update(form); });
+            }
+            update(form);
         });
     })();
 </script>
