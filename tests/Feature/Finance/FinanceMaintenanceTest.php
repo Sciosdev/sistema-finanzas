@@ -1,6 +1,7 @@
 <?php
 
 use App\Models\User;
+use App\Services\Finance\FinanceBackupService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Artisan;
 
@@ -18,6 +19,34 @@ function maintenanceOwner(): User
     return $owner;
 }
 
+function bindOkBackupService(): void
+{
+    app()->instance(FinanceBackupService::class, new class extends FinanceBackupService {
+        public function createMigrationPackage(): array
+        {
+            return [
+                'ok' => true,
+                'type' => 'migration',
+                'name' => 'auto-backup-test.zip',
+                'absolute_path' => '/tmp/auto-backup-test.zip',
+                'size' => 1234,
+                'created_at' => now(),
+                'message' => 'Backup automático listo.',
+            ];
+        }
+    });
+}
+
+function bindFailingBackupService(): void
+{
+    app()->instance(FinanceBackupService::class, new class extends FinanceBackupService {
+        public function createMigrationPackage(): array
+        {
+            return ['ok' => false, 'message' => 'No se pudo crear el backup.'];
+        }
+    });
+}
+
 it('shows the maintenance section to the finance owner', function () {
     $owner = maintenanceOwner();
 
@@ -26,8 +55,8 @@ it('shows the maintenance section to the finance owner', function () {
         ->assertOk()
         ->assertSee('Mantenimiento')
         ->assertSee('Estado de migraciones')
-        ->assertSee('Haz Backup BD antes de migrar')
-        ->assertSee('Confirmo que ya hice backup antes de ejecutar migraciones');
+        ->assertSee('Backup automático antes de migrar')
+        ->assertSee('Confirmo: crear backup automático y ejecutar las migraciones pendientes');
 });
 
 it('hides maintenance from a normal user by forbidding the security screen', function () {
@@ -60,6 +89,7 @@ it('requires the backup confirmation to run migrations', function () {
 
 it('runs only migrate --force when confirmed', function () {
     $owner = maintenanceOwner();
+    bindOkBackupService();
 
     Artisan::shouldReceive('call')->once()->with('migrate', ['--force' => true])->andReturn(0);
     Artisan::shouldReceive('output')->andReturn('Nothing to migrate.');
@@ -72,6 +102,7 @@ it('runs only migrate --force when confirmed', function () {
 
 it('ignores any arbitrary command sent in the request and still runs only migrate --force', function () {
     $owner = maintenanceOwner();
+    bindOkBackupService();
 
     // Aunque manden un "command" malicioso, el sistema lo ignora por completo.
     Artisan::shouldReceive('call')->once()->with('migrate', ['--force' => true])->andReturn(0);
@@ -83,6 +114,33 @@ it('ignores any arbitrary command sent in the request and still runs only migrat
             'command' => 'migrate:fresh',
         ])
         ->assertRedirect(route('finance.security.index'));
+});
+
+it('creates an automatic backup before migrating and offers it for download', function () {
+    $owner = maintenanceOwner();
+    bindOkBackupService();
+
+    Artisan::shouldReceive('call')->once()->with('migrate', ['--force' => true])->andReturn(0);
+    Artisan::shouldReceive('output')->andReturn('Nothing to migrate.');
+
+    $this->actingAs($owner)
+        ->post(route('finance.maintenance.run-migrations'), ['confirm_backup' => '1'])
+        ->assertRedirect(route('finance.security.index'))
+        ->assertSessionHas('success')
+        ->assertSessionHas('backup_download', fn (array $download) => $download['type'] === 'migration'
+            && $download['name'] === 'auto-backup-test.zip');
+});
+
+it('does not run migrations if the automatic backup fails', function () {
+    $owner = maintenanceOwner();
+    bindFailingBackupService();
+
+    Artisan::shouldReceive('call')->never();
+
+    $this->actingAs($owner)
+        ->post(route('finance.maintenance.run-migrations'), ['confirm_backup' => '1'])
+        ->assertRedirect(route('finance.security.index'))
+        ->assertSessionHas('error');
 });
 
 it('runs only optimize:clear when clearing cache', function () {

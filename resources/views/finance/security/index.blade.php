@@ -136,8 +136,8 @@
         </div>
     </div>
     <div class="card-body">
-        <div class="alert alert-warning">
-            <strong>Haz Backup BD antes de migrar.</strong> Usa el botón <em>“Backup solo BD”</em> o <em>“Paquete migracion”</em> de arriba (o phpMyAdmin) y descárgalo antes de ejecutar migraciones.
+        <div class="alert alert-info">
+            <strong>Backup automático antes de migrar.</strong> Al ejecutar migraciones, el sistema crea primero un <em>Paquete de migración</em> (zip) de respaldo; si ese backup falla, <strong>no</strong> migra. Aun así, te recomendamos tener también un backup descargado a tu equipo.
         </div>
 
         <h6 class="mb-2">Estado de migraciones (migrate:status)</h6>
@@ -154,14 +154,14 @@
         <div class="row g-3">
             <div class="col-lg-6">
                 <form method="POST" action="{{ route('finance.maintenance.run-migrations') }}" class="border rounded p-3 h-100"
-                      onsubmit="return confirm('¿Ejecutar migraciones pendientes ahora? Asegúrate de tener backup de la BD.');">
+                      onsubmit="return confirm('Se creará un backup automático y luego se ejecutarán las migraciones pendientes. ¿Continuar?');">
                     @csrf
                     <h6 class="mb-1">Ejecutar migraciones pendientes</h6>
-                    <p class="text-muted small mb-2">Equivale a <code>php artisan migrate --force</code>. Solo aplica las pendientes.</p>
+                    <p class="text-muted small mb-2">Equivale a <code>php artisan migrate --force</code>. Crea un backup automático y luego aplica solo las pendientes.</p>
                     <div class="form-check mb-3">
                         <input class="form-check-input" type="checkbox" value="1" name="confirm_backup" id="confirm_backup" required>
                         <label class="form-check-label" for="confirm_backup">
-                            Confirmo que ya hice backup antes de ejecutar migraciones
+                            Confirmo: crear backup automático y ejecutar las migraciones pendientes
                         </label>
                     </div>
                     <button type="submit" class="btn btn-warning">

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
+use App\Services\Finance\FinanceBackupService;
 use App\Services\Finance\FinanceFailureReporter;
 use App\Services\Finance\FinanceMaintenanceService;
 use Illuminate\Http\Request;
@@ -19,6 +20,7 @@ class FinanceMaintenanceController extends Controller
     public function __construct(
         private readonly FinanceMaintenanceService $maintenance,
         private readonly FinanceFailureReporter $failures,
+        private readonly FinanceBackupService $backups,
     ) {
     }
 
@@ -27,8 +29,22 @@ class FinanceMaintenanceController extends Controller
         $request->validate([
             'confirm_backup' => ['accepted'],
         ], [
-            'confirm_backup.accepted' => 'Confirma que ya hiciste backup de la BD antes de ejecutar migraciones.',
+            'confirm_backup.accepted' => 'Confirma para crear el backup automático y ejecutar las migraciones.',
         ]);
+
+        // Backup automático ANTES de migrar (paquete de migración: PHP puro, sin
+        // mysqldump, en .zip). Si el backup falla, NO se migra: red de seguridad.
+        $backup = $this->backups->createMigrationPackage();
+
+        if (! ($backup['ok'] ?? false)) {
+            $this->failures->report($request->user(), 'mantenimiento', 'auto-backup', 'No se pudo crear el backup automático antes de migrar.', [
+                'detail' => substr((string) ($backup['message'] ?? ''), 0, 300),
+            ]);
+
+            return redirect()
+                ->route('finance.security.index')
+                ->with('error', 'No se ejecutaron las migraciones porque falló el backup automático. ' . ($backup['message'] ?? ''));
+        }
 
         $result = $this->maintenance->runMigrations();
 
@@ -40,10 +56,16 @@ class FinanceMaintenanceController extends Controller
 
         return redirect()
             ->route('finance.security.index')
-            ->with($result['ok'] ? 'success' : 'error', $result['ok']
-                ? 'Migraciones ejecutadas correctamente.'
-                : 'No se pudieron ejecutar las migraciones. Revisa el detalle.')
-            ->with('maintenance_result', $result);
+            ->with($result['ok'] ? 'success' : 'error', ($result['ok']
+                ? 'Migraciones ejecutadas correctamente. '
+                : 'No se pudieron ejecutar las migraciones (revisa el detalle). ')
+                . 'Se creó un backup automático: ' . $backup['name'])
+            ->with('maintenance_result', $result)
+            ->with('backup_download', [
+                'type' => $backup['type'],
+                'name' => $backup['name'],
+                'size' => $backup['size'] ?? null,
+            ]);
     }
 
     public function clearOptimizationCache(Request $request)
