@@ -12,6 +12,7 @@ use App\Http\Controllers\Finance\FinanceMaintenanceController;
 use App\Http\Controllers\Finance\FinanceOperationController;
 use App\Http\Controllers\Finance\FinancePendingController;
 use App\Http\Controllers\Finance\FinanceReportController;
+use App\Http\Controllers\Finance\FinanceRestoreController;
 use App\Http\Controllers\Finance\FinanceSecurityController;
 use App\Http\Controllers\Finance\FinanceTriageController;
 use App\Http\Controllers\Finance\FinanceUserController;
@@ -75,6 +76,8 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
             Route::post('seguridad/fallas/{failure}/resolver', [FinanceSecurityController::class, 'resolveFailure'])->name('security.failures.resolve');
             Route::post('seguridad/mantenimiento/migrar', [FinanceMaintenanceController::class, 'runMigrations'])->name('maintenance.run-migrations');
             Route::post('seguridad/mantenimiento/limpiar-cache', [FinanceMaintenanceController::class, 'clearOptimizationCache'])->name('maintenance.clear-cache');
+            Route::post('seguridad/restaurar', [FinanceRestoreController::class, 'restoreFromBackup'])->name('security.restore.backup');
+            Route::post('seguridad/restaurar-subir', [FinanceRestoreController::class, 'restoreFromUpload'])->name('security.restore.upload');
         });
 
         Route::get('cuentas', [AccountController::class, 'index'])->name('accounts.index');

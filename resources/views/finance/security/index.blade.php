@@ -190,6 +190,63 @@
     </div>
 </div>
 
+<div class="card border-danger">
+    <div class="card-header">
+        <h4 class="card-title mb-0 text-danger"><i data-lucide="alert-triangle" class="me-1"></i>Restaurar (reemplaza TODA la base)</h4>
+    </div>
+    <div class="card-body">
+        <div class="alert alert-danger">
+            <strong>Cuidado: esto borra todos tus datos actuales</strong> y los reemplaza por los del paquete. Es irreversible. El sistema crea un <em>backup automático antes</em> (red de seguridad), pero tu base quedará exactamente como estaba en ese respaldo. Para confirmar, escribe <code>RESTAURAR</code>.
+        </div>
+
+        <form method="POST" action="{{ route('finance.security.restore.backup') }}" class="row g-2 align-items-end mb-3"
+              onsubmit="return confirm('Esto BORRA tus datos actuales y los reemplaza por el respaldo elegido. ¿Continuar?');">
+            @csrf
+            <div class="col-lg-5">
+                <label class="form-label">Restaurar un respaldo guardado</label>
+                <select name="backup" class="form-select" required>
+                    <option value="">Selecciona un respaldo…</option>
+                    @foreach (($backups['migration'] ?? []) as $item)
+                        <option value="migration::{{ $item['name'] }}">Migración — {{ $item['name'] }}</option>
+                    @endforeach
+                    @foreach (($backups['database'] ?? []) as $item)
+                        <option value="database::{{ $item['name'] }}">BD — {{ $item['name'] }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-lg-4">
+                <label class="form-label">Escribe RESTAURAR</label>
+                <input type="text" name="confirm_phrase" class="form-control" placeholder="RESTAURAR" autocomplete="off" required>
+            </div>
+            <div class="col-lg-3 d-grid">
+                <button type="submit" class="btn btn-danger">
+                    <i data-lucide="history" class="me-1"></i>Restaurar guardado
+                </button>
+            </div>
+        </form>
+
+        <hr>
+
+        <form method="POST" action="{{ route('finance.security.restore.upload') }}" enctype="multipart/form-data" class="row g-2 align-items-end"
+              onsubmit="return confirm('Esto BORRA tus datos actuales y los reemplaza por el archivo subido. ¿Continuar?');">
+            @csrf
+            <div class="col-lg-5">
+                <label class="form-label">Restaurar desde archivo (.zip de respaldo)</label>
+                <input type="file" name="package" accept=".zip" class="form-control" required>
+            </div>
+            <div class="col-lg-4">
+                <label class="form-label">Escribe RESTAURAR</label>
+                <input type="text" name="confirm_phrase" class="form-control" placeholder="RESTAURAR" autocomplete="off" required>
+            </div>
+            <div class="col-lg-3 d-grid">
+                <button type="submit" class="btn btn-outline-danger">
+                    <i data-lucide="upload" class="me-1"></i>Subir y restaurar
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <div class="row g-3">
     <div class="col-xl-6">
         <div class="card h-100">
@@ -223,9 +280,21 @@
                                     <td>{{ $bytes($backup['size'] ?? 0) }}</td>
                                     <td>{{ $dateTime($backup['created_at'] ?? null) }}</td>
                                     <td class="text-end">
-                                        <a href="{{ route('finance.security.backups.download', ['type' => $backup['type'], 'filename' => $backup['name']]) }}" class="btn btn-sm btn-outline-primary">
-                                            <i data-lucide="download"></i>
-                                        </a>
+                                        <div class="d-inline-flex align-items-center gap-2">
+                                            <a href="{{ route('finance.security.backups.download', ['type' => $backup['type'], 'filename' => $backup['name']]) }}" class="btn btn-sm btn-outline-primary" title="Descargar">
+                                                <i data-lucide="download"></i>
+                                            </a>
+                                            @if (in_array($backup['type'], ['migration', 'database'], true))
+                                                <form method="POST" action="{{ route('finance.security.restore.backup') }}" class="d-inline" onsubmit="return financeConfirmRestore(this);">
+                                                    @csrf
+                                                    <input type="hidden" name="backup" value="{{ $backup['type'] }}::{{ $backup['name'] }}">
+                                                    <input type="hidden" name="confirm_phrase" value="">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Restaurar este respaldo (reemplaza toda la base)">
+                                                        <i data-lucide="history"></i>
+                                                    </button>
+                                                </form>
+                                            @endif
+                                        </div>
                                     </td>
                                 </tr>
                             @empty
@@ -404,4 +473,23 @@
         </div>
     </div>
 </div>
+@endsection
+
+@section('scripts')
+<script>
+    window.financeConfirmRestore = function (form) {
+        var phrase = window.prompt('CUIDADO: esto BORRA tus datos actuales y los reemplaza por este respaldo. Es irreversible (se crea un backup automático antes).\n\nEscribe RESTAURAR para confirmar:');
+
+        if (phrase === null) {
+            return false;
+        }
+
+        var input = form.querySelector('input[name="confirm_phrase"]');
+        if (input) {
+            input.value = phrase;
+        }
+
+        return true;
+    };
+</script>
 @endsection
