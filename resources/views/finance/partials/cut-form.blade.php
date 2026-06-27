@@ -1,5 +1,12 @@
+@php($suggestedBalances = $suggestedBalances ?? [])
 <form method="POST" action="{{ route('finance.cuts.store') }}" class="needs-validation" novalidate>
     @csrf
+    @if (! empty($suggestedBalances))
+        <div class="alert alert-info py-2 mb-3">
+            <i data-lucide="info" class="me-1"></i>
+            Saldos calculados desde tu último corte + ingresos − egresos capturados. Si coinciden, solo concilia; si no, ajusta el monto.
+        </div>
+    @endif
     <div class="row g-3">
         <div class="col-md-4">
             <label class="form-label">Fecha corte</label>
@@ -10,7 +17,7 @@
                 <label class="form-label">{{ $account->name }}</label>
                 <div class="input-group">
                     <span class="input-group-text">$</span>
-                    <input type="number" name="balances[{{ $account->id }}]" class="form-control" step="0.01" min="0" value="{{ old('balances.' . $account->id, 0) }}" onfocus="this.select()" onmouseup="return false;">
+                    <input type="number" name="balances[{{ $account->id }}]" class="form-control" step="0.01" min="0" value="{{ old('balances.' . $account->id, $suggestedBalances[$account->id] ?? 0) }}" onfocus="this.select()" onmouseup="return false;">
                 </div>
             </div>
         @endforeach
