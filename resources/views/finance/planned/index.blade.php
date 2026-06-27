@@ -188,6 +188,39 @@
                                 </div>
                             @endif
                         </div>
+                        @if ($canUseCreditPayment)
+                            <div class="border rounded p-3 mb-3">
+                                <h6 class="mb-1">Pagar y crear crédito automáticamente</h6>
+                                <div class="text-muted small mb-3">
+                                    Crea el crédito con este nombre y monto, genera sus mensualidades y deja el pago cubierto. No tienes que crear el crédito antes.
+                                </div>
+                                <form method="POST" action="{{ route('finance.planned.credit-new', $payment) }}" class="row g-2 align-items-end">
+                                    @csrf
+                                    <div class="col-md-3">
+                                        <label class="form-label">Fecha de compra</label>
+                                        <input type="date" name="paid_on" class="form-control" value="{{ $defaultPaidOn }}">
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label class="form-label">Tarjeta / crédito</label>
+                                        <select name="account_id" class="form-select">
+                                            <option value="">Cuenta del pago</option>
+                                            @foreach ($creditAccounts as $account)
+                                                <option value="{{ $account->id }}" @selected($payment->account_id === $account->id)>{{ $account->name }}</option>
+                                            @endforeach
+                                        </select>
+                                    </div>
+                                    <div class="col-md-2">
+                                        <label class="form-label">Meses</label>
+                                        <input type="number" name="months" class="form-control" min="1" max="60" value="1">
+                                    </div>
+                                    <div class="col-md-3">
+                                        <button type="submit" class="btn btn-warning w-100">
+                                            <i data-lucide="credit-card" class="me-1"></i>Pagar y crear crédito
+                                        </button>
+                                    </div>
+                                </form>
+                            </div>
+                        @endif
                     @endif
 
                     @if ($canLinkMovement)

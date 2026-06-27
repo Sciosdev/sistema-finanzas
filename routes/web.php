@@ -97,6 +97,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::put('flujo-planeado/{payment}', [PlannedPaymentController::class, 'update'])->name('planned.update');
         Route::post('flujo-planeado/{payment}/pagado', [PlannedPaymentController::class, 'markPaid'])->name('planned.paid');
         Route::post('flujo-planeado/{payment}/pagado-con-credito', [PlannedPaymentController::class, 'markPaidWithCredit'])->name('planned.credit-paid');
+        Route::post('flujo-planeado/{payment}/pagado-con-credito-nuevo', [PlannedPaymentController::class, 'markPaidWithNewCredit'])->name('planned.credit-new');
         Route::get('flujo-planeado/{payment}/vincular', [PlannedPaymentController::class, 'link'])->name('planned.link');
         Route::post('flujo-planeado/{payment}/vincular', [PlannedPaymentController::class, 'linkMovement'])->name('planned.link-movement');
         Route::post('flujo-planeado/{payment}/registrado', [PlannedPaymentController::class, 'markRegistered'])->name('planned.registered');

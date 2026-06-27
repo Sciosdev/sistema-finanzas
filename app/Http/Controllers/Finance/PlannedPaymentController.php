@@ -294,6 +294,93 @@ class PlannedPaymentController extends Controller
             ->with('success', 'Pago marcado como cubierto con credito. La deuda queda en la seccion de creditos.');
     }
 
+    public function markPaidWithNewCredit(Request $request, PlannedPayment $payment)
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+
+        if ($payment->movement_id) {
+            return back()->with('error', 'Este pago ya tiene un movimiento real vinculado; no lo pagues con credito para evitar duplicar egresos.');
+        }
+
+        $user = $request->user();
+        $data = $request->validate([
+            'paid_on' => ['nullable', 'date'],
+            'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'months' => ['nullable', 'integer', 'min:1', 'max:60'],
+        ]);
+
+        $paidOn = isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today();
+        $months = (int) ($data['months'] ?? 1);
+        $accountId = $data['account_id'] ?? $payment->account_id;
+        $total = round((float) $payment->amount, 2);
+        $firstMonth = $payment->period_month->copy()->startOfMonth();
+        $dueDay = $payment->due_date?->day;
+
+        $credit = DB::transaction(function () use ($user, $payment, $paidOn, $months, $accountId, $total, $firstMonth, $dueDay) {
+            $credit = CreditPurchase::create([
+                'user_id' => $user->id,
+                'purchase_date' => $paidOn->toDateString(),
+                'name' => $payment->name,
+                'total_amount' => $total,
+                'months' => $months,
+                'first_due_month' => $firstMonth->toDateString(),
+                'due_day' => $dueDay,
+                'account_id' => $accountId,
+                'category_id' => $payment->category_id,
+                'status' => 'active',
+                'notes' => 'Generado desde flujo planeado: ' . $payment->name,
+            ]);
+
+            $this->createInstallmentsForCredit($credit, $total, $months, $firstMonth, $dueDay);
+
+            $payment->update([
+                'status' => 'paid',
+                'paid_amount' => $payment->amount,
+                'paid_on' => $paidOn->toDateString(),
+                'account_id' => $accountId,
+                'credit_purchase_id' => $credit->id,
+                'movement_id' => null,
+                'is_credit' => true,
+            ]);
+
+            return $credit;
+        });
+
+        return redirect()
+            ->route('finance.planned.index', ['month' => $payment->period_month->format('Y-m')])
+            ->with('success', 'Credito "' . $credit->name . '" creado y pago cubierto. La deuda quedo en la seccion de creditos.');
+    }
+
+    /**
+     * Reparte el total en mensualidades iguales (el ultimo absorbe el redondeo),
+     * igual que la creacion normal de creditos.
+     */
+    private function createInstallmentsForCredit(CreditPurchase $credit, float $total, int $months, Carbon $firstMonth, ?int $dueDay): void
+    {
+        $base = round($total / $months, 2);
+        $created = 0.0;
+
+        for ($index = 1; $index <= $months; $index++) {
+            $period = $firstMonth->copy()->addMonths($index - 1);
+            $amount = $index === $months ? round($total - $created, 2) : $base;
+            $created += $amount;
+            $dueDate = $dueDay
+                ? $period->copy()->day(min($dueDay, $period->daysInMonth))->toDateString()
+                : null;
+
+            CreditInstallment::create([
+                'credit_purchase_id' => $credit->id,
+                'user_id' => $credit->user_id,
+                'period_month' => $period->toDateString(),
+                'due_date' => $dueDate,
+                'installment_number' => $index,
+                'amount' => $amount,
+                'paid_amount' => 0,
+                'status' => 'pending',
+            ]);
+        }
+    }
+
     public function link(Request $request, PlannedPayment $payment)
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
