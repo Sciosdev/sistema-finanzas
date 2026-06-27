@@ -9,9 +9,32 @@
 
 @include('finance.partials.flash')
 
+@if (session('recalculated') && count(session('recalculated')) > 0)
+    <div class="alert alert-info">
+        <strong>Créditos recalculados según el ciclo de su tarjeta:</strong>
+        <ul class="mb-0 mt-2">
+            @foreach (session('recalculated') as $row)
+                <li>
+                    <strong>{{ $row['name'] }}</strong> ({{ $row['card'] }}):
+                    {{ $row['from'] }} → <strong>{{ $row['to'] }}</strong>
+                </li>
+            @endforeach
+        </ul>
+    </div>
+@endif
+
 <div class="row align-items-center mb-3">
-    <div class="col-md-12">
+    <div class="col-md-7">
         <h4 class="mb-0 fw-semibold">Créditos manuales</h4>
+    </div>
+    <div class="col-md-5 text-md-end mt-2 mt-md-0">
+        <form method="POST" action="{{ route('finance.credits.recalculate-dates') }}" class="d-inline"
+              onsubmit="return confirm('Recalculará la fecha de pago de los créditos existentes según el corte/pago de su tarjeta. No cambia montos ni pagos. ¿Continuar?');">
+            @csrf
+            <button type="submit" class="btn btn-outline-primary">
+                <i data-lucide="refresh-cw" class="me-1"></i>Recalcular fechas con el ciclo de tarjeta
+            </button>
+        </form>
     </div>
 </div>
 
@@ -70,6 +93,21 @@
             </div>
         </div>
     </div>
+    @if ($creditLineSummary['has_limits'] ?? false)
+        <div class="col-12">
+            <div class="card mb-0 border border-success border-opacity-25">
+                <div class="card-body d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-2">
+                    <div>
+                        <p class="text-muted mb-1">Crédito disponible en todas tus tarjetas</p>
+                        <h3 class="fw-semibold text-success mb-0">{{ $money($creditLineSummary['available']) }}</h3>
+                    </div>
+                    <div class="text-lg-end small text-muted">
+                        Límite total {{ $money($creditLineSummary['limit']) }} · Usado {{ $money($creditLineSummary['used']) }} · {{ $creditLineSummary['cards'] }} tarjeta(s) con límite
+                    </div>
+                </div>
+            </div>
+        </div>
+    @endif
     <div class="col-12">
         <div class="card mb-0 border border-info border-opacity-25">
             <div class="card-body">
@@ -149,6 +187,18 @@
                                     <div class="fw-semibold" style="color: {{ $style['text'] }};">{{ $money($creditor['pending']) }}</div>
                                 </div>
                             </div>
+                            @if (! is_null($creditor['credit_limit'] ?? null))
+                                <div class="mt-3 pt-2 border-top" style="border-color: {{ $style['color'] }}33 !important;">
+                                    <div class="d-flex flex-wrap justify-content-between gap-1 small" style="color: {{ $style['text'] }};">
+                                        <span>Límite {{ $money($creditor['credit_limit']) }}</span>
+                                        <span>Usado {{ $money($creditor['used']) }}</span>
+                                        <span class="fw-semibold">Disponible {{ $money($creditor['available']) }}</span>
+                                    </div>
+                                    @if ($creditor['payment_day'])
+                                        <div class="text-muted small mt-1">Paga el día {{ $creditor['payment_day'] }} de cada mes</div>
+                                    @endif
+                                </div>
+                            @endif
                         </button>
                     </div>
                 @endforeach

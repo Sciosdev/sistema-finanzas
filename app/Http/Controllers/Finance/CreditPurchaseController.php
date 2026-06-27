@@ -50,6 +50,14 @@ class CreditPurchaseController extends Controller
         $currentMonth = now()->startOfMonth();
         $nextMonth = $currentMonth->copy()->addMonth();
         $creditorSummaries = $this->creditorSummaries($credits, $creditTotals, $currentMonth, $nextMonth);
+        $creditorsWithLimit = collect($creditorSummaries)->filter(fn ($creditor) => ! is_null($creditor['credit_limit'] ?? null));
+        $creditLineSummary = [
+            'has_limits' => $creditorsWithLimit->isNotEmpty(),
+            'limit' => round($creditorsWithLimit->sum('credit_limit'), 2),
+            'used' => round($creditorsWithLimit->sum('used'), 2),
+            'available' => round($creditorsWithLimit->sum('available'), 2),
+            'cards' => $creditorsWithLimit->count(),
+        ];
         $summary = $this->creditSummary($credits, $creditTotals, $currentMonth, $nextMonth);
         $summaryWithoutOnix = $this->creditSummary(
             $credits->reject(fn (CreditPurchase $credit) => $this->isOnixCredit($credit))->values(),
@@ -62,6 +70,7 @@ class CreditPurchaseController extends Controller
             'credits' => $credits,
             'creditTotals' => $creditTotals,
             'creditorSummaries' => $creditorSummaries,
+            'creditLineSummary' => $creditLineSummary,
             'summary' => $summary,
             'summaryWithoutOnix' => $summaryWithoutOnix,
             'currentMonthLabel' => $currentMonth->format('Y-m'),
@@ -137,6 +146,79 @@ class CreditPurchaseController extends Controller
         $this->refreshCreditStatus($credit);
 
         return back()->with('success', 'Crédito actualizado.');
+    }
+
+    public function recalculateDueDates(Request $request)
+    {
+        $user = $request->user();
+        $this->catalogs->ensureForUser($user);
+
+        $credits = CreditPurchase::with(['account', 'installments'])
+            ->where('user_id', $user->id)
+            ->get();
+
+        $details = [];
+
+        DB::transaction(function () use ($credits, &$details) {
+            foreach ($credits as $credit) {
+                $account = $credit->account;
+                if (! $account || ! $account->hasCreditCycle()) {
+                    continue;
+                }
+
+                $due = $account->firstDueDateFor(Carbon::parse($credit->purchase_date));
+                if (! $due) {
+                    continue;
+                }
+
+                $firstMonth = $due->copy()->startOfMonth();
+                $dueDay = (int) $due->day;
+
+                $alreadyMatches = $credit->first_due_month
+                    && $credit->first_due_month->toDateString() === $firstMonth->toDateString()
+                    && (int) $credit->due_day === $dueDay;
+
+                if ($alreadyMatches) {
+                    continue;
+                }
+
+                $from = ($credit->first_due_month ? $credit->first_due_month->format('Y-m') : 'sin fecha')
+                    . ($credit->due_day ? ' (día ' . (int) $credit->due_day . ')' : '');
+
+                $credit->update([
+                    'first_due_month' => $firstMonth->toDateString(),
+                    'due_day' => $dueDay,
+                ]);
+
+                // Solo recorre las FECHAS de las mensualidades; no cambia montos ni pagos.
+                foreach ($credit->installments()->orderBy('installment_number')->get() as $installment) {
+                    $period = $firstMonth->copy()->addMonths($installment->installment_number - 1);
+
+                    $installment->update([
+                        'period_month' => $period->toDateString(),
+                        'due_date' => $period->copy()->day(min($dueDay, $period->daysInMonth))->toDateString(),
+                    ]);
+                }
+
+                $details[] = [
+                    'name' => $credit->name,
+                    'card' => $account->name,
+                    'from' => $from,
+                    'to' => $firstMonth->format('Y-m') . ' (día ' . $dueDay . ')',
+                ];
+            }
+        });
+
+        $updated = count($details);
+
+        return back()
+            ->with(
+                'success',
+                $updated > 0
+                    ? "Se recalcularon las fechas de pago de {$updated} crédito(s) según el ciclo de su tarjeta."
+                    : 'No hubo créditos por recalcular (revisa que las tarjetas tengan día de corte y de pago configurados).'
+            )
+            ->with('recalculated', $details);
     }
 
     public function destroy(Request $request, CreditPurchase $credit)
@@ -578,17 +660,25 @@ class CreditPurchaseController extends Controller
                     ->sortByDesc('pending')
                     ->values();
 
+                $account = $group->first()?->account;
+                $creditLimit = ($account && $account->credit_limit !== null) ? (float) $account->credit_limit : null;
+                $pending = round($items->sum('pending'), 2);
+
                 return [
                     'name' => $creditorName,
                     'key' => str('creditor-' . $creditorName)->slug()->toString() ?: 'sin-acreedor',
                     'style' => $style,
                     'count' => $items->count(),
-                    'pending' => round($items->sum('pending'), 2),
+                    'pending' => $pending,
                     'paid' => round($items->sum('paid'), 2),
                     'total' => round($items->sum('total'), 2),
                     'current_due' => round($items->sum('current_due'), 2),
                     'paid_this_month' => round($items->sum('paid_this_month'), 2),
                     'next_due' => round($items->sum('next_due'), 2),
+                    'credit_limit' => $creditLimit,
+                    'payment_day' => $account?->payment_day,
+                    'used' => $pending,
+                    'available' => $creditLimit !== null ? round($creditLimit - $pending, 2) : null,
                     'credits' => $items,
                 ];
             })
