@@ -133,6 +133,14 @@ it('moves the theme toggle into the user menu and hides the top buttons on mobil
         ->assertSee('d-none d-md-flex', false);      // Menú/Capturar ocultos en teléfono
 });
 
+it('hides the whole topbar on mobile and puts the theme toggle in the side menu', function () {
+    $this->actingAs(mobileUser())
+        ->get(route('finance.dashboard'))
+        ->assertOk()
+        ->assertSee('topbar d-none d-md-flex', false) // topbar oculto en teléfono
+        ->assertSee('js-theme-toggle', false);         // toggle de tema dentro del menú lateral ("Más")
+});
+
 it('focuses the capture form only when arriving with capture=1', function () {
     $user = mobileUser();
 

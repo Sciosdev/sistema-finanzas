@@ -187,6 +187,17 @@
 
                <li class="menu-title">Cuenta</li>
 
+               {{-- Solo en teléfono: el topbar se oculta, así que el cambio de tema
+                    vive aquí. Dispara el toggle real del topbar (#light-dark-mode). --}}
+               <li class="menu-item d-md-none">
+                    <button type="button" class="menu-link border-0 bg-transparent w-100 text-start js-theme-toggle">
+                         <span class="nav-icon">
+                              <i data-lucide="sun-moon"></i>
+                         </span>
+                         <span class="nav-text">Tema claro / oscuro</span>
+                    </button>
+               </li>
+
                <li class="menu-item">
                     <form method="POST" action="{{ route('logout') }}">
                          @csrf
@@ -201,3 +212,17 @@
           </ul>
      </div>
 </div>
+
+<script>
+    // El botón de tema del menú lateral (móvil) reusa el toggle real del topbar.
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('.js-theme-toggle').forEach(function (el) {
+            el.addEventListener('click', function () {
+                var real = document.getElementById('light-dark-mode');
+                if (real) {
+                    real.click();
+                }
+            });
+        });
+    });
+</script>

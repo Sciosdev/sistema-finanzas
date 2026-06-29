@@ -1,4 +1,6 @@
-<header class="topbar d-flex">
+{{-- En teléfono (<768px) el topbar entero se oculta: sus opciones (tema,
+     Resumen, Diagnóstico, Salir) viven en el menú lateral que abre "Más". --}}
+<header class="topbar d-none d-md-flex">
      <div class="container-fluid">
           <div class="navbar-header">
                {{-- En teléfono (<768px) estos botones se ocultan: la barra inferior
