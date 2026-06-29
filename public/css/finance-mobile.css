@@ -5,6 +5,26 @@
    (>= 768px) queda intacto.
    ========================================================================= */
 
+/* --- Fix: el sidebar del tema arranca visible (margin-left:0) y solo se
+   oculta cuando el JS agrega .sidebar-hidden, provocando un "flash" del menú
+   en cada navegación. Aquí lo forzamos fuera de pantalla por defecto en móvil
+   (hasta el breakpoint del sidebar, 1140px) salvo cuando está abierto a
+   propósito (.sidebar-enable). Así dejar de aparecer al cambiar de pantalla. */
+@media (max-width: 1139.98px) {
+    html:not(.sidebar-enable) .main-nav {
+        margin-left: calc(var(--bs-main-nav-width) * -1);
+    }
+
+    .page-container {
+        margin-left: 0 !important;
+    }
+
+    /* Al abrir el menú "Más", ocultamos la barra inferior para que no se encime. */
+    html.sidebar-enable .finance-bottom-nav {
+        display: none;
+    }
+}
+
 /* --- Barra inferior de pestañas ----------------------------------------- */
 .finance-bottom-nav {
     display: flex;

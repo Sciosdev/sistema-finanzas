@@ -37,7 +37,7 @@
         <h4 class="card-title mb-0">Historial de cortes</h4>
     </div>
     <div class="card-body p-0">
-        <div class="table-responsive">
+        <div class="table-responsive d-none d-md-block">
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
@@ -129,6 +129,65 @@
                     @endforelse
                 </tbody>
             </table>
+        </div>
+
+        {{-- Vista móvil: una tarjeta por corte con su desglose por cuenta. --}}
+        <div class="d-md-none finance-mobile-list">
+            @forelse ($cuts as $cut)
+                @php($rec = $reconciliations[$cut->id] ?? [])
+                @php($hasBaseline = collect($rec)->contains(fn ($r) => $r['has_baseline']))
+                @php($mismatched = collect($rec)->filter(fn ($r) => $r['has_baseline'] && abs($r['difference']) > 0.01))
+                <div class="finance-mobile-row px-3 py-3 border-bottom">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <div class="fw-semibold">
+                            {{ $cut->cut_date->format('Y-m-d') }}
+                            @if ($mismatched->isNotEmpty())
+                                <span class="badge badge-soft-danger ms-1">{{ $mismatched->count() }} descuadre(s)</span>
+                            @endif
+                        </div>
+                        <span class="badge {{ $cut->status === 'ok' ? 'badge-soft-success' : 'badge-soft-danger' }}">
+                            {{ $cut->status === 'ok' ? 'Cuadra' : 'Revisar' }}
+                        </span>
+                    </div>
+                    <div class="row g-2 small">
+                        <div class="col-6"><span class="text-muted">Saldo real</span><div class="fw-semibold">{{ $money($cut->real_total) }}</div></div>
+                        <div class="col-6">
+                            <span class="text-muted">Diferencia</span>
+                            <div class="fw-semibold {{ abs((float) $cut->difference) <= 0.01 ? 'text-success' : 'text-danger' }}">{{ $money($cut->difference) }}</div>
+                        </div>
+                        <div class="col-6"><span class="text-muted">Obligaciones</span><div>{{ $money($cut->pending_payments) }}</div></div>
+                        <div class="col-6">
+                            <span class="text-muted">Disponible</span>
+                            <div class="{{ (float) $cut->amount_missing < 0 ? 'text-danger' : 'text-success' }}">{{ $money($cut->amount_missing) }}</div>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-link p-0 mt-2" data-bs-toggle="collapse" data-bs-target="#cut-detail-m-{{ $cut->id }}">
+                        <i data-lucide="chevron-down" class="fs-16 me-1"></i>Diferencia por cuenta
+                    </button>
+                    <div class="collapse mt-2" id="cut-detail-m-{{ $cut->id }}">
+                        @if (! $hasBaseline)
+                            <p class="text-muted mb-0 small">Primer corte: es tu punto de partida, todavía no hay diferencia por comparar.</p>
+                        @else
+                            @foreach ($rec as $row)
+                                @php($diff = (float) $row['difference'])
+                                @php($cuadra = abs($diff) <= 0.01)
+                                <div class="d-flex justify-content-between align-items-center small py-1 border-top">
+                                    <span>
+                                        <span class="rounded-circle d-inline-block me-1" style="width: 10px; height: 10px; background: {{ $row['color'] ?: '#4d5761' }}"></span>
+                                        {{ $row['name'] }}
+                                        <span class="text-muted">({{ $money($row['real']) }} de {{ $money($row['expected']) }})</span>
+                                    </span>
+                                    <span class="fw-semibold {{ $cuadra ? 'text-success' : ($diff < 0 ? 'text-danger' : 'text-warning') }}">
+                                        {{ $cuadra ? 'Cuadra' : (($diff < 0 ? 'Falta ' : 'Sobra ') . $money(abs($diff))) }}
+                                    </span>
+                                </div>
+                            @endforeach
+                        @endif
+                    </div>
+                </div>
+            @empty
+                <p class="text-center text-muted py-4 mb-0">Sin cortes</p>
+            @endforelse
         </div>
     </div>
 </div>

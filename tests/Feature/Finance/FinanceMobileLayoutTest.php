@@ -58,6 +58,16 @@ it('keeps the desktop table but adds a mobile card list on movements', function 
         ->assertSee('Tacos del centro');                         // dato visible en ambas vistas
 });
 
+it('keeps the desktop table but adds a mobile card list on cuts', function () {
+    $user = mobileUser();
+
+    $this->actingAs($user)
+        ->get(route('finance.cuts.index'))
+        ->assertOk()
+        ->assertSee('finance-mobile-list', false)
+        ->assertSee('table-responsive d-none d-md-block', false);
+});
+
 it('focuses the capture form only when arriving with capture=1', function () {
     $user = mobileUser();
 
