@@ -40,10 +40,21 @@ class MovementController extends Controller
         $perPage = is_numeric($requestedPerPage) ? (int) $requestedPerPage : 30;
         $perPage = max(10, min(500, $perPage));
 
-        $movements = Movement::with(['account', 'category', 'person'])
+        $filtered = Movement::query()
             ->where('user_id', $user->id)
             ->whereBetween('happened_on', [$start->toDateString(), $end->toDateString()])
             ->when($request->query('type'), fn ($query, $type) => $query->where('movement_type', $type))
+            ->when($request->filled('account_id'), fn ($query) => $query->where('account_id', (int) $request->query('account_id')))
+            ->when($request->filled('category_id'), fn ($query) => $query->where('category_id', (int) $request->query('category_id')))
+            ->when($request->filled('person_id'), fn ($query) => $query->where('person_id', (int) $request->query('person_id')))
+            ->when($request->query('flag'), fn ($query, $flag) => match ($flag) {
+                'uncategorized' => $query->whereNull('category_id'),
+                'no_account' => $query->whereNull('account_id'),
+                'unknown' => $query->where('is_unknown', true),
+                'san_juan' => $query->where('is_san_juan', true),
+                'rent' => $query->where('is_rent', true),
+                default => $query,
+            })
             ->when(trim((string) $request->query('q')) !== '', function ($query) use ($request) {
                 $search = trim((string) $request->query('q'));
                 $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $search) . '%';
@@ -62,11 +73,25 @@ class MovementController extends Controller
                         $inner->orWhereBetween('amount', [$amount - 0.01, $amount + 0.01]);
                     }
                 });
-            })
+            });
+
+        $movements = (clone $filtered)
+            ->with(['account', 'category', 'person'])
             ->orderByDesc('happened_on')
             ->orderByDesc('id')
             ->paginate($perPage)
             ->withQueryString();
+
+        // Totales del conjunto FILTRADO completo (no solo de la página visible).
+        $totalsByType = (clone $filtered)
+            ->selectRaw('movement_type, SUM(amount) as total')
+            ->groupBy('movement_type')
+            ->pluck('total', 'movement_type');
+        $filterTotals = [
+            'income' => round((float) ($totalsByType['income'] ?? 0) + (float) ($totalsByType['yield'] ?? 0), 2),
+            'expense' => round((float) ($totalsByType['expense'] ?? 0), 2),
+        ];
+        $filterTotals['net'] = round($filterTotals['income'] - $filterTotals['expense'], 2);
 
         $accounts = $this->accountsFor($user);
 
@@ -78,6 +103,7 @@ class MovementController extends Controller
             'categories' => $this->categoriesFor($user),
             'people' => $this->peopleFor($user),
             'expectedBalances' => $this->cutSuggestions->expectedBalances($user, $accounts, today()),
+            'filterTotals' => $filterTotals,
         ]);
     }
 
@@ -144,12 +170,28 @@ class MovementController extends Controller
 
         $flags = $this->classifyFlags($user, $request->all());
 
+        // Aviso (no bloquea): ya existe un movimiento igual (fecha + monto + descripción).
+        $duplicate = Movement::where('user_id', $user->id)
+            ->whereDate('happened_on', $data['happened_on'])
+            ->where('amount', round((float) $data['amount'], 2))
+            ->whereRaw('LOWER(TRIM(description)) = ?', [mb_strtolower(trim((string) $data['description']))])
+            ->first();
+
         Movement::create($data + $flags + [
             'user_id' => $user->id,
             'source' => 'manual',
         ]);
 
-        return back()->with('success', 'Movimiento guardado.');
+        $response = back()->with('success', 'Movimiento guardado.');
+
+        if ($duplicate) {
+            $response->with('warning', 'Ojo: ya tenías un movimiento igual el '
+                . Carbon::parse($data['happened_on'])->format('d/m/Y')
+                . ' por $' . number_format((float) $data['amount'], 2)
+                . ' (“' . $data['description'] . '”). Si fue por error, elimínalo.');
+        }
+
+        return $response;
     }
 
     public function edit(Request $request, Movement $movement)

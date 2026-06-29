@@ -39,11 +39,37 @@
                 <input type="search" name="q" class="form-control" value="{{ request('q') }}" placeholder="Buscar movimiento...">
             </div>
             <input type="month" name="month" class="form-control" style="max-width: 180px" value="{{ $monthValue }}">
-            <select name="type" class="form-select" style="max-width: 170px">
+            <select name="type" class="form-select" style="max-width: 150px">
                 <option value="">Todos</option>
                 <option value="income" @selected(request('type') === 'income')>Ingresos</option>
                 <option value="expense" @selected(request('type') === 'expense')>Egresos</option>
                 <option value="yield" @selected(request('type') === 'yield')>Rendimientos</option>
+            </select>
+            <select name="account_id" class="form-select" style="max-width: 150px" title="Cuenta">
+                <option value="">Toda cuenta</option>
+                @foreach ($accounts as $account)
+                    <option value="{{ $account->id }}" @selected((string) request('account_id') === (string) $account->id)>{{ $account->name }}</option>
+                @endforeach
+            </select>
+            <select name="category_id" class="form-select" style="max-width: 160px" title="Categoría">
+                <option value="">Toda categoría</option>
+                @foreach ($categories as $category)
+                    <option value="{{ $category->id }}" @selected((string) request('category_id') === (string) $category->id)>{{ $category->name }}</option>
+                @endforeach
+            </select>
+            <select name="person_id" class="form-select" style="max-width: 150px" title="Persona">
+                <option value="">Toda persona</option>
+                @foreach ($people as $person)
+                    <option value="{{ $person->id }}" @selected((string) request('person_id') === (string) $person->id)>{{ $person->name }}</option>
+                @endforeach
+            </select>
+            <select name="flag" class="form-select" style="max-width: 170px" title="Estado / marca">
+                <option value="">Cualquier estado</option>
+                <option value="uncategorized" @selected(request('flag') === 'uncategorized')>Sin categoría</option>
+                <option value="no_account" @selected(request('flag') === 'no_account')>Sin cuenta</option>
+                <option value="unknown" @selected(request('flag') === 'unknown')>Desconocidos (?)</option>
+                <option value="san_juan" @selected(request('flag') === 'san_juan')>San Juan</option>
+                <option value="rent" @selected(request('flag') === 'rent')>Renta</option>
             </select>
             <select class="form-select" style="max-width: 160px" title="Resultados por página" onchange="this.form.per_page.value = this.value">
                 <option value="{{ $perPage }}" @selected(! in_array(($perPage ?? 30), [30, 50, 100, 200], true))>Personalizado</option>
@@ -66,7 +92,7 @@
                 <i data-lucide="download" class="me-1"></i>Exportar CSV
             </a>
             @endif
-            @if (request()->filled('q') || request()->filled('type'))
+            @if (request()->filled('q') || request()->filled('type') || request()->filled('account_id') || request()->filled('category_id') || request()->filled('person_id') || request()->filled('flag'))
                 <a href="{{ route('finance.movements.index', ['month' => $monthValue]) }}" class="btn btn-outline-secondary" title="Limpiar filtros">
                     <i data-lucide="x"></i>
                 </a>
@@ -87,6 +113,12 @@
         </div>
     </div>
     <div class="card-body p-0">
+        <div class="px-3 py-2 border-bottom d-flex flex-wrap gap-4 small align-items-center">
+            <span class="text-muted">Totales del filtro:</span>
+            <span>Ingresos <strong class="text-success">{{ $money($filterTotals['income']) }}</strong></span>
+            <span>Egresos <strong class="text-danger">{{ $money($filterTotals['expense']) }}</strong></span>
+            <span>Neto <strong class="{{ $filterTotals['net'] >= 0 ? 'text-success' : 'text-danger' }}">{{ $money($filterTotals['net']) }}</strong></span>
+        </div>
         <div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead>
@@ -105,7 +137,22 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @forelse ($movements as $movement)
+                    @forelse ($movements->groupBy(fn ($movement) => $movement->happened_on->format('Y-m-d')) as $day => $dayMovements)
+                        @php
+                            $dayIncome = $dayMovements->whereIn('movement_type', ['income', 'yield'])->sum(fn ($m) => (float) $m->amount);
+                            $dayExpense = $dayMovements->where('movement_type', 'expense')->sum(fn ($m) => (float) $m->amount);
+                            $dayNet = $dayIncome - $dayExpense;
+                        @endphp
+                        <tr class="table-active">
+                            <td></td>
+                            <td colspan="6" class="fw-semibold">
+                                {{ \Illuminate\Support\Str::ucfirst(\Carbon\Carbon::parse($day)->translatedFormat('l d M Y')) }}
+                                <span class="text-muted fw-normal small ms-1">· {{ $dayMovements->count() }} mov.</span>
+                            </td>
+                            <td class="text-end fw-semibold {{ $dayNet >= 0 ? 'text-success' : 'text-danger' }}">{{ $money($dayNet) }}</td>
+                            <td></td>
+                        </tr>
+                        @foreach ($dayMovements as $movement)
                         <tr>
                             <td>
                                 <input type="checkbox" name="ids[]" value="{{ $movement->id }}" form="bulk-movements-form" class="form-check-input bulk-row-check">
@@ -143,6 +190,7 @@
                                 </div>
                             </td>
                         </tr>
+                        @endforeach
                     @empty
                         <tr>
                             <td colspan="9" class="text-center text-muted py-4">Sin movimientos</td>
