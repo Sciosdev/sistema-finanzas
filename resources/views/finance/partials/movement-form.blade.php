@@ -15,7 +15,8 @@
     $returnTo = $returnTo ?? null;
 @endphp
 
-<form method="POST" action="{{ $formAction }}" class="needs-validation" novalidate>
+<form method="POST" action="{{ $formAction }}" class="needs-validation" novalidate data-movement-form
+      @if ($formMovement) data-original-type="{{ $formMovement->movement_type }}" data-original-amount="{{ $formMovement->amount }}" data-original-account="{{ $formMovement->account_id }}" @endif>
     @csrf
     @if ($formMethod)
         @method($formMethod)

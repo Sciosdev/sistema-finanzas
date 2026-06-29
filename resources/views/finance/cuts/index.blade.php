@@ -21,6 +21,8 @@
     </div>
 </div>
 
+@include('finance.partials.money-overview')
+
 <div class="card">
     <div class="card-header">
         <h4 class="card-title mb-0">Nuevo corte</h4>

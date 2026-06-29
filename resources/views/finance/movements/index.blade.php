@@ -13,6 +13,8 @@
     </div>
 </div>
 
+@include('finance.partials.money-overview')
+
 {{-- 1. Nuevo movimiento --}}
 <div class="card">
     <div class="card-header">

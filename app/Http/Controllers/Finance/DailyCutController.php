@@ -52,6 +52,7 @@ class DailyCutController extends Controller
             'previousBalances' => $suggestion['previous'],
             'previousCutDate' => $suggestion['previous_cut_date'],
             'reconciliations' => $reconciliations,
+            'expectedBalances' => $this->cutSuggestions->expectedBalances($user, $accounts, today()),
         ]);
     }
 

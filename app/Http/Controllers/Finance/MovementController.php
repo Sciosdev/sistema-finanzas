@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
 use App\Models\Finance\Movement;
 use App\Services\Finance\FinanceCsvExportService;
+use App\Services\Finance\FinanceCutSuggestionService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceSummaryService;
@@ -25,6 +26,7 @@ class MovementController extends Controller
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
         private readonly FinanceCsvExportService $csvExports,
         private readonly MovementClassificationSuggestionService $suggestions,
+        private readonly FinanceCutSuggestionService $cutSuggestions,
     ) {
     }
 
@@ -66,13 +68,16 @@ class MovementController extends Controller
             ->paginate($perPage)
             ->withQueryString();
 
+        $accounts = $this->accountsFor($user);
+
         return view('finance.movements.index', [
             'movements' => $movements,
             'monthValue' => $start->format('Y-m'),
             'perPage' => $perPage,
-            'accounts' => $this->accountsFor($user),
+            'accounts' => $accounts,
             'categories' => $this->categoriesFor($user),
             'people' => $this->peopleFor($user),
+            'expectedBalances' => $this->cutSuggestions->expectedBalances($user, $accounts, today()),
         ]);
     }
 
@@ -159,13 +164,16 @@ class MovementController extends Controller
             ? $this->safeMovementsReturnTo($request, (string) $request->query('return_to'))
             : route('finance.movements.index', ['month' => $monthValue]);
 
+        $accounts = $this->accountsFor($user);
+
         return view('finance.movements.edit', [
             'movement' => $movement->load(['account', 'category', 'person']),
             'monthValue' => $monthValue,
             'returnTo' => $returnTo,
-            'accounts' => $this->accountsFor($user),
+            'accounts' => $accounts,
             'categories' => $this->categoriesFor($user),
             'people' => $this->peopleFor($user),
+            'expectedBalances' => $this->cutSuggestions->expectedBalances($user, $accounts, today()),
         ]);
     }
 
