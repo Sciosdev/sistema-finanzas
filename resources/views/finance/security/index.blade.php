@@ -211,6 +211,20 @@
                     </button>
                 </form>
             </div>
+            <div class="col-lg-6">
+                <form method="POST" action="{{ route('finance.maintenance.optimize') }}" class="border rounded p-3 h-100"
+                      onsubmit="return confirm('Se cachearán configuración, rutas y vistas para acelerar la app. ¿Continuar?');">
+                    @csrf
+                    <h6 class="mb-1">Optimizar para producción</h6>
+                    <p class="text-muted small mb-2">
+                        Equivale a <code>php artisan optimize</code> (cachea config, rutas y vistas). En hosting compartido acelera cada pantalla.
+                        <strong>Vuelve a ejecutarlo después de cada <code>git pull</code> o cambio en <code>.env</code></strong> (si no, no verás los cambios).
+                    </p>
+                    <button type="submit" class="btn btn-outline-success">
+                        <i data-lucide="rocket" class="me-1"></i>Optimizar
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 </div>

@@ -68,6 +68,24 @@ class FinanceMaintenanceController extends Controller
             ]);
     }
 
+    public function optimizeForProduction(Request $request)
+    {
+        $result = $this->maintenance->optimizeForProduction();
+
+        if (! ($result['ok'] ?? false)) {
+            $this->failures->report($request->user(), 'mantenimiento', 'optimize', 'No se pudo optimizar (cachear) la app.', [
+                'output' => substr((string) ($result['output'] ?? ''), 0, 500),
+            ]);
+        }
+
+        return redirect()
+            ->route('finance.security.index')
+            ->with($result['ok'] ? 'success' : 'error', $result['ok']
+                ? 'App optimizada: configuración, rutas y vistas quedaron cacheadas. Vuelve a ejecutarlo después de cada git pull o cambio en .env.'
+                : 'No se pudo optimizar. Revisa el detalle.')
+            ->with('maintenance_result', $result);
+    }
+
     public function clearOptimizationCache(Request $request)
     {
         $request->validate([

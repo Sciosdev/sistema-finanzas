@@ -60,6 +60,62 @@ class FinancePendingResolutionService
     }
 
     /**
+     * Solo los CONTEOS por grupo (para indicadores como el del Resumen), sin
+     * cargar las filas ni generar URLs. Coincide exactamente con el total de
+     * run()['summary'], pero es mucho más barato (consultas COUNT).
+     *
+     * @return array{total: int, groups: array<string, int>}
+     */
+    public function summaryCounts(User $user): array
+    {
+        $today = today()->startOfDay();
+        $date = $today->toDateString();
+
+        $groups = [
+            'movements_without_category' => min(200, Movement::where('user_id', $user->id)->whereNull('category_id')->count()),
+            'movements_unknown' => min(200, Movement::where('user_id', $user->id)
+                ->whereNotNull('category_id')
+                ->where(fn ($q) => $q->where('is_unknown', true)
+                    ->orWhereHas('category', fn ($c) => $c->where('name', 'Desconocido')))
+                ->count()),
+            'movements_without_person' => min(200, Movement::where('user_id', $user->id)
+                ->whereNull('person_id')
+                ->where(fn ($q) => $q->where('is_rent', true)->orWhere('is_san_juan', true))
+                ->count()),
+            'planned_overdue' => PlannedPayment::where('user_id', $user->id)
+                ->whereIn('status', ['pending', 'overdue'])
+                ->whereNotNull('due_date')->whereDate('due_date', '<', $date)
+                ->whereColumn('amount', '>', 'paid_amount')->count(),
+            'planned_paid_unlinked' => PlannedPayment::where('user_id', $user->id)
+                ->where('status', 'paid')->whereNull('movement_id')->count(),
+            'expected_incomes_overdue' => ExpectedIncome::where('user_id', $user->id)
+                ->where('is_rent', false)->whereIn('status', ['pending', 'overdue'])
+                ->whereNotNull('due_date')->whereDate('due_date', '<', $date)->count(),
+            'expected_incomes_partial' => ExpectedIncome::where('user_id', $user->id)
+                ->where('is_rent', false)->where('status', 'partial')->count(),
+            'credit_installments_overdue' => CreditInstallment::where('user_id', $user->id)
+                ->whereIn('status', ['pending', 'overdue'])
+                ->whereNotNull('due_date')->whereDate('due_date', '<', $date)
+                ->whereColumn('amount', '>', 'paid_amount')->count(),
+            'credit_free_payments_unlinked' => CreditFreePayment::where('user_id', $user->id)
+                ->whereNull('movement_id')->count(),
+            'cuts_with_difference' => DailyCut::where('user_id', $user->id)
+                ->whereNotNull('difference')->where('difference', '<>', 0)->count(),
+            'san_juan_pending' => ExpectedIncome::where('user_id', $user->id)
+                ->where('is_rent', true)
+                ->where(fn ($q) => $q->where('status', 'partial')
+                    ->orWhere(fn ($o) => $o->whereIn('status', ['pending', 'overdue'])
+                        ->whereNotNull('due_date')->whereDate('due_date', '<', $date)))
+                ->count(),
+        ];
+
+        return [
+            'total' => array_sum($groups),
+            'groups' => $groups,
+        ];
+    }
+
+    /**
      * @param array<int, array<string, mixed>> $items
      * @return array<string, mixed>
      */

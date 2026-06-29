@@ -50,7 +50,7 @@ class FinanceDashboardController extends Controller
             'previousBalances' => $cutSuggestion['previous'],
             'previousCutDate' => $cutSuggestion['previous_cut_date'],
             'creditLine' => $this->summaryService->creditLineSummary($user),
-            'pendingSummary' => $this->pending->run($user)['summary'],
+            'pendingSummary' => $this->pending->summaryCounts($user),
             'monthComparison' => $this->buildMonthComparison($summary, $previousTotals, $monthStart),
             'dashboardLayout' => $user->dashboard_layout,
         ]);

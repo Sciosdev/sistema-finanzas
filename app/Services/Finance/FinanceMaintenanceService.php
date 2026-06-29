@@ -132,6 +132,33 @@ class FinanceMaintenanceService
     }
 
     /**
+     * Cachea configuración, rutas y vistas (config:cache + route:cache +
+     * view:cache + event:cache vía `optimize`). En hosting compartido acelera
+     * MUCHO cada request porque deja de re-parsear config y re-registrar rutas.
+     * Hay que volver a ejecutarlo después de cada git pull o cambio en .env.
+     *
+     * @return array{ok: bool, action: string, output: string}
+     */
+    public function optimizeForProduction(): array
+    {
+        try {
+            $exitCode = Artisan::call('optimize');
+
+            return [
+                'ok' => $exitCode === 0,
+                'action' => 'optimize',
+                'output' => trim(Artisan::output()) ?: 'Sin salida del comando.',
+            ];
+        } catch (Throwable $exception) {
+            return [
+                'ok' => false,
+                'action' => 'optimize',
+                'output' => 'Error: ' . $exception->getMessage(),
+            ];
+        }
+    }
+
+    /**
      * Limpia las cachés de configuración, rutas, vistas y eventos.
      *
      * @return array{ok: bool, action: string, output: string}
