@@ -124,6 +124,15 @@ it('ships mobile css that stacks the dashboard one per row', function () {
         ->assertSee('finance-dashboard-grid', false);
 });
 
+it('moves the theme toggle into the user menu and hides the top buttons on mobile', function () {
+    $this->actingAs(mobileUser())
+        ->get(route('finance.dashboard'))
+        ->assertOk()
+        ->assertSee('Tema claro / oscuro')          // toggle ahora dentro del menú "A"
+        ->assertSee('id="light-dark-mode"', false)
+        ->assertSee('d-none d-md-flex', false);      // Menú/Capturar ocultos en teléfono
+});
+
 it('focuses the capture form only when arriving with capture=1', function () {
     $user = mobileUser();
 

@@ -1,7 +1,9 @@
 <header class="topbar d-flex">
      <div class="container-fluid">
           <div class="navbar-header">
-               <div class="d-flex align-items-center gap-2">
+               {{-- En teléfono (<768px) estos botones se ocultan: la barra inferior
+                    ya trae "Más" (menú) y "Capturar". En tablet/escritorio se mantienen. --}}
+               <div class="d-none d-md-flex align-items-center gap-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary button-toggle-menu d-xl-none" aria-label="Mostrar menú" aria-expanded="false">
                          <i data-lucide="menu" class="me-1"></i>Menú
                     </button>
@@ -11,13 +13,6 @@
                </div>
 
                <div class="d-flex align-items-center gap-2 ms-auto">
-                    <div class="topbar-item">
-                         <button type="button" class="topbar-button fs-24" id="light-dark-mode">
-                              <i data-lucide="moon" class="light-mode"></i>
-                              <i data-lucide="sun" class="dark-mode"></i>
-                         </button>
-                    </div>
-
                     <div class="dropdown topbar-item">
                          <a type="button" class="topbar-button p-0" id="page-header-user-dropdown" data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                               <span class="d-flex align-items-center gap-2">
@@ -30,6 +25,12 @@
                               </span>
                          </a>
                          <div class="dropdown-menu dropdown-menu-end">
+                              <button type="button" id="light-dark-mode" class="dropdown-item d-flex align-items-center">
+                                   <i data-lucide="moon" class="light-mode fs-16 text-muted me-2"></i>
+                                   <i data-lucide="sun" class="dark-mode fs-16 text-muted me-2"></i>
+                                   <span class="align-middle">Tema claro / oscuro</span>
+                              </button>
+                              <div class="dropdown-divider my-1"></div>
                               <a class="dropdown-item" href="{{ route('finance.dashboard') }}">
                                    <i data-lucide="layout-dashboard" class="fs-16 text-muted align-middle me-2"></i><span class="align-middle">Resumen</span>
                               </a>
