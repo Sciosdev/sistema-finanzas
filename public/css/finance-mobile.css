@@ -150,4 +150,22 @@
     .finance-mobile-list .finance-mobile-row:last-child {
         border-bottom: 0 !important;
     }
+
+    /* Resumen: una tarjeta por fila y sin el panel de tamaño 1/2/3/4 del modo
+       Diseño (no tiene sentido en teléfono; el reordenar y ocultar sí sirven). */
+    .finance-dashboard-grid .dashboard-widget {
+        flex: 0 0 100% !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .finance-dashboard-grid .dashboard-widget-size-panel {
+        display: none !important;
+    }
+
+    /* Hero del Resumen: pastillas a ancho completo para que no se aprieten. */
+    .finance-hero .finance-hero-pill {
+        flex: 1 1 100%;
+        min-width: 0;
+    }
 }

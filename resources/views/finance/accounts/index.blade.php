@@ -152,7 +152,7 @@
         <span class="badge bg-primary-subtle text-primary">{{ $accounts->where('is_active', true)->count() }} activas</span>
     </div>
     <div class="card-body p-0">
-        <div class="table-responsive">
+        <div class="table-responsive d-none d-md-block">
             <table class="table table-hover align-middle mb-0">
                 <thead>
                     <tr>
@@ -225,6 +225,70 @@
                     @endforeach
                 </tbody>
             </table>
+        </div>
+
+        {{-- Vista móvil: una tarjeta editable por cuenta (form propio por tarjeta). --}}
+        <div class="d-md-none finance-mobile-list">
+            @foreach ($accounts as $account)
+                @php($formId = 'account_form_m_' . $account->id)
+                <div class="finance-mobile-row px-3 py-3 border-bottom">
+                    <form id="{{ $formId }}" method="POST" action="{{ route('finance.accounts.update', $account) }}">
+                        @csrf
+                        @method('PUT')
+                    </form>
+                    <div class="d-flex align-items-center gap-2 mb-2">
+                        <span class="rounded-circle d-inline-block flex-shrink-0" style="width: 14px; height: 14px; background: {{ $account->color ?: '#4d5761' }}"></span>
+                        <input form="{{ $formId }}" type="text" name="name" class="form-control form-control-sm fw-semibold" value="{{ $account->name }}" required>
+                    </div>
+                    <div class="row g-2">
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Tipo</label>
+                            <select form="{{ $formId }}" name="type" class="form-select form-select-sm" required>
+                                @foreach ($typeOptions as $type => $label)
+                                    <option value="{{ $type }}" @selected($account->type === $type)>{{ $label }}</option>
+                                @endforeach
+                            </select>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Estado</label>
+                            <input form="{{ $formId }}" type="hidden" name="is_active" value="0">
+                            <div class="form-check form-switch pt-1">
+                                <input form="{{ $formId }}" class="form-check-input" type="checkbox" name="is_active" value="1" id="account_active_m_{{ $account->id }}" @checked($account->is_active)>
+                                <label class="form-check-label small" for="account_active_m_{{ $account->id }}">{{ $account->is_active ? 'Activa' : 'Inactiva' }}</label>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Color</label>
+                            <input form="{{ $formId }}" type="color" name="color" class="form-control form-control-color form-control-sm w-100" value="{{ $account->color ?: '#4d5761' }}">
+                        </div>
+                        <div class="col-6">
+                            <label class="form-label small mb-1">Orden</label>
+                            <input form="{{ $formId }}" type="number" name="display_order" class="form-control form-control-sm" min="0" max="9999" value="{{ $account->display_order }}">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small mb-1">Límite</label>
+                            <input form="{{ $formId }}" type="number" name="credit_limit" class="form-control form-control-sm" step="0.01" min="0" value="{{ $account->credit_limit }}" placeholder="-">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small mb-1">Corte</label>
+                            <input form="{{ $formId }}" type="number" name="statement_day" class="form-control form-control-sm" min="1" max="31" value="{{ $account->statement_day }}" placeholder="-">
+                        </div>
+                        <div class="col-4">
+                            <label class="form-label small mb-1">Pago</label>
+                            <input form="{{ $formId }}" type="number" name="payment_day" class="form-control form-control-sm" min="1" max="31" value="{{ $account->payment_day }}" placeholder="-">
+                        </div>
+                        <div class="col-12">
+                            <label class="form-label small mb-1">Notas</label>
+                            <input form="{{ $formId }}" type="text" name="notes" class="form-control form-control-sm" value="{{ $account->notes }}">
+                        </div>
+                    </div>
+                    <div class="d-grid mt-2">
+                        <button form="{{ $formId }}" type="submit" class="btn btn-sm btn-outline-primary">
+                            <i data-lucide="save" class="me-1"></i>Guardar
+                        </button>
+                    </div>
+                </div>
+            @endforeach
         </div>
     </div>
 </div>

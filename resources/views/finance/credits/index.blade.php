@@ -489,7 +489,7 @@
                         <h5 class="mb-0">Ver abonos libres</h5>
                         <span class="badge badge-soft-info">{{ $money($creditFreePaid) }}</span>
                     </div>
-                    <div class="table-responsive">
+                    <div class="table-responsive d-none d-md-block">
                         <table class="table table-sm mb-0">
                             <thead>
                                 <tr>
@@ -532,11 +532,40 @@
                             </tbody>
                         </table>
                     </div>
+                    <div class="d-md-none finance-mobile-list">
+                        @forelse ($credit->freePayments->sortByDesc('paid_on') as $payment)
+                            <div class="finance-mobile-row d-flex justify-content-between align-items-start gap-2 py-2 border-bottom">
+                                <div style="min-width: 0;">
+                                    <div class="fw-semibold">
+                                        {{ $payment->paid_on->format('Y-m-d') }}
+                                        <span class="text-danger ms-1">{{ $money($payment->amount_applied) }}</span>
+                                    </div>
+                                    <div class="text-muted small">
+                                        @if ($payment->movement)
+                                            {{ $payment->movement->description }} · {{ $payment->movement->account?->name ?? $credit->account?->name ?? 'Sin cuenta' }}
+                                        @else
+                                            <span class="badge badge-soft-warning">Sin movimiento ligado</span>
+                                        @endif
+                                        @if ($payment->notes) · {{ $payment->notes }} @endif
+                                    </div>
+                                </div>
+                                <form method="POST" action="{{ route('finance.credits.free-payments.destroy', $payment) }}" onsubmit="return confirm('¿Eliminar este abono libre? Podrás deshacerlo durante 2 minutos.')">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar abono">
+                                        <i data-lucide="trash-2"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        @empty
+                            <p class="text-center text-muted py-3 mb-0">Sin abonos libres</p>
+                        @endforelse
+                    </div>
                 </div>
             </div>
         </div>
         <div class="card-body p-0">
-            <div class="table-responsive">
+            <div class="table-responsive d-none d-md-block">
                 <table class="table table-sm table-hover mb-0">
                     <thead>
                         <tr>
@@ -609,6 +638,75 @@
                         @endforeach
                     </tbody>
                 </table>
+            </div>
+
+            {{-- Vista móvil: una tarjeta por mensualidad (form propio por tarjeta). --}}
+            <div class="d-md-none finance-mobile-list">
+                @foreach ($credit->installments as $installment)
+                    @php($installmentFormId = 'installment-form-m-' . $installment->id)
+                    <div class="finance-mobile-row px-3 py-3 border-bottom">
+                        <form id="{{ $installmentFormId }}" method="POST" action="{{ route('finance.credits.installments.update', $installment) }}">
+                            @csrf
+                            @method('PUT')
+                        </form>
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <span class="fw-semibold">Mensualidad {{ $installment->installment_number }}</span>
+                            <span class="badge {{ $installment->status === 'paid' ? 'badge-soft-success' : 'badge-soft-secondary' }}">
+                                {{ $installment->status === 'paid' ? 'Pagado' : 'Pendiente' }}
+                            </span>
+                        </div>
+                        <div class="row g-2">
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Mes</label>
+                                <input form="{{ $installmentFormId }}" type="month" name="period_month" class="form-control form-control-sm" value="{{ $installment->period_month->format('Y-m') }}" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Vence</label>
+                                <input form="{{ $installmentFormId }}" type="date" name="due_date" class="form-control form-control-sm" value="{{ $installment->due_date?->format('Y-m-d') }}">
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Monto</label>
+                                <input form="{{ $installmentFormId }}" type="number" name="amount" class="form-control form-control-sm text-end" step="0.01" min="0.01" value="{{ $installment->amount }}" required>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Estado</label>
+                                <select form="{{ $installmentFormId }}" name="status" class="form-select form-select-sm">
+                                    <option value="pending" @selected($installment->status !== 'paid')>Pendiente</option>
+                                    <option value="paid" @selected($installment->status === 'paid')>Pagado</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label class="form-label small mb-1">Pagado el</label>
+                                <input form="{{ $installmentFormId }}" type="date" name="paid_on" class="form-control form-control-sm" value="{{ $installment->paid_on?->format('Y-m-d') }}">
+                            </div>
+                            <div class="col-12">
+                                <label class="form-label small mb-1">Notas</label>
+                                <input form="{{ $installmentFormId }}" type="text" name="notes" class="form-control form-control-sm" value="{{ $installment->notes }}">
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2 mt-2">
+                            <button form="{{ $installmentFormId }}" type="submit" class="btn btn-sm btn-success flex-grow-1">
+                                <i data-lucide="save" class="me-1"></i>Guardar
+                            </button>
+                            @if ($installment->status !== 'paid')
+                                <form method="POST" action="{{ route('finance.credits.installments.paid', $installment) }}">
+                                    @csrf
+                                    <input type="hidden" name="paid_on" value="{{ $installment->due_date?->format('Y-m-d') ?? now()->toDateString() }}">
+                                    <button type="submit" class="btn btn-sm btn-primary" title="Pagado y crear movimiento">
+                                        <i data-lucide="check"></i>
+                                    </button>
+                                </form>
+                            @endif
+                            <form method="POST" action="{{ route('finance.credits.installments.destroy', $installment) }}">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="btn btn-sm btn-outline-danger" title="Eliminar mensualidad">
+                                    <i data-lucide="trash-2"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                @endforeach
             </div>
         </div>
     </div>
