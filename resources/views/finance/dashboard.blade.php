@@ -249,6 +249,17 @@
         }
     }
 
+    /* Entre tablet y escritorio chico (768–1199px) los cuadros anchos
+       (col-xl-5/6/7) no tienen ancho de Bootstrap propio: sin esto se encogen
+       al contenido y se descuadran. Una tarjeta por fila en ese rango, igual
+       que en móvil (< 768px ya lo resuelve finance-mobile.css). */
+    @media (min-width: 768px) and (max-width: 1199.98px) {
+        .finance-dashboard-grid .dashboard-widget:not([class*="col-md-"]):not(.col-12) {
+            flex: 0 0 100%;
+            max-width: 100%;
+        }
+    }
+
     @media (max-width: 575.98px) {
         .dashboard-widget-size-panel {
             left: .5rem;
@@ -1658,25 +1669,17 @@
             persistLayout();
         };
 
-        const defaultSizeFor = (widget) => {
-            if (widget.classList.contains('col-12')) {
-                return 1;
-            }
+        // Un cuadro queda "fijado" cuando el usuario le eligió un tamaño con los
+        // botones 1/2/3/4. En ese caso el tamaño manual gana: el auto-ajuste ya
+        // no lo estira y conserva exactamente el ancho que pediste.
+        const isPinned = (widget) =>
+            Object.prototype.hasOwnProperty.call(readSizes(), widget.dataset.dashboardWidget);
 
-            if (
-                widget.classList.contains('col-xl-5')
-                || widget.classList.contains('col-xl-6')
-                || widget.classList.contains('col-xl-7')
-            ) {
-                return 2;
-            }
-
-            if (widget.classList.contains('col-xl-4')) {
-                return 3;
-            }
-
-            return 4;
-        };
+        // Tamaño estándar (1–4) que corresponde al ancho actual del cuadro, o 0
+        // si su ancho no es uno de los estándar (los pares col-xl-7 / col-xl-5
+        // no son representables con los botones, así que no se resalta ninguno).
+        const columnsToSize = { 12: 1, 6: 2, 4: 3, 3: 4 };
+        const activeSizeFor = (widget) => columnsToSize[classColumnsFor(widget)] || 0;
 
         const setSizeButtonState = (widget, size) => {
             widget.querySelectorAll('[data-dashboard-size]').forEach((button) => {
@@ -1713,9 +1716,18 @@
                 return;
             }
 
-            const extraColumns = (12 - columns) / row.length;
+            // El tamaño manual gana: los cuadros fijados conservan su ancho
+            // exacto y no se estiran. El espacio sobrante de la fila se reparte
+            // solo entre los cuadros que siguen en automático.
+            const flexible = row.filter((item) => !item.pinned);
 
-            row.forEach((item) => {
+            if (!flexible.length) {
+                return;
+            }
+
+            const extraColumns = (12 - columns) / flexible.length;
+
+            flexible.forEach((item) => {
                 const width = ((item.columns + extraColumns) / 12) * 100;
                 item.widget.style.setProperty('--dashboard-smart-width', `${width.toFixed(4)}%`);
                 item.widget.dataset.dashboardSmartWidth = 'true';
@@ -1742,7 +1754,7 @@
                     columns = 0;
                 }
 
-                row.push({ widget, columns: widgetColumns });
+                row.push({ widget, columns: widgetColumns, pinned: isPinned(widget) });
                 columns += widgetColumns;
 
                 if (columns >= 12) {
@@ -1774,15 +1786,37 @@
                 if (savedSize) {
                     applySize(widget, savedSize, false);
                 } else {
-                    widget.dataset.dashboardSize = String(defaultSizeFor(widget));
+                    const natural = activeSizeFor(widget);
+
+                    if (natural) {
+                        widget.dataset.dashboardSize = String(natural);
+                    } else {
+                        delete widget.dataset.dashboardSize;
+                    }
                 }
             });
         };
 
         const restoreOrder = () => {
-            const order = Array.isArray(layout.order) ? layout.order : [];
+            const saved = (Array.isArray(layout.order) ? layout.order : [])
+                .filter((id) => grid.querySelector(`[data-dashboard-widget="${id}"]`));
 
-            order.forEach((id) => {
+            if (!saved.length) {
+                return;
+            }
+
+            // Los cuadros que aparecen/desaparecen según los datos del mes
+            // (crédito disponible, detalle del indicador, San Juan, etc.) no
+            // siempre están en el orden guardado. En vez de empujarlos al frente,
+            // reordenamos solo los cuadros guardados entre sí y dejamos a los
+            // demás en su posición original.
+            const originalIds = widgets().map((widget) => widget.dataset.dashboardWidget);
+            const known = new Set(saved);
+            let savedIndex = 0;
+
+            const finalOrder = originalIds.map((id) => (known.has(id) ? saved[savedIndex++] : id));
+
+            finalOrder.forEach((id) => {
                 const widget = grid.querySelector(`[data-dashboard-widget="${id}"]`);
 
                 if (widget) {
@@ -1866,7 +1900,7 @@
             });
 
             card.appendChild(sizePanel);
-            setSizeButtonState(widget, Number(widget.dataset.dashboardSize || defaultSizeFor(widget)));
+            setSizeButtonState(widget, Number(widget.dataset.dashboardSize) || activeSizeFor(widget));
         });
 
         if (window.lucide) {
