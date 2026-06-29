@@ -25,6 +25,8 @@
 
         </div>
 
+        @include('layouts.partials.mobile-bottom-nav')
+
         @include('layouts.partials.vendor-scripts')
 
     </body>

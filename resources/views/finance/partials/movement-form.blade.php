@@ -41,7 +41,7 @@
         </div>
         <div class="col-md-3">
             <label class="form-label">Monto</label>
-            <input type="number" name="amount" class="form-control" step="0.01" min="0.01" value="{{ $amountValue }}" required>
+            <input type="number" name="amount" class="form-control" step="0.01" min="0.01" inputmode="decimal" value="{{ $amountValue }}" required>
         </div>
         <div class="col-md-3">
             <label class="form-label">Cuenta</label>

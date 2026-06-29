@@ -16,7 +16,7 @@
 @include('finance.partials.money-overview')
 
 {{-- 1. Nuevo movimiento --}}
-<div class="card">
+<div class="card" id="nuevo-movimiento">
     <div class="card-header">
         <h4 class="card-title mb-0">Nuevo movimiento</h4>
     </div>
@@ -119,7 +119,7 @@
             <span>Egresos <strong class="text-danger">{{ $money($filterTotals['expense']) }}</strong></span>
             <span>Neto <strong class="{{ $filterTotals['net'] >= 0 ? 'text-success' : 'text-danger' }}">{{ $money($filterTotals['net']) }}</strong></span>
         </div>
-        <div class="table-responsive">
+        <div class="table-responsive d-none d-md-block">
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
@@ -216,6 +216,57 @@
                     </tfoot>
                 @endif
             </table>
+        </div>
+
+        {{-- Vista móvil: tarjetas apiladas en vez de tabla ancha. --}}
+        <div class="d-md-none finance-mobile-list">
+            @forelse ($movements->groupBy(fn ($movement) => $movement->happened_on->format('Y-m-d')) as $day => $dayMovements)
+                @php
+                    $dayIncome = $dayMovements->whereIn('movement_type', ['income', 'yield'])->sum(fn ($m) => (float) $m->amount);
+                    $dayExpense = $dayMovements->where('movement_type', 'expense')->sum(fn ($m) => (float) $m->amount);
+                    $dayNet = $dayIncome - $dayExpense;
+                @endphp
+                <div class="px-3 py-2 bg-body-tertiary border-bottom d-flex justify-content-between align-items-center">
+                    <span class="fw-semibold small">{{ \Illuminate\Support\Str::ucfirst(\Carbon\Carbon::parse($day)->translatedFormat('l d M')) }}</span>
+                    <span class="small fw-semibold {{ $dayNet >= 0 ? 'text-success' : 'text-danger' }}">{{ $money($dayNet) }}</span>
+                </div>
+                @foreach ($dayMovements as $movement)
+                    <div class="finance-mobile-row d-flex align-items-start gap-2 px-3 py-2 border-bottom">
+                        <input type="checkbox" name="ids[]" value="{{ $movement->id }}" form="bulk-movements-form" class="form-check-input bulk-row-check mt-1">
+                        <div class="flex-grow-1" style="min-width: 0;">
+                            <div class="d-flex justify-content-between gap-2">
+                                <span class="fw-semibold text-truncate">
+                                    {{ $movement->description }}
+                                    @if ($movement->is_unknown)<span class="badge badge-soft-dark ms-1">?</span>@endif
+                                    @if ($movement->is_san_juan)<span class="badge badge-soft-danger ms-1">SNJ</span>@endif
+                                    @if ($movement->is_rent)<span class="badge badge-soft-success ms-1">Renta</span>@endif
+                                </span>
+                                <span class="fw-bold text-nowrap {{ $movement->movement_type === 'expense' ? 'text-danger' : 'text-success' }}">{{ $money($movement->amount) }}</span>
+                            </div>
+                            <div class="text-muted small d-flex flex-wrap gap-1 mt-1">
+                                <span>{{ \App\Support\FinanceLabels::movementType($movement->movement_type) }}</span>
+                                @if ($movement->account)<span>· {{ $movement->account->name }}</span>@endif
+                                @if ($movement->category)<span>· {{ $movement->category->name }}</span>@endif
+                                @if ($movement->person)<span>· {{ $movement->person->name }}</span>@endif
+                            </div>
+                        </div>
+                        <div class="d-flex flex-column align-items-center gap-2">
+                            <a href="{{ route('finance.movements.edit', ['movement' => $movement, 'month' => $monthValue, 'return_to' => request()->fullUrl()]) }}" class="btn btn-sm btn-link text-primary p-0" title="Editar">
+                                <i data-lucide="pencil"></i>
+                            </a>
+                            <form method="POST" action="{{ route('finance.movements.destroy', $movement) }}" onsubmit="return confirm('¿Eliminar este movimiento? Podrás deshacerlo durante 2 minutos.')">
+                                @csrf
+                                @method('DELETE')
+                                <button type="submit" class="btn btn-sm btn-link text-danger p-0" title="Eliminar">
+                                    <i data-lucide="trash-2"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                @endforeach
+            @empty
+                <p class="text-center text-muted py-4 mb-0">Sin movimientos</p>
+            @endforelse
         </div>
     </div>
     @if ($movements->hasPages())
@@ -364,5 +415,19 @@
         }
         return confirm('Se aplicarán los cambios a ' + checked + ' movimiento(s) seleccionados. ¿Continuar?');
     };
+
+@if (request()->boolean('capture'))
+    // Captura rápida (barra inferior móvil): enfoca el monto y baja al formulario.
+    document.addEventListener('DOMContentLoaded', function () {
+        var card = document.getElementById('nuevo-movimiento');
+        var amount = document.querySelector('[data-movement-form] [name="amount"]');
+        if (card) {
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+        if (amount) {
+            amount.focus();
+        }
+    });
+@endif
 </script>
 @endsection

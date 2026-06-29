@@ -1,0 +1,133 @@
+/* =========================================================================
+   Finanzas — capa móvil (teléfono < 768px).
+   Archivo estático servido tal cual (no pasa por Vite), así se despliega con
+   git pull. Solo afecta presentación en pantallas chicas; el diseño de PC
+   (>= 768px) queda intacto.
+   ========================================================================= */
+
+/* --- Barra inferior de pestañas ----------------------------------------- */
+.finance-bottom-nav {
+    display: flex;
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 1040;
+    align-items: stretch;
+    justify-content: space-around;
+    gap: 0;
+    padding: .25rem .25rem calc(.25rem + env(safe-area-inset-bottom, 0px));
+    background: var(--bs-body-bg, #0f172a);
+    border-top: 1px solid var(--bs-border-color, rgba(148, 163, 184, .25));
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, .18);
+}
+
+.finance-bottom-nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    flex: 1 1 0;
+    min-width: 0;
+    padding: .35rem .25rem;
+    border: 0;
+    background: transparent;
+    color: var(--bs-secondary-color, #94a3b8);
+    font-size: .68rem;
+    line-height: 1;
+    text-decoration: none;
+    text-align: center;
+}
+
+.finance-bottom-nav-item span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.finance-bottom-nav-item svg,
+.finance-bottom-nav-item [data-lucide] {
+    width: 22px;
+    height: 22px;
+}
+
+.finance-bottom-nav-item.active {
+    color: var(--bs-primary, #22b956);
+    font-weight: 600;
+}
+
+/* Botón central "Capturar" elevado */
+.finance-bottom-nav-capture {
+    color: var(--bs-primary, #22b956);
+}
+
+.finance-bottom-nav-fab {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 46px;
+    height: 46px;
+    margin-top: -22px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    background: var(--bs-primary, #22b956);
+    color: #fff;
+    box-shadow: 0 6px 16px rgba(34, 185, 86, .45);
+}
+
+.finance-bottom-nav-fab svg,
+.finance-bottom-nav-fab [data-lucide] {
+    width: 24px;
+    height: 24px;
+}
+
+/* =========================================================================
+   Ajustes solo para teléfono.
+   ========================================================================= */
+@media (max-width: 767.98px) {
+    /* Que la barra inferior no tape el contenido ni el footer. */
+    .page-content {
+        padding-bottom: 5.25rem !important;
+    }
+
+    .footer {
+        margin-bottom: 4.5rem;
+    }
+
+    /* Tarjetas más compactas y de borde a borde para aprovechar el ancho. */
+    .page-content .card {
+        border-radius: .6rem;
+    }
+
+    .page-content .card-body {
+        padding: .85rem;
+    }
+
+    /* Targets de toque cómodos en formularios. */
+    .page-content .form-control,
+    .page-content .form-select {
+        min-height: 44px;
+        font-size: 1rem; /* evita el zoom automático de iOS al enfocar */
+    }
+
+    .page-content .btn {
+        min-height: 42px;
+    }
+
+    /* Botones de acción en fila no se encimen. */
+    .page-content .btn-sm {
+        min-height: 36px;
+    }
+
+    /* Encabezados un poco más chicos. */
+    .page-content h4.fw-semibold {
+        font-size: 1.15rem;
+    }
+
+    /* Filas/tarjetas móviles de listas: separadores claros. */
+    .finance-mobile-list .finance-mobile-row:last-child {
+        border-bottom: 0 !important;
+    }
+}
