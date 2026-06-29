@@ -40,6 +40,10 @@ class DailyCutController extends Controller
         $accounts = $this->accountsFor($user);
         $suggestion = $this->cutSuggestions->suggest($user, $accounts, today());
 
+        $reconciliations = $cuts->mapWithKeys(fn (DailyCut $cut) => [
+            $cut->id => $this->cutSuggestions->reconciliationFor($cut),
+        ])->all();
+
         return view('finance.cuts.index', [
             'cuts' => $cuts,
             'monthValue' => $start->format('Y-m'),
@@ -47,6 +51,7 @@ class DailyCutController extends Controller
             'suggestedBalances' => $suggestion['suggested'],
             'previousBalances' => $suggestion['previous'],
             'previousCutDate' => $suggestion['previous_cut_date'],
+            'reconciliations' => $reconciliations,
         ]);
     }
 

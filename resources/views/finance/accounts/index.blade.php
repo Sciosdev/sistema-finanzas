@@ -96,6 +96,53 @@
     @endforeach
 </div>
 
+@php
+    $money = fn ($value) => '$' . number_format((float) $value, 2);
+@endphp
+
+<div class="card">
+    <div class="card-header">
+        <h4 class="card-title mb-1"><i data-lucide="wallet" class="me-1"></i>Saldo esperado por cuenta</h4>
+        <p class="text-muted mb-0 small">
+            Lo que <strong>deberías</strong> tener hoy según lo que has capturado: saldo del último corte + ingresos − egresos posteriores.
+            Compáralo con tu dinero real; si no cuadra, te faltó registrar algo o hubo una diferencia.
+        </p>
+    </div>
+    <div class="card-body">
+        <div class="row g-3">
+            @forelse ($accounts->where('is_active', true) as $account)
+                @php($eb = $expectedBalances[$account->id] ?? ['expected' => 0, 'baseline' => 0, 'delta' => 0, 'since' => null, 'from_cut' => false])
+                <div class="col-xl-3 col-md-4 col-sm-6">
+                    <div class="border rounded p-3 h-100">
+                        <div class="d-flex align-items-center gap-2 mb-1">
+                            <span class="rounded-circle d-inline-block" style="width: 12px; height: 12px; background: {{ $account->color ?: '#4d5761' }}"></span>
+                            <span class="fw-semibold text-truncate">{{ $account->name }}</span>
+                            <span class="badge bg-secondary-subtle text-secondary ms-auto">{{ $typeOptions[$account->type] ?? ucfirst($account->type) }}</span>
+                        </div>
+                        <div class="fs-4 fw-bold {{ $eb['expected'] >= 0 ? 'text-success' : 'text-danger' }}">{{ $money($eb['expected']) }}</div>
+                        <div class="text-muted small">
+                            @if ($eb['from_cut'])
+                                Desde corte {{ $eb['since']->format('d/m/Y') }}
+                            @else
+                                Desde saldo inicial
+                            @endif
+                            · movimientos {{ $eb['delta'] >= 0 ? '+' : '−' }}{{ $money(abs($eb['delta'])) }}
+                        </div>
+                    </div>
+                </div>
+            @empty
+                <div class="col-12">
+                    <p class="text-muted mb-0">No hay cuentas activas para mostrar saldos.</p>
+                </div>
+            @endforelse
+        </div>
+        <div class="alert alert-secondary mt-3 mb-0 small">
+            <i data-lucide="info" class="me-1"></i>
+            Este saldo se calcula igual que el prellenado del <strong>Corte</strong>, así que ambos coinciden. Es solo informativo: no modifica tus cuentas ni tus movimientos.
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
         <div>

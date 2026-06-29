@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Finance;
 use App\Http\Controllers\Controller;
 use App\Models\Finance\Account;
 use App\Services\Finance\FinanceCatalogService;
+use App\Services\Finance\FinanceCutSuggestionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -47,6 +48,7 @@ class AccountController extends Controller
 
     public function __construct(
         private readonly FinanceCatalogService $catalogs,
+        private readonly FinanceCutSuggestionService $cutSuggestions,
     ) {
     }
 
@@ -63,6 +65,7 @@ class AccountController extends Controller
         return view('finance.accounts.index', [
             'accounts' => $accounts,
             'typeOptions' => Account::typeOptions(),
+            'expectedBalances' => $this->cutSuggestions->expectedBalances($user, $accounts, today()),
         ]);
     }
 
