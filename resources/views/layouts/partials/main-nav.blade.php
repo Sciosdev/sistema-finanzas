@@ -215,7 +215,7 @@
                pull -> sitio). Si en el sitio en vivo ves esta versión, el deploy
                llegó correctamente. --}}
           <div class="text-center text-muted small py-3" style="opacity:.55; letter-spacing:.03em;">
-               v1.4.0 · K9X2
+               v1.4.1
           </div>
      </div>
 </div>

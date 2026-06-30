@@ -1484,7 +1484,13 @@
             const parsed = JSON.parse(grid.dataset.serverLayout || 'null');
             if (parsed && typeof parsed === 'object') {
                 layout.order = Array.isArray(parsed.order) ? parsed.order : [];
-                layout.sizes = (parsed.sizes && typeof parsed.sizes === 'object') ? parsed.sizes : {};
+                // PHP devuelve un objeto de tamaños vacío como [] (array). Si lo
+                // dejáramos como array, asignarle claves de texto (los ids de los
+                // cuadros) se perdería al serializar con JSON.stringify y los
+                // tamaños NUNCA se guardarían. Forzamos siempre un objeto plano.
+                layout.sizes = (parsed.sizes && typeof parsed.sizes === 'object' && !Array.isArray(parsed.sizes))
+                    ? parsed.sizes
+                    : {};
                 layout.hidden = Array.isArray(parsed.hidden) ? parsed.hidden : [];
                 layout.autoLayout = parsed.autoLayout !== false;
             }
@@ -1698,10 +1704,19 @@
             readHidden().slice().forEach((id) => restoreWidget(id));
         });
 
-        const readSizes = () => (layout.sizes && typeof layout.sizes === 'object' ? layout.sizes : {});
+        const readSizes = () => {
+            // Si layout.sizes quedó como array (p. ej. [] que devuelve PHP cuando
+            // está vacío), lo normalizamos a objeto plano: de lo contrario las
+            // claves de texto se pierden al serializar y los tamaños no se guardan.
+            if (!layout.sizes || typeof layout.sizes !== 'object' || Array.isArray(layout.sizes)) {
+                layout.sizes = {};
+            }
+
+            return layout.sizes;
+        };
 
         const saveSize = (widget, size) => {
-            layout.sizes[widget.dataset.dashboardWidget] = Number(size);
+            readSizes()[widget.dataset.dashboardWidget] = Number(size);
             persistLayout(true);
         };
 
