@@ -1493,31 +1493,67 @@
         }
 
         let persistTimer = null;
+        let pendingSave = false;
+
+        // Envía la distribución al servidor. `keepalive` permite que el POST
+        // sobreviva a un F5 o a cerrar la pestaña (se usa al vaciar pendientes).
+        const sendLayout = (keepalive) => {
+            pendingSave = false;
+            fetch(saveUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': csrfToken,
+                    'Accept': 'application/json',
+                },
+                credentials: 'same-origin',
+                keepalive: !!keepalive,
+                body: JSON.stringify({ layout: layout }),
+            }).then((response) => {
+                // Si el guardado falla (p. ej. 419 sesión/CSRF caducada) dejamos
+                // la marca de pendiente para reintentar al salir, y avisamos.
+                if (!response.ok) {
+                    pendingSave = true;
+                    console.warn('No se pudo guardar la distribución del Resumen (HTTP ' + response.status + ').');
+                }
+            }).catch(() => {
+                pendingSave = true;
+            });
+        };
+
         const persistLayout = (immediate) => {
             if (!saveUrl) {
                 return;
             }
 
             clearTimeout(persistTimer);
-            const send = () => {
-                fetch(saveUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'X-CSRF-TOKEN': csrfToken,
-                        'Accept': 'application/json',
-                    },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ layout: layout }),
-                }).catch(() => {});
-            };
+            pendingSave = true;
 
             if (immediate) {
-                send();
+                sendLayout(false);
             } else {
-                persistTimer = setTimeout(send, 400);
+                persistTimer = setTimeout(() => sendLayout(false), 400);
             }
         };
+
+        // Vacía cualquier guardado pendiente antes de que la página se descargue
+        // (F5, navegar, cerrar pestaña). Sin esto, cambiar un tamaño y recargar
+        // rápido perdía el cambio porque el guardado iba con retardo de 400 ms.
+        const flushLayout = () => {
+            if (!saveUrl || !pendingSave) {
+                return;
+            }
+
+            clearTimeout(persistTimer);
+            sendLayout(true);
+        };
+
+        window.addEventListener('pagehide', flushLayout);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                flushLayout();
+            }
+        });
 
         let smartLayoutEnabled = layout.autoLayout !== false;
         const sizeOptions = {
@@ -1565,7 +1601,7 @@
 
         const saveHidden = (ids) => {
             layout.hidden = ids;
-            persistLayout();
+            persistLayout(true);
         };
 
         const isHidden = (widget) => widget.classList.contains('dashboard-widget-hidden');
@@ -1666,7 +1702,7 @@
 
         const saveSize = (widget, size) => {
             layout.sizes[widget.dataset.dashboardWidget] = Number(size);
-            persistLayout();
+            persistLayout(true);
         };
 
         // Un cuadro queda "fijado" cuando el usuario le eligió un tamaño con los
@@ -1971,7 +2007,7 @@
             autoLayoutButton.addEventListener('click', () => {
                 smartLayoutEnabled = !smartLayoutEnabled;
                 layout.autoLayout = smartLayoutEnabled;
-                persistLayout();
+                persistLayout(true);
                 applySmartLayout();
                 updateAutoLayoutButton();
             });
