@@ -391,8 +391,14 @@
 </div>
 
 <div class="card">
-    <div class="card-header">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
         <h4 class="card-title mb-0">Pagos del mes</h4>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="text-muted small"><i data-lucide="filter" class="me-1"></i>Estado:</span>
+            <button type="button" class="btn btn-sm btn-outline-warning" data-planned-filter="pending">Pendiente</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-planned-filter="paid">Pagado</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-planned-filter="all">Todos</button>
+        </div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -437,7 +443,7 @@
                                 default => 'badge-soft-primary',
                             };
                         @endphp
-                        <tr>
+                        <tr data-planned-row data-paid="{{ $payment->status === 'paid' ? '1' : '0' }}">
                             <td>{{ $payment->due_date?->format('Y-m-d') ?? '-' }}</td>
                             <td>
                                 {{ $payment->name }}
@@ -549,11 +555,17 @@
 </div>
 
 <div class="card">
-    <div class="card-header d-flex align-items-center justify-content-between">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
         <h4 class="card-title mb-0">Mensualidades de créditos</h4>
-        <a href="{{ route('finance.credits.index') }}" class="btn btn-sm btn-outline-primary">
-            <i data-lucide="credit-card" class="me-1"></i>Créditos
-        </a>
+        <div class="d-flex flex-wrap align-items-center gap-2">
+            <span class="text-muted small"><i data-lucide="filter" class="me-1"></i>Estado:</span>
+            <button type="button" class="btn btn-sm btn-outline-warning" data-planned-filter="pending">Pendiente</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-planned-filter="paid">Pagado</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-planned-filter="all">Todos</button>
+            <a href="{{ route('finance.credits.index') }}" class="btn btn-sm btn-outline-primary">
+                <i data-lucide="credit-card" class="me-1"></i>Créditos
+            </a>
+        </div>
     </div>
     <div class="card-body p-0">
         <div class="table-responsive">
@@ -594,7 +606,7 @@
                                 default => 'badge-soft-primary',
                             };
                         @endphp
-                        <tr>
+                        <tr data-planned-row data-paid="{{ $installment->status === 'paid' ? '1' : '0' }}">
                             <td>{{ $installment->due_date?->format('Y-m-d') ?? '-' }}</td>
                             <td>{{ $credit?->name ?? '-' }}</td>
                             <td>{{ $installment->installment_number }} / {{ $credit?->months ?? '-' }}</td>
@@ -729,4 +741,41 @@
         </div>
     </div>
 @endforeach
+@endsection
+
+@section('scripts')
+<script>
+    // Filtro por estado (Pendiente / Pagado / Todos) para las dos tablas de
+    // Flujo planeado. Los botones viven en ambos encabezados y se sincronizan
+    // porque compartimos la misma lógica sobre todas las filas [data-planned-row].
+    (function () {
+        var rows = Array.prototype.slice.call(document.querySelectorAll('[data-planned-row]'));
+        var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-planned-filter]'));
+
+        if (rows.length === 0 || buttons.length === 0) {
+            return;
+        }
+
+        function applyFilter(filter) {
+            rows.forEach(function (row) {
+                var paid = row.getAttribute('data-paid') === '1';
+                var show = filter === 'all' || (filter === 'paid' ? paid : !paid);
+                row.style.display = show ? '' : 'none';
+            });
+
+            buttons.forEach(function (btn) {
+                btn.classList.toggle('active', btn.getAttribute('data-planned-filter') === filter);
+            });
+        }
+
+        buttons.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                applyFilter(btn.getAttribute('data-planned-filter'));
+            });
+        });
+
+        // Por defecto mostramos solo los pendientes (lo que falta por pagar este mes).
+        applyFilter('pending');
+    })();
+</script>
 @endsection
