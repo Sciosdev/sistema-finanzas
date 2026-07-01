@@ -9,11 +9,12 @@ use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
-use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceCatalogService;
+use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceSummaryService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
@@ -25,8 +26,7 @@ class PlannedPaymentController extends Controller
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request)
     {
@@ -79,6 +79,7 @@ class PlannedPaymentController extends Controller
         return view('finance.planned.index', [
             'payments' => $payments,
             'creditInstallments' => $creditInstallments,
+            'creditInstallmentSummaries' => $this->creditInstallmentSummaries($creditInstallments),
             'paymentTotals' => $paymentTotals,
             'monthValue' => $start->format('Y-m'),
             'accounts' => $accounts,
@@ -88,6 +89,45 @@ class PlannedPaymentController extends Controller
             'categories' => $this->categoriesFor($user, 'expense'),
             'people' => $this->peopleFor($user),
         ]);
+    }
+
+    private function creditInstallmentSummaries(Collection $creditInstallments): Collection
+    {
+        return $creditInstallments
+            ->filter(fn (CreditInstallment $installment) => $installment->status !== 'paid')
+            ->map(fn (CreditInstallment $installment) => [
+                'installment' => $installment,
+                'amount_due' => round(max(0, (float) $installment->amount - (float) $installment->paid_amount), 2),
+            ])
+            ->filter(fn (array $row) => $row['amount_due'] > 0)
+            ->groupBy(fn (array $row) => $row['installment']->creditPurchase?->account_id ?: 'none')
+            ->map(function (Collection $rows) {
+                /** @var CreditInstallment $first */
+                $first = $rows->first()['installment'];
+                $account = $first->creditPurchase?->account;
+                $nextDueDate = $rows
+                    ->pluck('installment.due_date')
+                    ->filter()
+                    ->sortBy(fn (Carbon $date) => $date->timestamp)
+                    ->first();
+
+                return [
+                    'name' => $account?->name ?? 'Sin acreedor',
+                    'color' => $this->safeHexColor($account?->color),
+                    'amount' => round($rows->sum('amount_due'), 2),
+                    'count' => $rows->count(),
+                    'next_due_date' => $nextDueDate,
+                ];
+            })
+            ->sortByDesc('amount')
+            ->values();
+    }
+
+    private function safeHexColor(?string $color): string
+    {
+        return is_string($color) && preg_match('/^#[0-9A-Fa-f]{6}$/', $color) === 1
+            ? $color
+            : '#22c55e';
     }
 
     public function store(Request $request)
@@ -185,6 +225,7 @@ class PlannedPaymentController extends Controller
 
             if ($exists) {
                 $skipped++;
+
                 continue;
             }
 
@@ -238,7 +279,7 @@ class PlannedPaymentController extends Controller
                 'happened_on' => $paidOn->toDateString(),
                 'movement_type' => 'expense',
                 'amount' => $remaining,
-                'description' => 'Pago planeado: ' . $payment->name,
+                'description' => 'Pago planeado: '.$payment->name,
                 'account_id' => $payment->account_id,
                 'category_id' => $payment->category_id,
                 'person_id' => $payment->person_id,
@@ -343,7 +384,7 @@ class PlannedPaymentController extends Controller
                 'account_id' => $accountId,
                 'category_id' => $payment->category_id,
                 'status' => 'active',
-                'notes' => 'Generado desde flujo planeado: ' . $payment->name,
+                'notes' => 'Generado desde flujo planeado: '.$payment->name,
             ]);
 
             $this->createInstallmentsForCredit($credit, $total, $months, $firstMonth, $dueDay);
@@ -363,7 +404,7 @@ class PlannedPaymentController extends Controller
 
         return redirect()
             ->route('finance.planned.index', ['month' => $payment->period_month->format('Y-m')])
-            ->with('success', 'Credito "' . $credit->name . '" creado y pago cubierto. La deuda quedo en la seccion de creditos.');
+            ->with('success', 'Credito "'.$credit->name.'" creado y pago cubierto. La deuda quedo en la seccion de creditos.');
     }
 
     /**
@@ -419,8 +460,8 @@ class PlannedPaymentController extends Controller
                     : 0;
 
                 return str_pad((string) round($amountDistance * 100), 12, '0', STR_PAD_LEFT)
-                    . str_pad((string) $dateDistance, 6, '0', STR_PAD_LEFT)
-                    . $movement->happened_on->format('Ymd');
+                    .str_pad((string) $dateDistance, 6, '0', STR_PAD_LEFT)
+                    .$movement->happened_on->format('Ymd');
             })
             ->values();
 

@@ -6,6 +6,7 @@
     $nextMonthValue = \Carbon\Carbon::createFromFormat('Y-m', $monthValue)->addMonth()->format('Y-m');
     $editPaymentId = (int) request('edit');
     $expenseMovements = $expenseMovements ?? collect();
+    $creditInstallmentSummaries = $creditInstallmentSummaries ?? collect();
     $movementCandidatesForPayment = function ($payment) use ($expenseMovements) {
         return $expenseMovements
             ->sortBy(function ($movement) use ($payment) {
@@ -401,6 +402,43 @@
         </div>
     </div>
     <div class="card-body p-0">
+        <div class="border-bottom p-3">
+            <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 mb-3">
+                <div>
+                    <h5 class="mb-1">A quien se le debe este mes</h5>
+                    <div class="text-muted small">Mensualidades de credito pendientes del mes seleccionado.</div>
+                </div>
+                <span class="badge badge-soft-primary align-self-lg-start">
+                    Total creditos: {{ $money($creditInstallmentSummaries->sum('amount')) }}
+                </span>
+            </div>
+
+            @if ($creditInstallmentSummaries->isNotEmpty())
+                <div class="row g-2">
+                    @foreach ($creditInstallmentSummaries as $summary)
+                        <div class="col-xl-3 col-lg-4 col-md-6">
+                            <div class="border rounded p-3 h-100" style="border-left: 4px solid {{ $summary['color'] }} !important;">
+                                <div class="d-flex justify-content-between align-items-start gap-2 mb-2">
+                                    <div>
+                                        <div class="text-muted small">Le debes a</div>
+                                        <div class="fw-semibold">{{ $summary['name'] }}</div>
+                                    </div>
+                                    <span class="badge badge-soft-secondary">
+                                        {{ $summary['count'] }} {{ $summary['count'] === 1 ? 'mensualidad' : 'mensualidades' }}
+                                    </span>
+                                </div>
+                                <div class="h4 fw-semibold mb-1">{{ $money($summary['amount']) }}</div>
+                                <div class="text-muted small">
+                                    {{ $summary['next_due_date'] ? 'Proximo vence ' . $summary['next_due_date']->format('Y-m-d') : 'Sin fecha de vencimiento' }}
+                                </div>
+                            </div>
+                        </div>
+                    @endforeach
+                </div>
+            @else
+                <div class="text-muted small">Sin deuda de creditos pendiente para este mes.</div>
+            @endif
+        </div>
         <div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead>

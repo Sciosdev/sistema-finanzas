@@ -95,3 +95,114 @@ it('marks a planned payment as covered by credit without creating a duplicate ex
         ->assertSee('Tarjeta: NU')
         ->assertSee('Credito: OPEN AI - GPT - Carlos');
 });
+
+it('shows this months credit installments grouped by creditor on planned flow', function () {
+    $user = User::factory()->create();
+    $other = User::factory()->create();
+
+    app(FinanceCatalogService::class)->ensureForUser($user);
+    app(FinanceCatalogService::class)->ensureForUser($other);
+
+    $nu = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $mpw = Account::where('user_id', $user->id)->where('name', 'MPW')->firstOrFail();
+    $didi = Account::where('user_id', $user->id)->where('name', 'DIDI')->firstOrFail();
+    $otherNu = Account::where('user_id', $other->id)->where('name', 'NU')->firstOrFail();
+
+    $makeCredit = function (User $owner, Account $account, string $name, float $total): CreditPurchase {
+        return CreditPurchase::create([
+            'user_id' => $owner->id,
+            'purchase_date' => '2026-07-01',
+            'name' => $name,
+            'total_amount' => $total,
+            'months' => 3,
+            'first_due_month' => '2026-07-01',
+            'due_day' => 23,
+            'account_id' => $account->id,
+            'status' => 'active',
+        ]);
+    };
+
+    $nuCredit = $makeCredit($user, $nu, 'Compra NU', 900);
+    $mpwCredit = $makeCredit($user, $mpw, 'Compra MPW', 600);
+    $didiCredit = $makeCredit($user, $didi, 'Compra DIDI', 300);
+    $otherCredit = $makeCredit($other, $otherNu, 'Compra ajena', 999);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $nuCredit->id,
+        'period_month' => '2026-07-01',
+        'due_date' => '2026-07-23',
+        'installment_number' => 1,
+        'amount' => 300,
+        'paid_amount' => 50,
+        'status' => 'pending',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $nuCredit->id,
+        'period_month' => '2026-07-01',
+        'due_date' => '2026-07-24',
+        'installment_number' => 2,
+        'amount' => 300,
+        'paid_amount' => 300,
+        'status' => 'paid',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $mpwCredit->id,
+        'period_month' => '2026-07-01',
+        'due_date' => '2026-07-25',
+        'installment_number' => 1,
+        'amount' => 200,
+        'paid_amount' => 0,
+        'status' => 'pending',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $didiCredit->id,
+        'period_month' => '2026-07-01',
+        'due_date' => '2026-07-26',
+        'installment_number' => 1,
+        'amount' => 123.45,
+        'paid_amount' => 0,
+        'status' => 'pending',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $user->id,
+        'credit_purchase_id' => $didiCredit->id,
+        'period_month' => '2026-08-01',
+        'due_date' => '2026-08-26',
+        'installment_number' => 2,
+        'amount' => 900,
+        'paid_amount' => 0,
+        'status' => 'pending',
+    ]);
+
+    CreditInstallment::create([
+        'user_id' => $other->id,
+        'credit_purchase_id' => $otherCredit->id,
+        'period_month' => '2026-07-01',
+        'due_date' => '2026-07-23',
+        'installment_number' => 1,
+        'amount' => 999,
+        'paid_amount' => 0,
+        'status' => 'pending',
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('finance.planned.index', ['month' => '2026-07']))
+        ->assertOk()
+        ->assertSee('A quien se le debe este mes')
+        ->assertSee('Le debes a')
+        ->assertSee('Total creditos:')
+        ->assertSee('$573.45')
+        ->assertSee('$250.00')
+        ->assertSee('$200.00')
+        ->assertSee('$123.45')
+        ->assertDontSee('$900.00')
+        ->assertDontSee('$999.00');
+});
