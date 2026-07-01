@@ -38,7 +38,10 @@ class FinanceSummaryService
             ->first();
 
         $realTotal = $latestCut ? (float) $latestCut->real_total : 0.0;
-        $difference = $latestCut ? $this->money($expectedLeftover - $realTotal) : null;
+        // Reflejamos la diferencia YA conciliada y guardada en el corte (la misma
+        // que ves en Cortes), en vez de recalcularla aquí con el neto del mes
+        // ignorando el saldo de arranque. Así el Resumen y Cortes coinciden.
+        $difference = $latestCut ? $this->money((float) $latestCut->difference) : null;
         $amountMissing = $latestCut ? $this->money($realTotal - $pendingPayments) : null;
 
         $rentIncome = $this->sumMoney((clone $movementQuery)->where('is_rent', true)->whereIn('movement_type', ['income', 'yield'])->sum('amount'));
