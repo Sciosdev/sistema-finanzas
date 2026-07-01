@@ -266,9 +266,13 @@ class PlannedPaymentController extends Controller
 
         $data = $request->validate([
             'paid_on' => ['nullable', 'date'],
+            'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where('user_id', $payment->user_id)],
         ]);
 
         $paidOn = isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today();
+        // Cuenta de donde salió el dinero: la elegida al pagar o, si no, la del
+        // pago planeado. Sin cuenta el egreso no se puede conciliar en cortes.
+        $accountId = $data['account_id'] ?? $payment->account_id;
         $remaining = max(0, (float) $payment->amount - (float) $payment->paid_amount);
 
         $movement = null;
@@ -280,7 +284,7 @@ class PlannedPaymentController extends Controller
                 'movement_type' => 'expense',
                 'amount' => $remaining,
                 'description' => 'Pago planeado: '.$payment->name,
-                'account_id' => $payment->account_id,
+                'account_id' => $accountId,
                 'category_id' => $payment->category_id,
                 'person_id' => $payment->person_id,
                 'is_san_juan' => $payment->is_san_juan,

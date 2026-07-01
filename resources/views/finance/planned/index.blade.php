@@ -157,7 +157,15 @@
                                     <form method="POST" action="{{ route('finance.planned.paid', $payment) }}" class="border rounded p-3 h-100">
                                         @csrf
                                         <label class="form-label">Fecha real de pago</label>
-                                        <input type="date" name="paid_on" class="form-control mb-3" value="{{ $defaultPaidOn }}">
+                                        <input type="date" name="paid_on" class="form-control mb-2" value="{{ $defaultPaidOn }}">
+                                        <label class="form-label">¿De qué cuenta salió?</label>
+                                        <select name="account_id" class="form-select mb-1">
+                                            <option value="">Sin cuenta (no afecta cortes)</option>
+                                            @foreach ($accounts as $account)
+                                                <option value="{{ $account->id }}" @selected($payment->account_id === $account->id)>{{ $account->name }}</option>
+                                            @endforeach
+                                        </select>
+                                        <small class="text-muted d-block mb-3">Elige la cuenta de donde salió el dinero para que el corte lo cuente.</small>
                                         <button type="submit" class="btn btn-success w-100">
                                             <i data-lucide="check" class="me-1"></i>Marcar como pagado
                                         </button>

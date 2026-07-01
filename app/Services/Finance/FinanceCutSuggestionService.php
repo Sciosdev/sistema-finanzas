@@ -23,8 +23,14 @@ class FinanceCutSuggestionService
      */
     public function suggest(User $user, Collection $accounts, Carbon $targetDate): array
     {
+        // Base = el corte ANTERIOR a la fecha objetivo (no uno del mismo día).
+        // Si tomáramos el corte del mismo día que se está editando, el sugerido
+        // sería circular (igual a lo ya guardado) y el formulario siempre diría
+        // "cuadra", aunque al guardar la conciliación (que usa el corte anterior)
+        // marcara diferencia. Con esto el sugerido = lo que espera la conciliación.
         $lastCut = DailyCut::with('balances')
             ->where('user_id', $user->id)
+            ->whereDate('cut_date', '<', $targetDate->toDateString())
             ->orderByDesc('cut_date')
             ->first();
 
