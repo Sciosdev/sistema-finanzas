@@ -162,8 +162,7 @@
                             class="w-100 text-start border-0 rounded-2 p-3 h-100"
                             style="background: {{ $style['soft'] }}; border-left: 4px solid {{ $style['color'] }} !important; cursor: pointer;"
                             title="Filtrar la lista por {{ $creditor['name'] }}"
-                            data-credit-filter="creditor"
-                            data-creditor-key="{{ $creditor['key'] }}"
+                            data-credit-creditor="{{ $creditor['key'] }}"
                         >
                             <div class="d-flex align-items-center justify-content-between gap-2">
                                 <span class="fw-semibold" style="color: {{ $style['text'] }};">{{ $creditor['name'] }}</span>
@@ -291,24 +290,29 @@
 
 @if ($credits->isNotEmpty())
     <div class="card" id="credits-list-anchor">
-        <div class="card-body d-flex flex-wrap align-items-center gap-2">
-            <span class="text-muted small me-1"><i data-lucide="filter" class="me-1"></i>Filtrar lista de créditos:</span>
-            <button type="button" class="btn btn-sm btn-outline-success" data-credit-filter="owed">Debo</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary" data-credit-filter="paid">Pagados</button>
-            <button type="button" class="btn btn-sm btn-outline-primary" data-credit-filter="all">Todos</button>
-            <button type="button" class="btn btn-sm btn-outline-warning" data-credit-filter="current-month">Este mes</button>
-            @foreach ($creditorSummaries as $creditor)
-                <button
-                    type="button"
-                    class="btn btn-sm btn-outline-secondary"
-                    data-credit-filter="creditor"
-                    data-creditor-key="{{ $creditor['key'] }}"
-                >
-                    {{ $creditor['name'] }}
-                    <span class="badge text-bg-secondary ms-1">{{ $creditor['count'] }}</span>
-                </button>
-            @endforeach
-            <span class="ms-auto small text-muted" id="credits-filter-status">Mostrando {{ $credits->count() }} de {{ $credits->count() }} créditos</span>
+        <div class="card-body d-flex flex-column gap-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="text-muted small me-1"><i data-lucide="filter" class="me-1"></i>Estado:</span>
+                <button type="button" class="btn btn-sm btn-outline-success" data-credit-status="owed">Debo</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary" data-credit-status="paid">Pagados</button>
+                <button type="button" class="btn btn-sm btn-outline-warning" data-credit-status="current-month">Este mes</button>
+                <button type="button" class="btn btn-sm btn-outline-primary" data-credit-status="all">Todos</button>
+                <span class="ms-auto small text-muted" id="credits-filter-status">Mostrando {{ $credits->count() }} de {{ $credits->count() }} créditos</span>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <span class="text-muted small me-1"><i data-lucide="wallet" class="me-1"></i>Acreedor:</span>
+                <button type="button" class="btn btn-sm btn-outline-primary" data-credit-creditor="all">Todos</button>
+                @foreach ($creditorSummaries as $creditor)
+                    <button
+                        type="button"
+                        class="btn btn-sm btn-outline-secondary"
+                        data-credit-creditor="{{ $creditor['key'] }}"
+                    >
+                        {{ $creditor['name'] }}
+                        <span class="badge text-bg-secondary ms-1">{{ $creditor['count'] }}</span>
+                    </button>
+                @endforeach
+            </div>
         </div>
     </div>
 @endif
@@ -729,34 +733,47 @@
 
         var status = document.getElementById('credits-filter-status');
         var anchor = document.getElementById('credits-list-anchor');
-        var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-credit-filter]'));
+        var statusButtons = Array.prototype.slice.call(document.querySelectorAll('[data-credit-status]'));
+        // Incluye los botones de la barra Y los tiles de resumen de arriba.
+        var creditorButtons = Array.prototype.slice.call(document.querySelectorAll('[data-credit-creditor]'));
 
-        function setActive(filter, key) {
+        // Dos filtros independientes que se COMBINAN (Y): estado + acreedor.
+        var activeStatus = 'owed';   // por defecto: lo que debo
+        var activeCreditor = 'all';  // por defecto: todos los acreedores
+
+        function matchesStatus(card) {
+            var balance = parseFloat(card.getAttribute('data-balance') || '0');
+
+            if (activeStatus === 'owed') {
+                // Medio centavo de margen para no colar residuales por redondeo.
+                return balance > 0.005;
+            }
+            if (activeStatus === 'paid') {
+                return balance <= 0.005;
+            }
+            if (activeStatus === 'current-month') {
+                return parseFloat(card.getAttribute('data-current-due') || '0') > 0;
+            }
+
+            return true; // 'all'
+        }
+
+        function matchesCreditor(card) {
+            return activeCreditor === 'all'
+                || card.getAttribute('data-creditor-key') === activeCreditor;
+        }
+
+        function setActive(buttons, attr, value) {
             buttons.forEach(function (btn) {
-                var matches = btn.getAttribute('data-credit-filter') === filter
-                    && (filter !== 'creditor' || btn.getAttribute('data-creditor-key') === key);
-                btn.classList.toggle('active', matches);
+                btn.classList.toggle('active', btn.getAttribute(attr) === value);
             });
         }
 
-        function applyFilter(filter, key) {
+        function apply() {
             var shown = 0;
 
             cards.forEach(function (card) {
-                var show = true;
-
-                if (filter === 'creditor') {
-                    show = card.getAttribute('data-creditor-key') === key;
-                } else if (filter === 'current-month') {
-                    show = parseFloat(card.getAttribute('data-current-due') || '0') > 0;
-                } else if (filter === 'owed') {
-                    // Los que aún debo: saldo real > 0 (medio centavo de margen
-                    // para no colar residuales por redondeo).
-                    show = parseFloat(card.getAttribute('data-balance') || '0') > 0.005;
-                } else if (filter === 'paid') {
-                    show = parseFloat(card.getAttribute('data-balance') || '0') <= 0.005;
-                }
-
+                var show = matchesStatus(card) && matchesCreditor(card);
                 card.style.display = show ? '' : 'none';
                 if (show) {
                     shown++;
@@ -767,26 +784,32 @@
                 status.textContent = 'Mostrando ' + shown + ' de ' + cards.length + ' créditos';
             }
 
-            setActive(filter, key);
+            setActive(statusButtons, 'data-credit-status', activeStatus);
+            setActive(creditorButtons, 'data-credit-creditor', activeCreditor);
         }
 
-        buttons.forEach(function (btn) {
+        statusButtons.forEach(function (btn) {
             btn.addEventListener('click', function () {
-                var filter = btn.getAttribute('data-credit-filter');
-                var key = btn.getAttribute('data-creditor-key');
+                activeStatus = btn.getAttribute('data-credit-status');
+                apply();
+            });
+        });
 
-                applyFilter(filter, key);
+        creditorButtons.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                activeCreditor = btn.getAttribute('data-credit-creditor');
+                apply();
 
-                if (filter !== 'all' && anchor) {
+                // Los tiles de resumen están arriba; al elegir un acreedor
+                // llevamos la vista a la lista filtrada.
+                if (anchor) {
                     anchor.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 }
             });
         });
 
-        // Al abrir la pantalla mostramos solo los que se deben (saldo > 0); los
-        // pagados se ocultan para no estorbar. El usuario puede cambiar con los
-        // botones "Pagados" o "Todos". No hacemos scroll en la carga inicial.
-        applyFilter('owed', null);
+        // Al abrir: solo los que debo, de todos los acreedores. Sin scroll inicial.
+        apply();
     })();
 
     // Cuando la tarjeta seleccionada ya tiene su ciclo (corte/pago) en Cuentas,

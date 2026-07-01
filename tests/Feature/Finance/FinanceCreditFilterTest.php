@@ -64,13 +64,18 @@ it('renders the credit filter bar with creditor and current-month controls', fun
     $this->actingAs($user)
         ->get(route('finance.credits.index'))
         ->assertOk()
-        ->assertSee('Filtrar lista de créditos')
+        ->assertSee('Estado:')
+        ->assertSee('Acreedor:')
+        ->assertSee('Debo')
+        ->assertSee('Pagados')
         ->assertSee('Este mes')
         ->assertSee('Todos')
-        ->assertSee('data-credit-filter="current-month"', false)
-        ->assertSee('data-credit-filter="creditor"', false)
+        ->assertSee('data-credit-status="owed"', false)
+        ->assertSee('data-credit-status="current-month"', false)
+        ->assertSee('data-credit-creditor=', false)
         ->assertSee('finance-credit-card', false)
         ->assertSee('data-creditor-key="creditor-nu"', false)
+        ->assertSee('data-balance=', false)
         ->assertSee('data-current-due=', false);
 });
 
