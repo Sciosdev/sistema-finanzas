@@ -293,7 +293,9 @@
     <div class="card" id="credits-list-anchor">
         <div class="card-body d-flex flex-wrap align-items-center gap-2">
             <span class="text-muted small me-1"><i data-lucide="filter" class="me-1"></i>Filtrar lista de créditos:</span>
-            <button type="button" class="btn btn-sm btn-primary" data-credit-filter="all">Todos</button>
+            <button type="button" class="btn btn-sm btn-outline-success" data-credit-filter="owed">Debo</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-credit-filter="paid">Pagados</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" data-credit-filter="all">Todos</button>
             <button type="button" class="btn btn-sm btn-outline-warning" data-credit-filter="current-month">Este mes</button>
             @foreach ($creditorSummaries as $creditor)
                 <button
@@ -334,7 +336,7 @@
         $creditCurrentDue = (float) ($creditCardItem['current_due'] ?? 0);
         $creditorKey = $creditorSummary['key'] ?? 'sin-acreedor';
     @endphp
-    <div class="card finance-credit-card" id="credit-{{ $credit->id }}" style="border-left: 4px solid {{ $creditorStyle['color'] }};" data-creditor-key="{{ $creditorKey }}" data-current-due="{{ $creditCurrentDue }}">
+    <div class="card finance-credit-card" id="credit-{{ $credit->id }}" style="border-left: 4px solid {{ $creditorStyle['color'] }};" data-creditor-key="{{ $creditorKey }}" data-current-due="{{ $creditCurrentDue }}" data-balance="{{ $creditPending }}">
         <div class="card-header d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
             <div>
                 <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
@@ -747,6 +749,12 @@
                     show = card.getAttribute('data-creditor-key') === key;
                 } else if (filter === 'current-month') {
                     show = parseFloat(card.getAttribute('data-current-due') || '0') > 0;
+                } else if (filter === 'owed') {
+                    // Los que aún debo: saldo real > 0 (medio centavo de margen
+                    // para no colar residuales por redondeo).
+                    show = parseFloat(card.getAttribute('data-balance') || '0') > 0.005;
+                } else if (filter === 'paid') {
+                    show = parseFloat(card.getAttribute('data-balance') || '0') <= 0.005;
                 }
 
                 card.style.display = show ? '' : 'none';
@@ -774,6 +782,11 @@
                 }
             });
         });
+
+        // Al abrir la pantalla mostramos solo los que se deben (saldo > 0); los
+        // pagados se ocultan para no estorbar. El usuario puede cambiar con los
+        // botones "Pagados" o "Todos". No hacemos scroll en la carga inicial.
+        applyFilter('owed', null);
     })();
 
     // Cuando la tarjeta seleccionada ya tiene su ciclo (corte/pago) en Cuentas,
