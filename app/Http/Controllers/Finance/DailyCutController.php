@@ -93,7 +93,10 @@ class DailyCutController extends Controller
         $this->automaticYieldService->syncForCut($user, $cutDate, $balances);
 
         $realTotal = round($cash + $cards, 2);
-        $expected = $this->summaryService->expectedThroughDate($user, $cutDate);
+        // "Saldo proyectado" = saldo de arranque (corte anterior o saldo inicial)
+        // + movimientos hasta la fecha. Misma base que la revisión por cuenta, así
+        // la diferencia da 0 cuando todo cuadra (antes ignoraba el saldo previo).
+        $expected = $this->cutSuggestions->expectedTotalThrough($user, $accounts, $cutDate);
         [$start, $end] = $this->summaryService->monthRange($cutDate->format('Y-m'));
         $pending = $this->summaryService->pendingForMonth($user, $start, $end);
         $difference = round($expected - $realTotal, 2);

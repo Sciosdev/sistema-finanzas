@@ -204,4 +204,61 @@ class FinanceCutSuggestionService
 
         return $result;
     }
+
+    /**
+     * Total esperado (saldo de arranque + movimientos) a una fecha de corte,
+     * tomando como base el corte ANTERIOR (cut_date < $cutDate) o el saldo
+     * inicial de cada cuenta. Es la misma base que reconciliationFor y
+     * expectedBalances, para que la "Diferencia de conciliación" del encabezado
+     * sea consistente con la revisión por cuenta. (Antes se usaba solo el neto
+     * de movimientos del mes, sin el saldo de arranque, y el primer corte daba
+     * una diferencia igual a todo tu saldo en negativo.)
+     *
+     * @param Collection<int, \App\Models\Finance\Account> $accounts
+     */
+    public function expectedTotalThrough(User $user, Collection $accounts, Carbon $cutDate): float
+    {
+        $previousCut = DailyCut::with('balances')
+            ->where('user_id', $user->id)
+            ->whereDate('cut_date', '<', $cutDate->toDateString())
+            ->orderByDesc('cut_date')
+            ->first();
+
+        $baseline = $previousCut
+            ? $previousCut->balances->keyBy('account_id')->map(fn ($balance) => (float) $balance->balance)
+            : collect();
+
+        $movementQuery = Movement::query()
+            ->where('user_id', $user->id)
+            ->whereNotNull('account_id')
+            ->whereDate('happened_on', '<=', $cutDate->toDateString());
+
+        if ($previousCut) {
+            $movementQuery->whereDate('happened_on', '>', $previousCut->cut_date->toDateString());
+        }
+
+        $delta = [];
+        foreach ($movementQuery->get(['account_id', 'movement_type', 'amount']) as $movement) {
+            $sign = match ($movement->movement_type) {
+                'income', 'yield' => 1,
+                'expense' => -1,
+                default => 0,
+            };
+
+            if ($sign === 0) {
+                continue;
+            }
+
+            $delta[$movement->account_id] = ($delta[$movement->account_id] ?? 0) + $sign * (float) $movement->amount;
+        }
+
+        $total = 0.0;
+        foreach ($accounts as $account) {
+            $hasBaseline = $previousCut !== null && $baseline->has($account->id);
+            $base = $hasBaseline ? (float) $baseline[$account->id] : (float) ($account->opening_balance ?? 0);
+            $total += $base + (float) ($delta[$account->id] ?? 0);
+        }
+
+        return round($total, 2);
+    }
 }
