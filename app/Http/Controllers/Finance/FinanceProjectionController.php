@@ -4,14 +4,16 @@ namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
 use App\Models\Finance\PlannerSetting;
+use App\Services\Finance\FinancePaymentRecommendationService;
 use App\Services\Finance\FinanceProjectionService;
 use Illuminate\Http\Request;
 
 class FinanceProjectionController extends Controller
 {
-    public function __construct(private readonly FinanceProjectionService $projectionService)
-    {
-    }
+    public function __construct(
+        private readonly FinanceProjectionService $projectionService,
+        private readonly FinancePaymentRecommendationService $recommendationService
+    ) {}
 
     public function index(Request $request)
     {
@@ -22,8 +24,11 @@ class FinanceProjectionController extends Controller
             $horizon = 15;
         }
 
+        $projection = $this->projectionService->project($user, $horizon);
+
         return view('finance.projection.index', [
-            'projection' => $this->projectionService->project($user, $horizon),
+            'projection' => $projection,
+            'paymentRecommendations' => $this->recommendationService->recommend($user, $horizon, $projection),
             'horizon' => $horizon,
             'horizons' => FinanceProjectionService::HORIZONS,
             'settings' => PlannerSetting::where('user_id', $user->id)->first(),

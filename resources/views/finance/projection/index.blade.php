@@ -12,6 +12,29 @@
     $meta = $projection['meta'];
     $summary = $projection['summary'];
     $warnings = $projection['warnings'];
+    $recommendation = $paymentRecommendations ?? [
+        'available' => ['safe_today' => 0, 'projected_today' => 0],
+        'shortfall' => [
+            'cash_needed_to_avoid_negative' => 0,
+            'cash_needed_for_buffer' => 0,
+            'first_risky_date' => null,
+            'first_high_date' => null,
+            'first_critical_date' => null,
+            'min_safe_date' => null,
+            'min_projected_date' => null,
+        ],
+        'recommendations' => [
+            'pay_now' => [],
+            'upcoming' => [],
+            'wait_for_income' => [],
+            'risky_payments' => [],
+            'overdue_income_to_collect' => [],
+        ],
+        'messages' => [],
+    ];
+    $available = $recommendation['available'];
+    $shortfall = $recommendation['shortfall'];
+    $groups = $recommendation['recommendations'];
 @endphp
 
 @include('finance.partials.flash')
@@ -107,22 +130,178 @@
     </div>
 </div>
 
-@if ($summary['overdue_income_total'] > 0)
-    <div class="card border-warning">
-        <div class="card-body">
-            <h5 class="card-title mb-1">
-                <i data-lucide="alert-triangle" class="me-1"></i>
-                Tienes {{ $money($summary['overdue_income_total']) }} vencidos por cobrar que NO están contados en la proyección
-            </h5>
-            <p class="text-muted small mb-2">Un ingreso vencido no cobrado es un riesgo, no dinero. Puedes activarlos abajo para verlos solo en el saldo proyectado.</p>
-            <ul class="mb-0 small">
-                @foreach ($summary['overdue_income_items'] as $item)
-                    <li>{{ $item['name'] }} — {{ $money($item['amount']) }}@if ($item['due_date']) (vencía el {{ $item['due_date'] }})@endif</li>
-                @endforeach
-            </ul>
+<div class="row">
+    <div class="col-6 col-lg-3">
+        <div class="card border-success">
+            <div class="card-body">
+                <p class="text-muted mb-1 small">Disponible seguro hoy</p>
+                <h4 class="mb-0 text-success">{{ $money($available['safe_today']) }}</h4>
+                <p class="text-muted small mb-0">Sin confiar en ingresos futuros.</p>
+            </div>
         </div>
     </div>
+    <div class="col-6 col-lg-3">
+        <div class="card border-info">
+            <div class="card-body">
+                <p class="text-muted mb-1 small">Disponible proyectado hoy</p>
+                <h4 class="mb-0 text-info">{{ $money($available['projected_today']) }}</h4>
+                <p class="text-muted small mb-0">Incluye ingresos esperados.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card {{ $shortfall['cash_needed_to_avoid_negative'] > 0 ? 'border-danger' : 'border-success' }}">
+            <div class="card-body">
+                <p class="text-muted mb-1 small">Faltante para no quedar negativo</p>
+                <h4 class="mb-0 {{ $shortfall['cash_needed_to_avoid_negative'] > 0 ? 'text-danger' : 'text-success' }}">{{ $money($shortfall['cash_needed_to_avoid_negative']) }}</h4>
+                <p class="text-muted small mb-0">Según el mínimo proyectado.</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-6 col-lg-3">
+        <div class="card {{ $shortfall['cash_needed_for_buffer'] > 0 ? 'border-warning' : 'border-success' }}">
+            <div class="card-body">
+                <p class="text-muted mb-1 small">Faltante para mantener colchón</p>
+                <h4 class="mb-0 {{ $shortfall['cash_needed_for_buffer'] > 0 ? 'text-warning' : 'text-success' }}">{{ $money($shortfall['cash_needed_for_buffer']) }}</h4>
+                <p class="text-muted small mb-0">Meta: {{ $money($meta['buffer']) }}.</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="d-flex align-items-center justify-content-between mb-2">
+    <h5 class="mb-0 fw-semibold">Recomendaciones</h5>
+    @if ($shortfall['first_high_date'] || $shortfall['first_critical_date'])
+        <span class="badge badge-soft-danger">
+            @if ($shortfall['first_critical_date'])
+                Crítico: {{ $shortfall['first_critical_date'] }}
+            @else
+                Alto: {{ $shortfall['first_high_date'] }}
+            @endif
+        </span>
+    @endif
+</div>
+
+@if (count($recommendation['messages']) > 0)
+    <div class="row g-2 mb-3">
+        @foreach ($recommendation['messages'] as $message)
+            <div class="col-md-6 col-xl-4">
+                <div class="alert alert-light border mb-0 py-2 small">{{ $message }}</div>
+            </div>
+        @endforeach
+    </div>
 @endif
+
+<div class="row">
+    <div class="col-lg-6 col-xl-4">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Paga / atiende hoy</h4>
+            </div>
+            <div class="card-body">
+                @forelse ($groups['pay_now'] as $item)
+                    <div class="d-flex justify-content-between gap-3 mb-2">
+                        <div>
+                            <div class="fw-semibold">{{ $item['name'] }}</div>
+                            <div class="text-muted small">
+                                {{ $item['reason'] }}
+                                @if ($item['is_overdue'])<span class="badge badge-soft-danger ms-1">Vencido</span>@endif
+                            </div>
+                        </div>
+                        <div class="text-end fw-semibold text-danger">−{{ $money($item['amount']) }}</div>
+                    </div>
+                @empty
+                    <p class="text-muted small mb-0">Sin pagos urgentes para hoy.</p>
+                @endforelse
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6 col-xl-4">
+        <div class="card">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Próximos pagos</h4>
+            </div>
+            <div class="card-body">
+                @forelse ($groups['upcoming'] as $group)
+                    <div class="mb-3">
+                        <div class="fw-semibold small text-muted mb-1">{{ $group['date'] }}</div>
+                        @foreach ($group['items'] as $item)
+                            <div class="d-flex justify-content-between gap-3 mb-1">
+                                <span>{{ $item['name'] }}</span>
+                                <span class="text-danger">−{{ $money($item['amount']) }}</span>
+                            </div>
+                        @endforeach
+                    </div>
+                @empty
+                    <p class="text-muted small mb-0">Sin pagos próximos dentro del horizonte.</p>
+                @endforelse
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6 col-xl-4">
+        <div class="card border-warning">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Dependen de ingresos</h4>
+            </div>
+            <div class="card-body">
+                @forelse ($groups['wait_for_income'] as $item)
+                    <div class="d-flex justify-content-between gap-3 mb-2">
+                        <div>
+                            <div class="fw-semibold">{{ $item['name'] }}</div>
+                            <div class="text-muted small">{{ $item['date'] }}</div>
+                        </div>
+                        <div class="text-end text-warning fw-semibold">−{{ $money($item['amount']) }}</div>
+                    </div>
+                @empty
+                    <p class="text-muted small mb-0">No hay pagos condicionados a ingresos esperados.</p>
+                @endforelse
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6 col-xl-4">
+        <div class="card border-danger">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Riesgosos</h4>
+            </div>
+            <div class="card-body">
+                @forelse ($groups['risky_payments'] as $item)
+                    <div class="d-flex justify-content-between gap-3 mb-2">
+                        <div>
+                            <div class="fw-semibold">{{ $item['name'] }}</div>
+                            <div class="text-muted small">
+                                {{ $item['date'] }}
+                                <span class="badge {{ $riskBadges[$item['risk_after_payment']]['class'] }} ms-1">{{ $riskBadges[$item['risk_after_payment']]['label'] }}</span>
+                            </div>
+                        </div>
+                        <div class="text-end text-danger fw-semibold">−{{ $money($item['amount']) }}</div>
+                    </div>
+                @empty
+                    <p class="text-muted small mb-0">No hay pagos riesgosos en este horizonte.</p>
+                @endforelse
+            </div>
+        </div>
+    </div>
+    <div class="col-lg-6 col-xl-4">
+        <div class="card border-warning">
+            <div class="card-header">
+                <h4 class="card-title mb-0">Ingresos vencidos por cobrar</h4>
+            </div>
+            <div class="card-body">
+                @forelse ($groups['overdue_income_to_collect'] as $item)
+                    <div class="d-flex justify-content-between gap-3 mb-2">
+                        <div>
+                            <div class="fw-semibold">{{ $item['name'] }}</div>
+                            <div class="text-muted small">@if ($item['due_date'])Vencía el {{ $item['due_date'] }}@else Sin fecha registrada @endif</div>
+                        </div>
+                        <div class="text-end text-success fw-semibold">+{{ $money($item['amount']) }}</div>
+                    </div>
+                @empty
+                    <p class="text-muted small mb-0">No hay ingresos vencidos reportados.</p>
+                @endforelse
+            </div>
+        </div>
+    </div>
+</div>
 
 <div class="card">
     <div class="card-header">
