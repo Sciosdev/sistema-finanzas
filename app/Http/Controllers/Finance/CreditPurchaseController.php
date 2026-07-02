@@ -606,6 +606,15 @@ class CreditPurchaseController extends Controller
             'paid' => round($filteredTotals->sum('total_paid'), 2),
             'installment_paid' => round($installments->sum(fn (CreditInstallment $installment) => (float) $installment->paid_amount), 2),
             'free_paid' => round($freePayments->sum(fn (CreditFreePayment $payment) => (float) $payment->amount_applied), 2),
+            'paid_this_month' => round(
+                $installments
+                    ->filter(fn (CreditInstallment $installment) => $installment->paid_on?->isSameMonth($currentMonth))
+                    ->sum(fn (CreditInstallment $installment) => (float) $installment->paid_amount)
+                + $freePayments
+                    ->filter(fn (CreditFreePayment $payment) => $payment->paid_on?->isSameMonth($currentMonth))
+                    ->sum(fn (CreditFreePayment $payment) => (float) $payment->amount_applied),
+                2
+            ),
             'pending' => round($filteredTotals->sum('balance_due'), 2),
             'current_month' => round($installments
                 ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($currentMonth))

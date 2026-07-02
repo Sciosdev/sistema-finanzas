@@ -76,9 +76,11 @@ it('shows credit debts grouped by creditor with meaningful colors', function () 
         'status' => 'pending',
     ]);
 
-    $this->actingAs($user)
+    $response = $this->actingAs($user)
         ->get(route('finance.credits.index'))
         ->assertOk()
+        ->assertSee('Pagado acumulado')
+        ->assertSee('Pagado este mes')
         ->assertSee('A quién se le debe')
         ->assertSee('data-credit-creditor=', false)
         ->assertSee('Filtrar la lista por NU', false)
@@ -95,6 +97,11 @@ it('shows credit debts grouped by creditor with meaningful colors', function () 
         ->assertSee('$1,000.00')
         ->assertSee('#7c3aed')
         ->assertSee('#facc15');
+
+    $this->assertMatchesRegularExpression(
+        '/Pagado este mes<\/p>\s*<h4 class="fw-semibold text-info mb-0">\$200\.00<\/h4>/',
+        $response->getContent()
+    );
 });
 
 it('shows credit summary cards without the Onix car credit', function () {

@@ -39,7 +39,7 @@
 </div>
 
 <div class="row g-3 mb-3">
-    <div class="col-xl-3 col-md-6">
+    <div class="col-xl col-md-6">
         <div class="card mb-0 h-100">
             <div class="card-body">
                 <p class="text-muted mb-1">Deuda total en créditos</p>
@@ -47,15 +47,23 @@
             </div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
+    <div class="col-xl col-md-6">
         <div class="card mb-0 h-100">
             <div class="card-body">
-                <p class="text-muted mb-1">Ya pagado</p>
+                <p class="text-muted mb-1">Pagado acumulado</p>
                 <h4 class="fw-semibold text-success mb-0">{{ $money($summary['paid'] ?? 0) }}</h4>
             </div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
+    <div class="col-xl col-md-6">
+        <div class="card mb-0 h-100">
+            <div class="card-body">
+                <p class="text-muted mb-1">Pagado este mes</p>
+                <h4 class="fw-semibold text-info mb-0">{{ $money($summary['paid_this_month'] ?? 0) }}</h4>
+            </div>
+        </div>
+    </div>
+    <div class="col-xl col-md-6">
         <div class="card mb-0 h-100">
             <div class="card-body">
                 <p class="text-muted mb-1">Pendiente total</p>
@@ -63,7 +71,7 @@
             </div>
         </div>
     </div>
-    <div class="col-xl-3 col-md-6">
+    <div class="col-xl col-md-6">
         <div class="card mb-0 h-100">
             <div class="card-body">
                 <p class="text-muted mb-1">Créditos activos</p>
