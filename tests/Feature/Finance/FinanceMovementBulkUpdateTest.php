@@ -227,10 +227,10 @@ it('can mark and unmark the is_unknown flag in bulk', function () {
 
 it('shows the bulk action panel and checkboxes on the movements page', function () {
     $user = bulkUser();
-    makeMovement($user);
+    $movement = makeMovement($user);
 
     $this->actingAs($user)
-        ->get(route('finance.movements.index'))
+        ->get(route('finance.movements.index', ['month' => $movement->happened_on->format('Y-m')]))
         ->assertOk()
         ->assertSee('Aplicar cambios masivos')
         ->assertSee('bulk-select-all', false)
