@@ -9,6 +9,17 @@
         'high' => ['class' => 'badge-soft-danger', 'label' => 'Alto'],
         'critical' => ['class' => 'bg-danger', 'label' => 'Crítico'],
     ];
+    $limitBadges = [
+        'ok' => ['class' => 'badge-soft-success', 'label' => 'OK'],
+        'warning' => ['class' => 'badge-soft-warning', 'label' => 'Advertencia'],
+        'exceeded' => ['class' => 'badge-soft-danger', 'label' => 'Excedido'],
+        'blocked' => ['class' => 'bg-danger', 'label' => 'Bloqueado'],
+    ];
+    $periodLabels = [
+        'daily' => 'Diario',
+        'weekly' => 'Semanal',
+        'monthly' => 'Mensual',
+    ];
     $meta = $projection['meta'];
     $summary = $projection['summary'];
     $warnings = $projection['warnings'];
@@ -35,6 +46,21 @@
     $available = $recommendation['available'];
     $shortfall = $recommendation['shortfall'];
     $groups = $recommendation['recommendations'];
+    $spendingLimitReport = $spendingLimits ?? [
+        'available_safe_today' => 0,
+        'limits' => [],
+        'summary' => [
+            'total_limits' => 0,
+            'ok_count' => 0,
+            'warning_count' => 0,
+            'exceeded_count' => 0,
+            'blocked_count' => 0,
+        ],
+        'messages' => [],
+    ];
+    $spendingLimitSummary = $spendingLimitReport['summary'];
+    $spendingLimitRows = $spendingLimitReport['limits'];
+    $expenseCategories = $expenseCategories ?? collect();
 @endphp
 
 @include('finance.partials.flash')
@@ -300,6 +326,150 @@
                 @endforelse
             </div>
         </div>
+    </div>
+</div>
+
+<div class="card border-primary">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div>
+            <h4 class="card-title mb-0">Límites de gasto</h4>
+            <p class="text-muted small mb-0">Control por categoría cruzado con tu disponible seguro de hoy.</p>
+        </div>
+        <span class="badge badge-soft-primary">Seguro hoy: {{ $money($spendingLimitReport['available_safe_today']) }}</span>
+    </div>
+    <div class="card-body">
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-lg">
+                <div class="border rounded p-2">
+                    <p class="text-muted small mb-1">Configurados</p>
+                    <h5 class="mb-0">{{ $spendingLimitSummary['total_limits'] }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="border rounded p-2">
+                    <p class="text-muted small mb-1">OK</p>
+                    <h5 class="mb-0 text-success">{{ $spendingLimitSummary['ok_count'] }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="border rounded p-2">
+                    <p class="text-muted small mb-1">Advertencia</p>
+                    <h5 class="mb-0 text-warning">{{ $spendingLimitSummary['warning_count'] }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="border rounded p-2">
+                    <p class="text-muted small mb-1">Excedidos</p>
+                    <h5 class="mb-0 text-danger">{{ $spendingLimitSummary['exceeded_count'] }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-lg">
+                <div class="border rounded p-2">
+                    <p class="text-muted small mb-1">Bloqueados</p>
+                    <h5 class="mb-0 text-danger">{{ $spendingLimitSummary['blocked_count'] }}</h5>
+                </div>
+            </div>
+        </div>
+
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Categoría</th>
+                        <th>Periodo</th>
+                        <th class="text-end">Límite</th>
+                        <th class="text-end">Gastado</th>
+                        <th class="text-end">Restante</th>
+                        <th class="text-end">Recomendado hoy</th>
+                        <th class="text-end">% usado</th>
+                        <th>Estado</th>
+                        <th>Mensaje</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($spendingLimitRows as $limit)
+                        <tr>
+                            <td class="fw-semibold">{{ $limit['category_name'] }}</td>
+                            <td>{{ $periodLabels[$limit['period_type']] ?? $limit['period_type'] }}</td>
+                            <td class="text-end">{{ $money($limit['limit_amount']) }}</td>
+                            <td class="text-end text-danger">{{ $money($limit['spent_amount']) }}</td>
+                            <td class="text-end {{ $limit['remaining_amount'] <= 0 ? 'text-danger' : 'text-success' }}">{{ $money($limit['remaining_amount']) }}</td>
+                            <td class="text-end fw-semibold">{{ $money($limit['recommended_today']) }}</td>
+                            <td class="text-end">{{ number_format((float) $limit['used_percent'], 2) }}%</td>
+                            <td>
+                                <span class="badge {{ $limitBadges[$limit['status']]['class'] }}">{{ $limitBadges[$limit['status']]['label'] }}</span>
+                            </td>
+                            <td class="small text-muted">{{ $limit['message'] }}</td>
+                            <td class="text-end">
+                                <div class="d-flex justify-content-end gap-1">
+                                    <form method="POST" action="{{ route('finance.spending-limits.update', $limit['id']) }}">
+                                        @csrf
+                                        @method('PUT')
+                                        <input type="hidden" name="category_id" value="{{ $limit['category_id'] }}">
+                                        <input type="hidden" name="period_type" value="{{ $limit['period_type'] }}">
+                                        <input type="hidden" name="limit_amount" value="{{ $limit['limit_amount'] }}">
+                                        <input type="hidden" name="warning_threshold_percent" value="{{ $limit['warning_threshold_percent'] }}">
+                                        <input type="hidden" name="is_active" value="0">
+                                        <input type="hidden" name="notes" value="{{ $limit['notes'] }}">
+                                        <button class="btn btn-sm btn-outline-warning" type="submit">Desactivar</button>
+                                    </form>
+                                    <form method="POST" action="{{ route('finance.spending-limits.destroy', $limit['id']) }}" onsubmit="return confirm('¿Eliminar este límite?')">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="10" class="text-center text-muted py-3">Aún no tienes límites de gasto activos.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+
+        <form method="POST" action="{{ route('finance.spending-limits.store') }}" class="row g-3 align-items-end">
+            @csrf
+            <div class="col-md-3">
+                <label class="form-label" for="spending_limit_category_id">Categoría</label>
+                <select class="form-select" id="spending_limit_category_id" name="category_id" required @disabled($expenseCategories->isEmpty())>
+                    <option value="">Selecciona...</option>
+                    @foreach ($expenseCategories as $category)
+                        <option value="{{ $category->id }}" @selected((int) old('category_id') === (int) $category->id)>
+                            {{ $category->name }}@if ($category->group) · {{ $category->group }}@endif
+                        </option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="spending_limit_period_type">Periodo</label>
+                <select class="form-select" id="spending_limit_period_type" name="period_type" required>
+                    <option value="daily" @selected(old('period_type') === 'daily')>Diario</option>
+                    <option value="weekly" @selected(old('period_type', 'weekly') === 'weekly')>Semanal</option>
+                    <option value="monthly" @selected(old('period_type') === 'monthly')>Mensual</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="spending_limit_amount">Monto límite</label>
+                <input type="number" step="0.01" min="0.01" class="form-control" id="spending_limit_amount" name="limit_amount" value="{{ old('limit_amount') }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="spending_limit_warning">Aviso %</label>
+                <input type="number" step="0.01" min="1" max="100" class="form-control" id="spending_limit_warning" name="warning_threshold_percent" value="{{ old('warning_threshold_percent', 80) }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="spending_limit_notes">Notas</label>
+                <input type="text" class="form-control" id="spending_limit_notes" name="notes" value="{{ old('notes') }}">
+            </div>
+            <div class="col-md-1">
+                <button class="btn btn-primary w-100" type="submit" @disabled($expenseCategories->isEmpty())>
+                    <i data-lucide="plus" class="me-1"></i>Crear
+                </button>
+            </div>
+        </form>
     </div>
 </div>
 

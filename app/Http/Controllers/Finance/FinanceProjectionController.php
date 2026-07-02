@@ -3,16 +3,19 @@
 namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
+use App\Models\Finance\Category;
 use App\Models\Finance\PlannerSetting;
 use App\Services\Finance\FinancePaymentRecommendationService;
 use App\Services\Finance\FinanceProjectionService;
+use App\Services\Finance\FinanceSpendingLimitService;
 use Illuminate\Http\Request;
 
 class FinanceProjectionController extends Controller
 {
     public function __construct(
         private readonly FinanceProjectionService $projectionService,
-        private readonly FinancePaymentRecommendationService $recommendationService
+        private readonly FinancePaymentRecommendationService $recommendationService,
+        private readonly FinanceSpendingLimitService $spendingLimitService
     ) {}
 
     public function index(Request $request)
@@ -25,10 +28,18 @@ class FinanceProjectionController extends Controller
         }
 
         $projection = $this->projectionService->project($user, $horizon);
+        $paymentRecommendations = $this->recommendationService->recommend($user, $horizon, $projection);
 
         return view('finance.projection.index', [
             'projection' => $projection,
-            'paymentRecommendations' => $this->recommendationService->recommend($user, $horizon, $projection),
+            'paymentRecommendations' => $paymentRecommendations,
+            'spendingLimits' => $this->spendingLimitService->analyze($user, $horizon, $paymentRecommendations),
+            'expenseCategories' => Category::where('user_id', $user->id)
+                ->where('type', 'expense')
+                ->where('is_active', true)
+                ->orderBy('group')
+                ->orderBy('name')
+                ->get(),
             'horizon' => $horizon,
             'horizons' => FinanceProjectionService::HORIZONS,
             'settings' => PlannerSetting::where('user_id', $user->id)->first(),

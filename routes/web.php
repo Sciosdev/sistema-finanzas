@@ -1,12 +1,11 @@
 <?php
 
-use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Finance\AccountController;
 use App\Http\Controllers\Finance\CategoryController;
-use App\Http\Controllers\Finance\FinanceBuildDeployController;
 use App\Http\Controllers\Finance\CreditPurchaseController;
 use App\Http\Controllers\Finance\DailyCutController;
 use App\Http\Controllers\Finance\ExpectedIncomeController;
+use App\Http\Controllers\Finance\FinanceBuildDeployController;
 use App\Http\Controllers\Finance\FinanceDashboardController;
 use App\Http\Controllers\Finance\FinanceHealthController;
 use App\Http\Controllers\Finance\FinanceMaintenanceController;
@@ -16,15 +15,17 @@ use App\Http\Controllers\Finance\FinanceProjectionController;
 use App\Http\Controllers\Finance\FinanceReportController;
 use App\Http\Controllers\Finance\FinanceRestoreController;
 use App\Http\Controllers\Finance\FinanceSecurityController;
+use App\Http\Controllers\Finance\FinanceSpendingLimitController;
 use App\Http\Controllers\Finance\FinanceTriageController;
 use App\Http\Controllers\Finance\FinanceUserController;
 use App\Http\Controllers\Finance\HistoricalImportController;
-use App\Http\Controllers\Finance\MovementController;
 use App\Http\Controllers\Finance\MonthlyReviewController;
+use App\Http\Controllers\Finance\MovementController;
 use App\Http\Controllers\Finance\PlannedPaymentController;
 use App\Http\Controllers\Finance\ReminderController;
 use App\Http\Controllers\Finance\SanJuanController;
 use App\Http\Controllers\RoutingController;
+use Illuminate\Support\Facades\Route;
 
 /*
 |--------------------------------------------------------------------------
@@ -37,7 +38,7 @@ use App\Http\Controllers\RoutingController;
 |
 */
 
-require __DIR__ . '/auth.php';
+require __DIR__.'/auth.php';
 
 // Endpoint mínimo de triage para errores 500 en producción. Público pero
 // protegido por token; fuera del middleware auth y registrado antes del grupo
@@ -107,6 +108,10 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
 
         Route::get('planificador', [FinanceProjectionController::class, 'index'])->name('projection.index');
         Route::post('planificador/configuracion', [FinanceProjectionController::class, 'saveSettings'])->name('projection.settings');
+        Route::post('planificador/limites', [FinanceSpendingLimitController::class, 'store'])->name('spending-limits.store');
+        Route::put('planificador/limites/{limit}', [FinanceSpendingLimitController::class, 'update'])->name('spending-limits.update');
+        Route::patch('planificador/limites/{limit}', [FinanceSpendingLimitController::class, 'update'])->name('spending-limits.patch');
+        Route::delete('planificador/limites/{limit}', [FinanceSpendingLimitController::class, 'destroy'])->name('spending-limits.destroy');
 
         Route::get('flujo-planeado', [PlannedPaymentController::class, 'index'])->name('planned.index');
         Route::post('flujo-planeado', [PlannedPaymentController::class, 'store'])->name('planned.store');
