@@ -61,6 +61,21 @@
     $spendingLimitSummary = $spendingLimitReport['summary'];
     $spendingLimitRows = $spendingLimitReport['limits'];
     $expenseCategories = $expenseCategories ?? collect();
+    $creditSimulationInput = $creditSimulationInput ?? ['amount' => 0, 'horizon_days' => $horizon, 'strategy' => 'balanced'];
+    $creditSimulation = $creditSimulation ?? null;
+    $creditOptions = $creditOptions ?? collect();
+    $creditAccounts = $creditAccounts ?? collect();
+    $creditCostLabels = [
+        'total_percent' => 'Porcentaje total',
+        'fixed_fee' => 'ComisiÃ³n fija',
+        'percent_plus_fee' => 'Porcentaje + comisiÃ³n',
+    ];
+    $creditStrategyLabels = [
+        'balanced' => 'Balanceado',
+        'cheapest' => 'Menor costo',
+        'lowest_monthly' => 'Menor mensualidad',
+        'safest_flow' => 'Flujo mÃ¡s seguro',
+    ];
 @endphp
 
 @include('finance.partials.flash')
@@ -470,6 +485,271 @@
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<div class="card border-info">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div>
+            <h4 class="card-title mb-0">Comparador de crÃ©dito / efectivo</h4>
+            <p class="text-muted small mb-0">Simula opciones sin crear deuda real ni mensualidades.</p>
+        </div>
+        <span class="badge badge-soft-info">Solo simulaciÃ³n</span>
+    </div>
+    <div class="card-body">
+        <form method="GET" action="{{ route('finance.credit-simulation.simulate') }}" class="row g-3 align-items-end mb-3">
+            <div class="col-md-3">
+                <label class="form-label" for="credit_simulation_amount">Monto que necesito</label>
+                <input type="number" step="0.01" min="1" class="form-control" id="credit_simulation_amount" name="amount"
+                       value="{{ old('amount', $creditSimulationInput['amount'] > 0 ? $creditSimulationInput['amount'] : '') }}" required>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="credit_simulation_horizon">Horizonte</label>
+                <select class="form-select" id="credit_simulation_horizon" name="horizon_days" required>
+                    @foreach ($horizons as $option)
+                        <option value="{{ $option }}" @selected((int) $creditSimulationInput['horizon_days'] === (int) $option)>{{ $option }} dÃ­as</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="credit_simulation_strategy">Estrategia</label>
+                <select class="form-select" id="credit_simulation_strategy" name="strategy" required>
+                    @foreach ($creditStrategyLabels as $value => $label)
+                        <option value="{{ $value }}" @selected($creditSimulationInput['strategy'] === $value)>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-3">
+                <button class="btn btn-info w-100" type="submit">
+                    <i data-lucide="calculator" class="me-1"></i>Simular opciones
+                </button>
+            </div>
+        </form>
+
+        @if ($creditSimulation)
+            @php
+                $simulatedOptionsById = collect($creditSimulation['options'])->keyBy('id');
+                $recommendedCreditOption = $simulatedOptionsById->get($creditSimulation['ranking']['recommended_option_id']);
+                $cheapestCreditOption = $simulatedOptionsById->get($creditSimulation['ranking']['cheapest_option_id']);
+                $lowestMonthlyCreditOption = $simulatedOptionsById->get($creditSimulation['ranking']['lowest_monthly_option_id']);
+                $safestFlowCreditOption = $simulatedOptionsById->get($creditSimulation['ranking']['safest_flow_option_id']);
+                $simulationCards = [
+                    ['label' => 'OpciÃ³n recomendada', 'option' => $recommendedCreditOption, 'metric' => $recommendedCreditOption ? $recommendedCreditOption['message'] : 'Sin opciÃ³n disponible'],
+                    ['label' => 'MÃ¡s barata', 'option' => $cheapestCreditOption, 'metric' => $cheapestCreditOption ? 'Costo ' . $money($cheapestCreditOption['total_cost']) : 'Sin opciÃ³n disponible'],
+                    ['label' => 'Menor mensualidad', 'option' => $lowestMonthlyCreditOption, 'metric' => $lowestMonthlyCreditOption ? $money($lowestMonthlyCreditOption['monthly_payment']) . ' al mes' : 'Sin opciÃ³n disponible'],
+                    ['label' => 'Flujo mÃ¡s seguro', 'option' => $safestFlowCreditOption, 'metric' => $safestFlowCreditOption ? 'Riesgo ' . ($riskBadges[$safestFlowCreditOption['simulation']['max_risk']]['label'] ?? $safestFlowCreditOption['simulation']['max_risk']) : 'Sin opciÃ³n disponible'],
+                ];
+            @endphp
+
+            <div class="row g-2 mb-3">
+                @foreach ($simulationCards as $card)
+                    <div class="col-md-6 col-xl-3">
+                        <div class="border rounded p-2 h-100">
+                            <p class="text-muted small mb-1">{{ $card['label'] }}</p>
+                            <h5 class="mb-1">{{ $card['option']['name'] ?? 'Sin resultado' }}</h5>
+                            <p class="small mb-0">{{ $card['metric'] }}</p>
+                        </div>
+                    </div>
+                @endforeach
+            </div>
+
+            @if (count($creditSimulation['messages']) > 0)
+                <div class="row g-2 mb-3">
+                    @foreach ($creditSimulation['messages'] as $message)
+                        <div class="col-md-6 col-xl-4">
+                            <div class="alert alert-light border mb-0 py-2 small">{{ $message }}</div>
+                        </div>
+                    @endforeach
+                </div>
+            @endif
+
+            <div class="table-responsive mb-4">
+                <table class="table table-sm align-middle mb-0">
+                    <thead>
+                        <tr>
+                            <th>Nombre</th>
+                            <th class="text-end">Monto recibido</th>
+                            <th class="text-end">Total a pagar</th>
+                            <th class="text-end">Costo</th>
+                            <th>Plazo</th>
+                            <th class="text-end">Mensualidad</th>
+                            <th>Primer pago</th>
+                            <th>Riesgo simulado</th>
+                            <th class="text-end">Faltante colchÃ³n</th>
+                            <th>RecomendaciÃ³n</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @forelse ($creditSimulation['options'] as $option)
+                            <tr>
+                                <td class="fw-semibold">
+                                    {{ $option['name'] }}
+                                    @if (! $option['available'])
+                                        <span class="badge badge-soft-secondary ms-1">No disponible</span>
+                                    @endif
+                                </td>
+                                <td class="text-end">{{ $money($option['amount_received']) }}</td>
+                                <td class="text-end">{{ $option['available'] ? $money($option['repayment_total']) : 'â€”' }}</td>
+                                <td class="text-end">{{ $option['available'] ? $money($option['total_cost']) : 'â€”' }}</td>
+                                <td>{{ $option['term_months'] }} mes(es)</td>
+                                <td class="text-end">{{ $option['available'] ? $money($option['monthly_payment']) : 'â€”' }}</td>
+                                <td>{{ $option['first_payment_date'] }}</td>
+                                <td>
+                                    @if ($option['available'])
+                                        <span class="badge {{ $riskBadges[$option['simulation']['max_risk']]['class'] }}">{{ $riskBadges[$option['simulation']['max_risk']]['label'] }}</span>
+                                    @else
+                                        <span class="text-muted small">{{ $option['unavailable_reason'] }}</span>
+                                    @endif
+                                </td>
+                                <td class="text-end">{{ $option['available'] ? $money($option['simulation']['cash_needed_for_buffer']) : 'â€”' }}</td>
+                                <td class="small">
+                                    @if ($option['labels']['recommended'])<span class="badge badge-soft-primary me-1">Recomendada</span>@endif
+                                    @if ($option['labels']['cheapest'])<span class="badge badge-soft-success me-1">Barata</span>@endif
+                                    @if ($option['labels']['lowest_monthly'])<span class="badge badge-soft-info me-1">Mensualidad baja</span>@endif
+                                    @if ($option['labels']['safest_flow'])<span class="badge badge-soft-warning me-1">Flujo seguro</span>@endif
+                                    @unless ($option['available']){{ $option['message'] }}@endunless
+                                </td>
+                            </tr>
+                        @empty
+                            <tr>
+                                <td colspan="10" class="text-center text-muted py-3">No hay opciones activas para simular.</td>
+                            </tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        @endif
+
+        <h5 class="fw-semibold mb-2">Registrar opciÃ³n</h5>
+        <form method="POST" action="{{ route('finance.credit-options.store') }}" class="row g-3 align-items-end mb-4">
+            @csrf
+            <div class="col-md-3">
+                <label class="form-label" for="credit_option_name">Nombre</label>
+                <input type="text" class="form-control" id="credit_option_name" name="name" value="{{ old('name') }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="credit_option_provider">Proveedor</label>
+                <input type="text" class="form-control" id="credit_option_provider" name="provider" value="{{ old('provider') }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="credit_option_account_id">Cuenta asociada</label>
+                <select class="form-select" id="credit_option_account_id" name="account_id">
+                    <option value="">Sin cuenta</option>
+                    @foreach ($creditAccounts as $account)
+                        <option value="{{ $account->id }}" @selected((int) old('account_id') === (int) $account->id)>{{ $account->name }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="credit_option_available_amount">Disponible</label>
+                <input type="number" step="0.01" min="0.01" class="form-control" id="credit_option_available_amount" name="available_amount" value="{{ old('available_amount') }}" required>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="credit_option_min_amount">MÃ­nimo</label>
+                <input type="number" step="0.01" min="0" class="form-control" id="credit_option_min_amount" name="min_amount" value="{{ old('min_amount', 0) }}">
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="credit_option_cost_type">Tipo de costo</label>
+                <select class="form-select" id="credit_option_cost_type" name="cost_type" required>
+                    @foreach ($creditCostLabels as $value => $label)
+                        <option value="{{ $value }}" @selected(old('cost_type', 'total_percent') === $value)>{{ $label }}</option>
+                    @endforeach
+                </select>
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="credit_option_cost_percent">Porcentaje</label>
+                <input type="number" step="0.0001" min="0" class="form-control" id="credit_option_cost_percent" name="cost_percent" value="{{ old('cost_percent', 0) }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="credit_option_fixed_fee">ComisiÃ³n fija</label>
+                <input type="number" step="0.01" min="0" class="form-control" id="credit_option_fixed_fee" name="fixed_fee" value="{{ old('fixed_fee', 0) }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="credit_option_term_months">Meses</label>
+                <input type="number" min="1" max="60" class="form-control" id="credit_option_term_months" name="term_months" value="{{ old('term_months', 1) }}" required>
+            </div>
+            <div class="col-md-1">
+                <label class="form-label" for="credit_option_payment_day">DÃ­a</label>
+                <input type="number" min="1" max="31" class="form-control" id="credit_option_payment_day" name="payment_day" value="{{ old('payment_day') }}">
+            </div>
+            <div class="col-md-2">
+                <label class="form-label" for="credit_option_notes">Notas</label>
+                <input type="text" class="form-control" id="credit_option_notes" name="notes" value="{{ old('notes') }}">
+            </div>
+            <div class="col-md-2">
+                <button class="btn btn-primary w-100" type="submit">
+                    <i data-lucide="plus" class="me-1"></i>Registrar
+                </button>
+            </div>
+        </form>
+
+        <h5 class="fw-semibold mb-2">Opciones registradas</h5>
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Nombre</th>
+                        <th class="text-end">Disponible</th>
+                        <th>Costo</th>
+                        <th>Plazo</th>
+                        <th>DÃ­a de pago</th>
+                        <th>Estado</th>
+                        <th class="text-end">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($creditOptions as $option)
+                        <tr>
+                            <td class="fw-semibold">
+                                {{ $option->name }}
+                                @if ($option->provider)<span class="text-muted small">({{ $option->provider }})</span>@endif
+                            </td>
+                            <td class="text-end">{{ $money($option->available_amount) }}</td>
+                            <td>
+                                {{ $creditCostLabels[$option->cost_type] ?? $option->cost_type }}
+                                @if ((float) $option->cost_percent > 0) Â· {{ number_format((float) $option->cost_percent, 2) }}%@endif
+                                @if ((float) $option->fixed_fee > 0) Â· {{ $money($option->fixed_fee) }}@endif
+                            </td>
+                            <td>{{ $option->term_months }} mes(es)</td>
+                            <td>{{ $option->payment_day ?: ($option->account?->payment_day ?: 15) }}</td>
+                            <td>
+                                <span class="badge {{ $option->is_active ? 'badge-soft-success' : 'badge-soft-secondary' }}">{{ $option->is_active ? 'Activo' : 'Inactivo' }}</span>
+                            </td>
+                            <td class="text-end">
+                                <div class="d-flex justify-content-end gap-1">
+                                    <form method="POST" action="{{ route('finance.credit-options.update', $option) }}">
+                                        @csrf
+                                        @method('PATCH')
+                                        <input type="hidden" name="name" value="{{ $option->name }}">
+                                        <input type="hidden" name="provider" value="{{ $option->provider }}">
+                                        <input type="hidden" name="account_id" value="{{ $option->account_id }}">
+                                        <input type="hidden" name="available_amount" value="{{ $option->available_amount }}">
+                                        <input type="hidden" name="min_amount" value="{{ $option->min_amount }}">
+                                        <input type="hidden" name="cost_type" value="{{ $option->cost_type }}">
+                                        <input type="hidden" name="cost_percent" value="{{ $option->cost_percent }}">
+                                        <input type="hidden" name="fixed_fee" value="{{ $option->fixed_fee }}">
+                                        <input type="hidden" name="term_months" value="{{ $option->term_months }}">
+                                        <input type="hidden" name="payment_day" value="{{ $option->payment_day }}">
+                                        <input type="hidden" name="notes" value="{{ $option->notes }}">
+                                        <input type="hidden" name="is_active" value="{{ $option->is_active ? 0 : 1 }}">
+                                        <button class="btn btn-sm btn-outline-warning" type="submit">{{ $option->is_active ? 'Desactivar' : 'Activar' }}</button>
+                                    </form>
+                                    <form method="POST" action="{{ route('finance.credit-options.destroy', $option) }}" onsubmit="return confirm('Â¿Eliminar esta opciÃ³n?')">
+                                        @csrf
+                                        @method('DELETE')
+                                        <button class="btn btn-sm btn-outline-danger" type="submit">Eliminar</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="7" class="text-center text-muted py-3">AÃºn no tienes opciones registradas.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 

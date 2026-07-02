@@ -6,6 +6,8 @@ use App\Http\Controllers\Finance\CreditPurchaseController;
 use App\Http\Controllers\Finance\DailyCutController;
 use App\Http\Controllers\Finance\ExpectedIncomeController;
 use App\Http\Controllers\Finance\FinanceBuildDeployController;
+use App\Http\Controllers\Finance\FinanceCreditOptionController;
+use App\Http\Controllers\Finance\FinanceCreditSimulationController;
 use App\Http\Controllers\Finance\FinanceDashboardController;
 use App\Http\Controllers\Finance\FinanceHealthController;
 use App\Http\Controllers\Finance\FinanceMaintenanceController;
@@ -112,6 +114,10 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::put('planificador/limites/{limit}', [FinanceSpendingLimitController::class, 'update'])->name('spending-limits.update');
         Route::patch('planificador/limites/{limit}', [FinanceSpendingLimitController::class, 'update'])->name('spending-limits.patch');
         Route::delete('planificador/limites/{limit}', [FinanceSpendingLimitController::class, 'destroy'])->name('spending-limits.destroy');
+        Route::post('planificador/creditos/opciones', [FinanceCreditOptionController::class, 'store'])->name('credit-options.store');
+        Route::patch('planificador/creditos/opciones/{option}', [FinanceCreditOptionController::class, 'update'])->name('credit-options.update');
+        Route::delete('planificador/creditos/opciones/{option}', [FinanceCreditOptionController::class, 'destroy'])->name('credit-options.destroy');
+        Route::get('planificador/creditos/simular', [FinanceCreditSimulationController::class, 'simulate'])->name('credit-simulation.simulate');
 
         Route::get('flujo-planeado', [PlannedPaymentController::class, 'index'])->name('planned.index');
         Route::post('flujo-planeado', [PlannedPaymentController::class, 'store'])->name('planned.store');
