@@ -85,6 +85,15 @@
                </li>
 
                <li class="menu-item">
+                    <a class="menu-link" href="{{ route('finance.projection.index') }}">
+                         <span class="nav-icon">
+                              <i data-lucide="calendar-range"></i>
+                         </span>
+                         <span class="nav-text">Planificador</span>
+                    </a>
+               </li>
+
+               <li class="menu-item">
                     <a class="menu-link" href="{{ route('finance.planned.index') }}">
                          <span class="nav-icon">
                               <i data-lucide="calendar-check"></i>

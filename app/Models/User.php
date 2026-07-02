@@ -12,6 +12,8 @@ use App\Models\Finance\Category;
 use App\Models\Finance\DailyCut;
 use App\Models\Finance\Movement;
 use App\Models\Finance\Person;
+use App\Models\Finance\PlannerSetting;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class User extends Authenticatable
 {
@@ -84,5 +86,10 @@ class User extends Authenticatable
     public function financeDailyCuts(): HasMany
     {
         return $this->hasMany(DailyCut::class);
+    }
+
+    public function financePlannerSetting(): HasOne
+    {
+        return $this->hasOne(PlannerSetting::class);
     }
 }

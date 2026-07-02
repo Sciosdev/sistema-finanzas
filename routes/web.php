@@ -12,6 +12,7 @@ use App\Http\Controllers\Finance\FinanceHealthController;
 use App\Http\Controllers\Finance\FinanceMaintenanceController;
 use App\Http\Controllers\Finance\FinanceOperationController;
 use App\Http\Controllers\Finance\FinancePendingController;
+use App\Http\Controllers\Finance\FinanceProjectionController;
 use App\Http\Controllers\Finance\FinanceReportController;
 use App\Http\Controllers\Finance\FinanceRestoreController;
 use App\Http\Controllers\Finance\FinanceSecurityController;
@@ -103,6 +104,9 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
 
         Route::get('cortes', [DailyCutController::class, 'index'])->name('cuts.index');
         Route::post('cortes', [DailyCutController::class, 'store'])->name('cuts.store');
+
+        Route::get('planificador', [FinanceProjectionController::class, 'index'])->name('projection.index');
+        Route::post('planificador/configuracion', [FinanceProjectionController::class, 'saveSettings'])->name('projection.settings');
 
         Route::get('flujo-planeado', [PlannedPaymentController::class, 'index'])->name('planned.index');
         Route::post('flujo-planeado', [PlannedPaymentController::class, 'store'])->name('planned.store');
