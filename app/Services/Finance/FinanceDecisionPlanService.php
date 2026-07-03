@@ -618,8 +618,7 @@ class FinanceDecisionPlanService
                 'credit_id' => $credit['credit_id'],
                 'credit_name' => $credit['credit_name'],
                 'amount' => $amount,
-                'reason' => $this->liquidationReason($credit),
-            ];
+            ] + $this->creditActionMetadata($credit, $this->liquidationReason($credit));
             $appliedByCredit[$credit['credit_id']] = $this->money(($appliedByCredit[$credit['credit_id']] ?? 0) + $amount);
             $remaining = $this->money($remaining - $amount);
         }
@@ -635,8 +634,11 @@ class FinanceDecisionPlanService
                     'credit_id' => $partialTarget['credit_id'],
                     'credit_name' => $partialTarget['credit_name'],
                     'amount' => $amount,
-                    'reason' => 'Usa el sobrante como abono extra al credito con pago proximo mas cercano sin tocar colchon ni vida diaria.',
-                ];
+                ] + $this->creditActionMetadata(
+                    $partialTarget,
+                    'Usa el sobrante como abono extra en esta cuenta porque tiene el vencimiento más cercano o saldo relevante.',
+                    $pendingAfterLiquidations
+                );
                 $appliedByCredit[$partialTarget['credit_id']] = $this->money(($appliedByCredit[$partialTarget['credit_id']] ?? 0) + $amount);
                 $remaining = $this->money($remaining - $amount);
             }
@@ -785,12 +787,11 @@ class FinanceDecisionPlanService
         return collect($credits)
             ->filter(fn (array $credit) => (float) $credit['due_before_income'] > 0)
             ->map(fn (array $credit) => [
+                'action' => 'minimum_payment',
                 'credit_id' => $credit['credit_id'],
                 'credit_name' => $credit['credit_name'],
                 'amount' => $this->money((float) $credit['due_before_income']),
-                'next_due_date' => $credit['next_due_date'],
-                'reason' => 'Cubre la mensualidad minima antes del siguiente ingreso.',
-            ])
+            ] + $this->creditActionMetadata($credit, 'Cubre solo la mensualidad mínima antes del siguiente ingreso.'))
             ->values()
             ->all();
     }
@@ -806,33 +807,81 @@ class FinanceDecisionPlanService
                 }
 
                 return [
+                    'action' => 'wait',
                     'credit_id' => $credit['credit_id'],
                     'credit_name' => $credit['credit_name'],
-                    'pending_balance' => $pendingAfter,
                     'suggested_moment' => $nextIncome ? 'Despues del proximo ingreso' : 'Mas adelante',
-                    'reason' => 'Conviene esperar para no bajar demasiado el efectivo actual.',
-                ];
+                ] + $this->creditActionMetadata(
+                    $credit,
+                    'Conviene esperar para no bajar demasiado el efectivo actual.',
+                    $pendingAfter
+                );
             })
             ->filter()
             ->values()
             ->all();
     }
 
+    private function creditActionMetadata(array $credit, string $explanation, ?float $pendingBalance = null): array
+    {
+        $effectiveCredit = $credit;
+        if ($pendingBalance !== null) {
+            $effectiveCredit['pending_balance'] = $pendingBalance;
+        }
+
+        return [
+            'account_name' => $credit['account_name'] ?? null,
+            'next_due_date' => $credit['next_due_date'] ?? null,
+            'pending_balance' => $this->money((float) ($effectiveCredit['pending_balance'] ?? 0)),
+            'overdue_amount' => $this->money((float) ($credit['overdue_amount'] ?? 0)),
+            'due_before_income' => $this->money((float) ($credit['due_before_income'] ?? 0)),
+            'due_in_horizon' => $this->money((float) ($credit['due_in_horizon'] ?? 0)),
+            'pressure_label' => $this->creditPressureLabel($effectiveCredit),
+            'explanation' => $explanation,
+            'reason' => $explanation,
+        ];
+    }
+
+    private function creditPressureLabel(array $credit): string
+    {
+        if ((float) ($credit['overdue_amount'] ?? 0) > 0) {
+            return 'Vencido';
+        }
+
+        if ((float) ($credit['due_before_income'] ?? 0) > 0) {
+            return 'Antes del próximo ingreso';
+        }
+
+        if ((float) ($credit['due_in_horizon'] ?? 0) > 0) {
+            return 'Dentro del horizonte';
+        }
+
+        if ((float) ($credit['pending_balance'] ?? 0) <= 300) {
+            return 'Deuda pequeña';
+        }
+
+        return 'Deuda pendiente';
+    }
+
     private function liquidationReason(array $credit): string
     {
         if ((float) $credit['overdue_amount'] > 0) {
-            return 'Tiene mensualidades vencidas y liquidarlo elimina esa presion.';
+            return 'Tiene mensualidad vencida y liquidarlo elimina esa presión.';
         }
 
         if ((float) $credit['due_before_income'] > 0) {
-            return 'Se puede liquidar completo y reduce presion antes del proximo ingreso.';
+            return 'Vence antes del próximo ingreso y liquidarlo libera presión de esta ventana.';
         }
 
         if ((float) $credit['pending_balance'] <= 300) {
-            return 'Se puede liquidar completo y elimina una deuda pequena.';
+            return 'Es una deuda pequeña; liquidarla elimina un pendiente completo.';
         }
 
-        return 'Se puede liquidar completo sin romper colchon ni vida diaria.';
+        if ((float) $credit['due_in_horizon'] > 0) {
+            return 'Tiene pagos dentro del horizonte y liquidarla reduce carga futura.';
+        }
+
+        return 'Se puede liquidar sin romper colchón ni vida diaria.';
     }
 
     private function creditPayoffMessage(array $recommendedActions, float $totalRecommended, float $pendingDebtAfter): string
@@ -845,19 +894,19 @@ class FinanceDecisionPlanService
         $extras = collect($recommendedActions)->where('action', 'extra_payment')->values();
 
         if ($liquidations->isNotEmpty() && $extras->isEmpty()) {
-            $names = $liquidations->pluck('credit_name')->implode(' y ');
-
-            return 'Puedes usar '.$this->formatMoney($totalRecommended).' para liquidar '.$names.' sin romper tu colchon.';
+            return 'Puedes usar '.$this->formatMoney($totalRecommended).' para liquidar '.$liquidations->count().' créditos sin romper tu colchón. Prioricé vencidos, deudas pequeñas y pagos con presión próxima. Revisa el detalle por cuenta abajo.';
         }
 
         if ($liquidations->isNotEmpty() && $extras->isNotEmpty()) {
-            $names = $liquidations->pluck('credit_name')->implode(' y ');
             $extra = $extras->first();
+            $liquidationTotal = $this->money($liquidations->sum('amount'));
 
-            return 'Puedes usar '.$this->formatMoney($totalRecommended).' para liquidar '.$names.' y abonar a '.$extra['credit_name'].' sin romper tu colchon.';
+            return 'Puedes usar '.$this->formatMoney($liquidationTotal).' para liquidar '.$liquidations->count().' créditos sin romper tu colchón. Prioricé vencidos, deudas pequeñas y pagos con presión próxima. Revisa el detalle por cuenta abajo. Además, puedes abonar '.$this->formatMoney((float) $extra['amount']).' a '.$extra['credit_name'].' como abono extra.';
         }
 
-        return 'Puedes abonar '.$this->formatMoney($totalRecommended).' a deuda sin romper tu colchon; quedarian '.$this->formatMoney($pendingDebtAfter).' pendientes.';
+        $extra = $extras->first();
+
+        return 'Puedes abonar '.$this->formatMoney($totalRecommended).' a '.($extra['credit_name'] ?? 'una deuda').' como abono extra sin romper tu colchón; quedarían '.$this->formatMoney($pendingDebtAfter).' pendientes.';
     }
 
     private function afterNextIncomeMessage(?array $nextIncome, array $credits): ?string

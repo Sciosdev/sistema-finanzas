@@ -426,6 +426,82 @@ it('recommends liquidating a small credit when it fits completely', function () 
     expect(collect($actions)->where('action', 'liquidate')->pluck('credit_name')->all())->toContain('DIDI');
 });
 
+it('includes account pressure and explanation on recommended credit payoff actions', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 5000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $account = decisionPlanAccount($user, ['name' => 'DIDI', 'opening_balance' => 0]);
+    $credit = decisionPlanCredit($user, ['name' => 'DIDI', 'account_id' => $account->id]);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-01', 'amount' => 200, 'status' => 'overdue']);
+
+    $action = collect(decisionPlanReport($user)['credit_payoff_strategy']['recommended_actions'])
+        ->firstWhere('credit_name', 'DIDI');
+
+    expect($action['account_name'])->toBe('DIDI')
+        ->and($action['next_due_date'])->toBe('2026-07-01')
+        ->and($action['pending_balance'])->toBe(200.0)
+        ->and($action['overdue_amount'])->toBe(200.0)
+        ->and($action['due_before_income'])->toBe(200.0)
+        ->and($action['due_in_horizon'])->toBe(200.0)
+        ->and($action['pressure_label'])->toBe('Vencido')
+        ->and($action['explanation'])->toContain('mensualidad vencida');
+});
+
+it('includes account pressure and explanation on deferred credit payoff actions', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 2000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $account = decisionPlanAccount($user, ['name' => 'Onix', 'opening_balance' => 0]);
+    $credit = decisionPlanCredit($user, ['name' => 'Compra Onix', 'account_id' => $account->id]);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-20', 'amount' => 1000]);
+
+    $action = collect(decisionPlanReport($user)['credit_payoff_strategy']['defer_actions'])
+        ->firstWhere('credit_name', 'Compra Onix');
+
+    expect($action['account_name'])->toBe('Onix')
+        ->and($action['action'])->toBe('wait')
+        ->and($action['pressure_label'])->toBe('Dentro del horizonte')
+        ->and($action['explanation'])->toContain('Conviene esperar');
+});
+
+it('includes account pressure and explanation on minimum payment actions', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 5000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $account = decisionPlanAccount($user, ['name' => 'NU', 'opening_balance' => 0]);
+    $credit = decisionPlanCredit($user, ['name' => 'NU - Tablet', 'account_id' => $account->id]);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-07', 'amount' => 300]);
+
+    $action = collect(decisionPlanReport($user)['credit_payoff_strategy']['minimum_payment_actions'])
+        ->firstWhere('credit_name', 'NU - Tablet');
+
+    expect($action['account_name'])->toBe('NU')
+        ->and($action['action'])->toBe('minimum_payment')
+        ->and($action['pressure_label'])->toBe('Antes del próximo ingreso')
+        ->and($action['explanation'])->toContain('mensualidad mínima');
+});
+
+it('uses a compact credit payoff message when many credits are recommended', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 10000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+
+    foreach (range(1, 12) as $number) {
+        $credit = decisionPlanCredit($user, ['name' => 'Credito '.$number]);
+        decisionPlanInstallment($user, $credit, [
+            'due_date' => '2026-07-20',
+            'amount' => 100,
+            'installment_number' => $number,
+        ]);
+    }
+
+    $message = decisionPlanReport($user)['credit_payoff_strategy']['message'];
+
+    expect($message)->toContain('liquidar 12 créditos')
+        ->and($message)->toContain('Revisa el detalle por cuenta abajo')
+        ->and($message)->not->toContain('Credito 1 y Credito 2');
+});
+
 it('prioritizes liquidating a credit that reduces near term monthly pressure', function () {
     $user = User::factory()->create();
     decisionPlanAccount($user, ['opening_balance' => 6650]);
@@ -680,6 +756,23 @@ it('shows the credit payoff strategy section on the projection page', function (
     $response->assertOk()
         ->assertSee('Estrategia de liquidación de créditos', false)
         ->assertSee('Esto es solo una recomendación. No se creó ningún movimiento ni se marcó ningún crédito como pagado.', false);
+});
+
+it('shows account and explanation details on the credit payoff strategy page', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 5000]);
+    decisionPlanIncome($user);
+    $account = decisionPlanAccount($user, ['name' => 'DIDI', 'opening_balance' => 0]);
+    $credit = decisionPlanCredit($user, ['name' => 'DIDI', 'account_id' => $account->id]);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-01', 'amount' => 200, 'status' => 'overdue']);
+
+    $this->actingAs($user)
+        ->get(route('finance.projection.index'))
+        ->assertOk()
+        ->assertSee('Cuenta: DIDI', false)
+        ->assertSee('Próximo vencimiento: 2026-07-01', false)
+        ->assertSee('Vencido', false)
+        ->assertSee('Motivo: Tiene mensualidad vencida y liquidarlo elimina esa presión.', false);
 });
 
 it('shows the recommended buffer section on the projection page', function () {

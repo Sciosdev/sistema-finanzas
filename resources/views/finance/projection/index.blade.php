@@ -459,10 +459,17 @@
                         <div class="d-flex justify-content-between gap-2 mb-2">
                             <div>
                                 <div class="fw-semibold">{{ $action['credit_name'] }}</div>
-                                <div class="text-muted small">{{ $action['reason'] }}</div>
-                                <span class="badge {{ ($action['action'] ?? '') === 'liquidate' ? 'badge-soft-success' : 'badge-soft-info' }}">
-                                    {{ ($action['action'] ?? '') === 'liquidate' ? 'Liquidar' : 'Abono extra' }}
-                                </span>
+                                <div class="text-muted small">Cuenta: {{ $action['account_name'] ?: 'Sin cuenta' }}</div>
+                                @if ($action['next_due_date'] ?? null)
+                                    <div class="text-muted small">Próximo vencimiento: {{ $action['next_due_date'] }}</div>
+                                @endif
+                                <div class="d-flex flex-wrap gap-1 my-1">
+                                    <span class="badge {{ ($action['action'] ?? '') === 'liquidate' ? 'badge-soft-success' : 'badge-soft-info' }}">
+                                        {{ ($action['action'] ?? '') === 'liquidate' ? 'Liquidar' : 'Abono extra' }}
+                                    </span>
+                                    <span class="badge badge-soft-warning">{{ $action['pressure_label'] ?? 'Deuda pendiente' }}</span>
+                                </div>
+                                <div class="text-muted small">Motivo: {{ $action['explanation'] ?? $action['reason'] }}</div>
                             </div>
                             <div class="fw-semibold text-end">{{ $money($action['amount']) }}</div>
                         </div>
@@ -476,8 +483,16 @@
                         <div class="d-flex justify-content-between gap-2 mb-2">
                             <div>
                                 <div class="fw-semibold">{{ $action['credit_name'] }}</div>
+                                <div class="text-muted small">Cuenta: {{ $action['account_name'] ?: 'Sin cuenta' }}</div>
+                                @if ($action['next_due_date'] ?? null)
+                                    <div class="text-muted small">Próximo vencimiento: {{ $action['next_due_date'] }}</div>
+                                @endif
+                                <div class="d-flex flex-wrap gap-1 my-1">
+                                    <span class="badge badge-soft-secondary">Esperar</span>
+                                    <span class="badge badge-soft-warning">{{ $action['pressure_label'] ?? 'Deuda pendiente' }}</span>
+                                </div>
                                 <div class="text-muted small">{{ $action['suggested_moment'] }}</div>
-                                <div class="text-muted small">{{ $action['reason'] }}</div>
+                                <div class="text-muted small">Motivo: {{ $action['explanation'] ?? $action['reason'] }}</div>
                             </div>
                             <div class="fw-semibold text-end">{{ $money($action['pending_balance']) }}</div>
                         </div>
@@ -491,10 +506,15 @@
                         <div class="d-flex justify-content-between gap-2 mb-2">
                             <div>
                                 <div class="fw-semibold">{{ $action['credit_name'] }}</div>
-                                <div class="text-muted small">{{ $action['reason'] }}</div>
-                                @if ($action['next_due_date'])
-                                    <div class="text-muted small">{{ $action['next_due_date'] }}</div>
+                                <div class="text-muted small">Cuenta: {{ $action['account_name'] ?: 'Sin cuenta' }}</div>
+                                @if ($action['next_due_date'] ?? null)
+                                    <div class="text-muted small">Próximo vencimiento: {{ $action['next_due_date'] }}</div>
                                 @endif
+                                <div class="d-flex flex-wrap gap-1 my-1">
+                                    <span class="badge badge-soft-info">Mensualidad mínima</span>
+                                    <span class="badge badge-soft-warning">{{ $action['pressure_label'] ?? 'Deuda pendiente' }}</span>
+                                </div>
+                                <div class="text-muted small">Motivo: {{ $action['explanation'] ?? $action['reason'] }}</div>
                             </div>
                             <div class="fw-semibold text-end">{{ $money($action['amount']) }}</div>
                         </div>
