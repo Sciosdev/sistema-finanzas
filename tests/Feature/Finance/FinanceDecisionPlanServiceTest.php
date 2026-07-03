@@ -417,6 +417,54 @@ it('shows the recommended buffer section on the projection page', function () {
         ->assertSee('Colchón recomendado', false);
 });
 
+it('shows human timeline messages at the top of the recommended plan', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 10000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    decisionPlanPayment($user, ['due_date' => '2026-07-10', 'amount' => 500]);
+
+    $response = $this->actingAs($user)->get(route('finance.projection.index'));
+
+    $response->assertOk()
+        ->assertSee('Primero guarda', false)
+        ->assertSee('El sistema recomienda conservar', false)
+        ->assertSee('Puedes vivir con', false);
+});
+
+it('does not show technical warning keys on the recommended plan', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 1000]);
+
+    $response = $this->actingAs($user)->get(route('finance.projection.index'));
+
+    $response->assertOk()
+        ->assertDontSee('no_next_income_within_horizon', false)
+        ->assertSee('No hay ingreso esperado dentro del horizonte. El plan usa una ventana corta para no sobreestimar tu dinero.', false);
+});
+
+it('clarifies reserves that are already shown in pay today', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 10000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    decisionPlanPayment($user, ['due_date' => '2026-07-10', 'amount' => 500]);
+
+    $response = $this->actingAs($user)->get(route('finance.projection.index'));
+
+    $response->assertOk()
+        ->assertSee('Ya incluido en Paga hoy', false);
+});
+
+it('renames the old manual buffer card on the projection page', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user);
+    decisionPlanIncome($user);
+
+    $response = $this->actingAs($user)->get(route('finance.projection.index'));
+
+    $response->assertOk()
+        ->assertSee('Colchón manual / configuración anterior', false);
+});
+
 it('does not break finance survival budget', function () {
     $user = User::factory()->create();
     decisionPlanAccount($user);

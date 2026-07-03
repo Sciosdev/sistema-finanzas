@@ -151,6 +151,22 @@
     $decisionActions = $decisionPlan['actions'];
     $decisionCategoryBudget = $decisionPlan['category_budget'];
     $decisionMessages = $decisionPlan['timeline_messages'];
+    $decisionWarningLabels = [
+        'no_next_income_within_horizon' => 'No hay ingreso esperado dentro del horizonte. El plan usa una ventana corta para no sobreestimar tu dinero.',
+    ];
+    $decisionWarnings = collect($decisionPlan['warnings'] ?? [])
+        ->map(fn ($warning) => $decisionWarningLabels[$warning] ?? 'El plan detecto una advertencia que conviene revisar antes de decidir.')
+        ->values()
+        ->all();
+    $decisionPayTodayKeys = collect($decisionActions['pay_today'] ?? [])
+        ->map(fn ($item) => ($item['type'] ?? '') . ':' . ($item['id'] ?? '') . ':' . ($item['date'] ?? ''))
+        ->all();
+    $decisionDisplayActions = $decisionActions;
+    $decisionDisplayActions['reserve'] = collect($decisionActions['reserve'] ?? [])
+        ->reject(fn ($item) => in_array(($item['type'] ?? '') . ':' . ($item['id'] ?? '') . ':' . ($item['date'] ?? ''), $decisionPayTodayKeys, true))
+        ->values()
+        ->all();
+    $decisionReserveHiddenCount = count($decisionActions['reserve'] ?? []) - count($decisionDisplayActions['reserve'] ?? []);
     $decisionActionTitles = [
         'pay_today' => 'Paga hoy',
         'pay_before_income' => 'Paga antes del ingreso',
@@ -246,6 +262,16 @@
             {{ $decisionHeadline['message'] }}
         </div>
 
+        @if (count($decisionMessages) > 0)
+            <div class="row g-2 mb-3">
+                @foreach ($decisionMessages as $message)
+                    <div class="col-md-6 col-xl-4">
+                        <div class="alert alert-light border mb-0 py-2 small">{{ $message }}</div>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
         <div class="row g-2 mb-3">
             <div class="col-md-6 col-xl-3">
                 <div class="border rounded p-2 h-100">
@@ -340,7 +366,10 @@
                 <div class="col-md-6 col-xl-4">
                     <div class="border rounded p-2 h-100">
                         <h6 class="mb-2">{{ $title }}</h6>
-                        @forelse ($decisionActions[$actionKey] ?? [] as $item)
+                        @if ($actionKey === 'reserve' && $decisionReserveHiddenCount > 0)
+                            <div class="badge badge-soft-info mb-2">Ya incluido en Paga hoy</div>
+                        @endif
+                        @forelse ($decisionDisplayActions[$actionKey] ?? [] as $item)
                             <div class="d-flex justify-content-between gap-2 mb-2">
                                 <div>
                                     <div class="fw-semibold">{{ $item['name'] }}</div>
@@ -352,7 +381,13 @@
                                 <div class="text-end fw-semibold">{{ $money($item['amount']) }}</div>
                             </div>
                         @empty
-                            <p class="text-muted small mb-0">Sin acciones en esta bolsa.</p>
+                            <p class="text-muted small mb-0">
+                                @if ($actionKey === 'reserve' && $decisionReserveHiddenCount > 0)
+                                    Sin reservas futuras adicionales.
+                                @else
+                                    Sin acciones en esta bolsa.
+                                @endif
+                            </p>
                         @endforelse
                     </div>
                 </div>
@@ -388,14 +423,9 @@
             </table>
         </div>
 
-        @if (count($decisionMessages) > 0 || count($decisionPlan['warnings']) > 0)
+        @if (count($decisionWarnings) > 0)
             <div class="row g-2">
-                @foreach ($decisionMessages as $message)
-                    <div class="col-md-6 col-xl-4">
-                        <div class="alert alert-light border mb-0 py-2 small">{{ $message }}</div>
-                    </div>
-                @endforeach
-                @foreach ($decisionPlan['warnings'] as $warning)
+                @foreach ($decisionWarnings as $warning)
                     <div class="col-md-6 col-xl-4">
                         <div class="alert alert-warning mb-0 py-2 small">{{ $warning }}</div>
                     </div>
@@ -417,7 +447,7 @@
     <div class="col-6 col-lg-2">
         <div class="card">
             <div class="card-body">
-                <p class="text-muted mb-1 small">Colchón mínimo</p>
+                <p class="text-muted mb-1 small">Colchón manual / configuración anterior</p>
                 <h5 class="mb-0">{{ $money($meta['buffer']) }}</h5>
             </div>
         </div>

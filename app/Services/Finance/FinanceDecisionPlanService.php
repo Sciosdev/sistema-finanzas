@@ -626,12 +626,12 @@ class FinanceDecisionPlanService
         );
 
         if ($nextIncome) {
-            $messages[] = 'Antes del '.$nextIncome['date']->format('d/m/Y').' guarda '.$this->formatMoney($payBeforeTotal).' para pagos.';
+            $messages[] = 'Primero guarda '.$this->formatMoney($payBeforeTotal).' para pagos antes de tu proximo ingreso del '.$nextIncome['date']->format('d/m/Y').'.';
         } else {
             $messages[] = 'No hay ingreso dentro del horizonte; trabaja con una ventana hasta el '.$this->formatDate($currentWindow['end_date']).'.';
         }
 
-        $messages[] = 'El sistema recomienda guardar '.$this->formatMoney((float) $buffer['buffer_used']).' como colchon minimo.';
+        $messages[] = 'El sistema recomienda conservar '.$this->formatMoney((float) $buffer['buffer_used']).' como colchon minimo.';
 
         if ((float) $moneyPlan['living_money'] > 0) {
             $messages[] = 'Puedes vivir con '.$this->formatMoney((float) $moneyPlan['daily_living_allowance']).' diarios hasta tu siguiente ingreso.';
@@ -641,12 +641,12 @@ class FinanceDecisionPlanService
 
         $waitItem = $actions['wait'][0] ?? null;
         if ($waitItem) {
-            $messages[] = 'No pagues '.$waitItem['name'].' todavia; vence despues del siguiente ingreso.';
+            $messages[] = 'No pagues todavia '.$waitItem['name'].'; vence despues del siguiente ingreso.';
         }
 
         $afterIncomeItem = $actions['after_next_income'][0] ?? null;
         if ($nextIncome && $afterIncomeItem) {
-            $messages[] = 'Cuando entre el ingreso del '.$nextIncome['date']->format('d/m/Y').', paga primero '.$afterIncomeItem['name'].'.';
+            $messages[] = 'Cuando entre tu ingreso del '.$nextIncome['date']->format('d/m/Y').', paga primero '.$afterIncomeItem['name'].'.';
         }
 
         if ((float) $moneyPlan['shortfall'] > 0) {
