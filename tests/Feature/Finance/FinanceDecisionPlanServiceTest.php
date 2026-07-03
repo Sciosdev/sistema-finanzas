@@ -3,6 +3,7 @@
 use App\Models\Finance\Account;
 use App\Models\Finance\Category;
 use App\Models\Finance\CreditInstallment;
+use App\Models\Finance\CreditFreePayment;
 use App\Models\Finance\CreditOption;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\ExpectedIncome;
@@ -322,6 +323,133 @@ it('recommends reserving payments inside the horizon', function () {
     expect(json_encode($reserve))->toContain('Internet');
 });
 
+it('does not recommend credit payoff when cash is needed for plan buffer and living money', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 2000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $credit = decisionPlanCredit($user, ['name' => 'NU']);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-20', 'amount' => 1000]);
+
+    $strategy = decisionPlanReport($user)['credit_payoff_strategy'];
+
+    expect($strategy['available_for_debt_payoff_now'])->toBe(0.0)
+        ->and($strategy['should_payoff_now'])->toBeFalse()
+        ->and($strategy['recommended_actions'])->toBeEmpty()
+        ->and($strategy['message'])->toContain('No liquides creditos todavia');
+});
+
+it('calculates available cash for credit payoff after required reserves', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 5000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $credit = decisionPlanCredit($user, ['name' => 'NU']);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-20', 'amount' => 1000]);
+
+    $strategy = decisionPlanReport($user)['credit_payoff_strategy'];
+
+    expect($strategy['available_for_debt_payoff_now'])->toBe(2550.0);
+});
+
+it('calculates pending balance per credit from unpaid installments', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 5000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $credit = decisionPlanCredit($user, ['name' => 'BBVA']);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-20', 'amount' => 100, 'paid_amount' => 25]);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-08-20', 'installment_number' => 2, 'amount' => 200]);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-09-20', 'installment_number' => 3, 'amount' => 300, 'paid_amount' => 300, 'status' => 'paid']);
+
+    $creditRow = collect(decisionPlanReport($user)['credit_payoff_strategy']['credits'])->firstWhere('credit_name', 'BBVA');
+
+    expect($creditRow['pending_balance'])->toBe(275.0)
+        ->and($creditRow['installments_pending_count'])->toBe(2);
+});
+
+it('recommends liquidating a small credit when it fits completely', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 5000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $small = decisionPlanCredit($user, ['name' => 'DIDI']);
+    decisionPlanInstallment($user, $small, ['due_date' => '2026-07-20', 'amount' => 200]);
+    $large = decisionPlanCredit($user, ['name' => 'BBVA']);
+    decisionPlanInstallment($user, $large, ['due_date' => '2026-07-25', 'amount' => 3000]);
+
+    $actions = decisionPlanReport($user)['credit_payoff_strategy']['recommended_actions'];
+
+    expect(collect($actions)->where('action', 'liquidate')->pluck('credit_name')->all())->toContain('DIDI');
+});
+
+it('prioritizes liquidating a credit that reduces near term monthly pressure', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 6650]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $a = decisionPlanCredit($user, ['name' => 'BBVA']);
+    decisionPlanInstallment($user, $a, ['due_date' => '2026-07-27', 'amount' => 1000]);
+    $b = decisionPlanCredit($user, ['name' => 'NU']);
+    decisionPlanInstallment($user, $b, ['due_date' => '2026-07-07', 'amount' => 2000]);
+    $c = decisionPlanCredit($user, ['name' => 'DIDI']);
+    decisionPlanInstallment($user, $c, ['due_date' => '2026-07-20', 'amount' => 200]);
+
+    $strategy = decisionPlanReport($user)['credit_payoff_strategy'];
+    $liquidations = collect($strategy['recommended_actions'])->where('action', 'liquidate')->values();
+
+    expect($strategy['available_for_debt_payoff_now'])->toBe(2200.0)
+        ->and($liquidations->pluck('credit_name')->all())->toBe(['NU', 'DIDI'])
+        ->and($strategy['pending_debt_before'])->toBe(3200.0)
+        ->and($strategy['pending_debt_after'])->toBe(1000.0)
+        ->and(collect($strategy['defer_actions'])->pluck('credit_name')->all())->toContain('BBVA');
+});
+
+it('does not use buffer or minimum living money for credit payoff', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 2450]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $credit = decisionPlanCredit($user, ['name' => 'DIDI']);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-20', 'amount' => 200]);
+
+    $strategy = decisionPlanReport($user)['credit_payoff_strategy'];
+
+    expect($strategy['available_for_debt_payoff_now'])->toBe(0.0)
+        ->and($strategy['recommended_actions'])->toBeEmpty();
+});
+
+it('ignores credits from another user in credit payoff strategy', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 5000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $own = decisionPlanCredit($user, ['name' => 'NU']);
+    decisionPlanInstallment($user, $own, ['due_date' => '2026-07-20', 'amount' => 1000]);
+    $other = User::factory()->create();
+    decisionPlanAccount($other, ['opening_balance' => 5000]);
+    $otherCredit = decisionPlanCredit($other, ['name' => 'Credito ajeno']);
+    decisionPlanInstallment($other, $otherCredit, ['due_date' => '2026-07-20', 'amount' => 100]);
+
+    $strategyJson = json_encode(decisionPlanReport($user)['credit_payoff_strategy']);
+
+    expect($strategyJson)->toContain('NU')
+        ->and($strategyJson)->not->toContain('Credito ajeno');
+});
+
+it('does not persist anything while building credit payoff strategy', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 5000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $credit = decisionPlanCredit($user, ['name' => 'NU']);
+    $installment = decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-20', 'amount' => 1000, 'status' => 'pending']);
+    $movementCount = Movement::count();
+    $freePaymentCount = CreditFreePayment::count();
+    $creditCount = CreditPurchase::count();
+    $installmentCount = CreditInstallment::count();
+
+    decisionPlanReport($user);
+
+    expect(Movement::count())->toBe($movementCount)
+        ->and(CreditFreePayment::count())->toBe($freePaymentCount)
+        ->and(CreditPurchase::count())->toBe($creditCount)
+        ->and(CreditInstallment::count())->toBe($installmentCount)
+        ->and($installment->fresh()->status)->toBe('pending');
+});
+
 it('does not recommend paying today for a forced automatic payment before its charge window', function () {
     $user = User::factory()->create();
     decisionPlanAccount($user);
@@ -493,6 +621,18 @@ it('shows the recommended plan section on the projection page', function () {
 
     $response->assertOk()
         ->assertSee('Plan recomendado', false);
+});
+
+it('shows the credit payoff strategy section on the projection page', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user);
+    decisionPlanIncome($user);
+
+    $response = $this->actingAs($user)->get(route('finance.projection.index'));
+
+    $response->assertOk()
+        ->assertSee('Estrategia de liquidación de créditos', false)
+        ->assertSee('Esto es solo una recomendación. No se creó ningún movimiento ni se marcó ningún crédito como pagado.', false);
 });
 
 it('shows the recommended buffer section on the projection page', function () {

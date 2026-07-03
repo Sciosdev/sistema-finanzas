@@ -141,6 +141,7 @@
             'save' => [],
         ],
         'category_budget' => [],
+        'credit_payoff_strategy' => [],
         'timeline_messages' => [],
         'warnings' => [],
     ];
@@ -151,6 +152,17 @@
     $decisionActions = $decisionPlan['actions'];
     $decisionCategoryBudget = $decisionPlan['category_budget'];
     $decisionMessages = $decisionPlan['timeline_messages'];
+    $decisionCreditPayoff = $decisionPlan['credit_payoff_strategy'] ?? [
+        'available_for_debt_payoff_now' => 0,
+        'pending_debt_before' => 0,
+        'pending_debt_after' => 0,
+        'total_recommended_to_pay_now' => 0,
+        'recommended_actions' => [],
+        'defer_actions' => [],
+        'minimum_payment_actions' => [],
+        'message' => 'Estrategia no calculada.',
+        'after_next_income_message' => null,
+    ];
     $decisionWarningLabels = [
         'no_next_income_within_horizon' => 'No hay ingreso esperado dentro del horizonte. El plan usa una ventana corta para no sobreestimar tu dinero.',
     ];
@@ -358,6 +370,102 @@
                     <p class="text-muted small mb-1">Faltante</p>
                     <h5 class="mb-0 {{ $decisionMoney['shortfall'] > 0 ? 'text-danger' : 'text-success' }}">{{ $money($decisionMoney['shortfall']) }}</h5>
                 </div>
+            </div>
+        </div>
+
+        <div class="border rounded p-3 mb-3">
+            <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 mb-3">
+                <div>
+                    <h5 class="mb-1">Estrategia de liquidación de créditos</h5>
+                    <div class="text-muted small">{{ $decisionCreditPayoff['message'] }}</div>
+                    @if ($decisionCreditPayoff['after_next_income_message'] ?? null)
+                        <div class="text-muted small">{{ $decisionCreditPayoff['after_next_income_message'] }}</div>
+                    @endif
+                </div>
+                <span class="badge badge-soft-info align-self-lg-start">Modo: {{ $decisionCreditPayoff['mode'] ?? 'reduce_monthly_pressure' }}</span>
+            </div>
+
+            <div class="row g-2 mb-3">
+                <div class="col-md-6 col-xl-3">
+                    <div class="border rounded p-2 h-100">
+                        <p class="text-muted small mb-1">Disponible para liquidar hoy</p>
+                        <h5 class="mb-0">{{ $money($decisionCreditPayoff['available_for_debt_payoff_now'] ?? 0) }}</h5>
+                    </div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <div class="border rounded p-2 h-100">
+                        <p class="text-muted small mb-1">Deuda pendiente antes</p>
+                        <h5 class="mb-0">{{ $money($decisionCreditPayoff['pending_debt_before'] ?? 0) }}</h5>
+                    </div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <div class="border rounded p-2 h-100">
+                        <p class="text-muted small mb-1">Recomendado pagar hoy</p>
+                        <h5 class="mb-0 text-primary">{{ $money($decisionCreditPayoff['total_recommended_to_pay_now'] ?? 0) }}</h5>
+                    </div>
+                </div>
+                <div class="col-md-6 col-xl-3">
+                    <div class="border rounded p-2 h-100">
+                        <p class="text-muted small mb-1">Deuda pendiente después</p>
+                        <h5 class="mb-0">{{ $money($decisionCreditPayoff['pending_debt_after'] ?? 0) }}</h5>
+                    </div>
+                </div>
+            </div>
+
+            <div class="row g-3">
+                <div class="col-lg-4">
+                    <h6 class="mb-2">Créditos recomendados para liquidar</h6>
+                    @forelse ($decisionCreditPayoff['recommended_actions'] ?? [] as $action)
+                        <div class="d-flex justify-content-between gap-2 mb-2">
+                            <div>
+                                <div class="fw-semibold">{{ $action['credit_name'] }}</div>
+                                <div class="text-muted small">{{ $action['reason'] }}</div>
+                                <span class="badge {{ ($action['action'] ?? '') === 'liquidate' ? 'badge-soft-success' : 'badge-soft-info' }}">
+                                    {{ ($action['action'] ?? '') === 'liquidate' ? 'Liquidar' : 'Abono extra' }}
+                                </span>
+                            </div>
+                            <div class="fw-semibold text-end">{{ $money($action['amount']) }}</div>
+                        </div>
+                    @empty
+                        <p class="text-muted small mb-0">Sin liquidaciones recomendadas por ahora.</p>
+                    @endforelse
+                </div>
+                <div class="col-lg-4">
+                    <h6 class="mb-2">Después del próximo ingreso</h6>
+                    @forelse ($decisionCreditPayoff['defer_actions'] ?? [] as $action)
+                        <div class="d-flex justify-content-between gap-2 mb-2">
+                            <div>
+                                <div class="fw-semibold">{{ $action['credit_name'] }}</div>
+                                <div class="text-muted small">{{ $action['suggested_moment'] }}</div>
+                                <div class="text-muted small">{{ $action['reason'] }}</div>
+                            </div>
+                            <div class="fw-semibold text-end">{{ $money($action['pending_balance']) }}</div>
+                        </div>
+                    @empty
+                        <p class="text-muted small mb-0">No quedan créditos pendientes después de la recomendación.</p>
+                    @endforelse
+                </div>
+                <div class="col-lg-4">
+                    <h6 class="mb-2">Mensualidad mínima</h6>
+                    @forelse ($decisionCreditPayoff['minimum_payment_actions'] ?? [] as $action)
+                        <div class="d-flex justify-content-between gap-2 mb-2">
+                            <div>
+                                <div class="fw-semibold">{{ $action['credit_name'] }}</div>
+                                <div class="text-muted small">{{ $action['reason'] }}</div>
+                                @if ($action['next_due_date'])
+                                    <div class="text-muted small">{{ $action['next_due_date'] }}</div>
+                                @endif
+                            </div>
+                            <div class="fw-semibold text-end">{{ $money($action['amount']) }}</div>
+                        </div>
+                    @empty
+                        <p class="text-muted small mb-0">Sin mensualidades mínimas antes del siguiente ingreso.</p>
+                    @endforelse
+                </div>
+            </div>
+
+            <div class="alert alert-light border py-2 small mb-0 mt-3">
+                Esto es solo una recomendación. No se creó ningún movimiento ni se marcó ningún crédito como pagado.
             </div>
         </div>
 

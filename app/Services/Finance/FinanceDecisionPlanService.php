@@ -4,6 +4,7 @@ namespace App\Services\Finance;
 
 use App\Models\Finance\Category;
 use App\Models\Finance\CreditInstallment;
+use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\ExpectedIncome;
 use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
@@ -124,6 +125,7 @@ class FinanceDecisionPlanService
             $horizonEnd,
             $nextIncome
         );
+        $creditPayoffStrategy = $this->creditPayoffStrategy($user, $moneyPlan, $currentWindow, $nextIncome, $start, $horizonEnd);
 
         $actions = $this->actions($events, $moneyPlan, $currentWindow, $start, $nextIncome);
         $categoryBudget = $this->categoryBudget($user, $survivalBudget, $start, $currentEnd, $moneyPlan['living_money'], $currentWindow['days_count']);
@@ -140,6 +142,7 @@ class FinanceDecisionPlanService
             'after_next_income_window' => $afterNextIncomeWindow,
             'windows' => array_values(array_filter([$currentWindow, $afterNextIncomeWindow])),
             'money_plan' => $moneyPlan,
+            'credit_payoff_strategy' => $creditPayoffStrategy,
             'actions' => $actions,
             'category_budget' => $categoryBudget,
             'timeline_messages' => $timelineMessages,
@@ -496,6 +499,343 @@ class FinanceDecisionPlanService
             'minimum_living_need' => $livingNeed,
             'ideal_buffer_gap' => $idealGap,
         ];
+    }
+
+    private function creditPayoffStrategy(
+        User $user,
+        array $moneyPlan,
+        array $currentWindow,
+        ?array $nextIncome,
+        Carbon $start,
+        Carbon $horizonEnd
+    ): array {
+        $currentEnd = Carbon::parse($currentWindow['end_date'])->startOfDay();
+        $credits = $this->creditPayoffRows($user, $start, $currentEnd, $horizonEnd);
+        $pendingDebtBefore = $this->money(collect($credits)->sum('pending_balance'));
+        $mandatoryCreditDueBeforeIncome = $this->money((float) ($currentWindow['installments_inside_window'] ?? 0));
+        $livingMinimum = $this->money((float) ($moneyPlan['minimum_living_need'] ?? 0));
+        $availableRaw = $this->money(
+            (float) ($moneyPlan['starting_balance'] ?? 0)
+            - (float) ($moneyPlan['urgent_payments_reserve'] ?? 0)
+            - (float) ($moneyPlan['before_income_payments_reserve'] ?? 0)
+            - $mandatoryCreditDueBeforeIncome
+            - (float) ($moneyPlan['buffer_reserve'] ?? 0)
+            - $livingMinimum
+        );
+        $available = $this->money(max(0, $availableRaw));
+
+        $base = [
+            'mode' => 'reduce_monthly_pressure',
+            'available_for_debt_payoff_now' => $available,
+            'available_for_debt_payoff_raw' => $availableRaw,
+            'should_payoff_now' => false,
+            'total_recommended_to_pay_now' => 0.0,
+            'remaining_after_recommendation' => $available,
+            'pending_debt_before' => $pendingDebtBefore,
+            'pending_debt_after' => $pendingDebtBefore,
+            'mandatory_credit_due_before_income' => $mandatoryCreditDueBeforeIncome,
+            'living_money_minimum_until_next_income' => $livingMinimum,
+            'recommended_actions' => [],
+            'defer_actions' => [],
+            'minimum_payment_actions' => $this->minimumCreditPaymentActions($credits),
+            'credits' => $credits,
+            'after_next_income_message' => $this->afterNextIncomeMessage($nextIncome, $credits),
+            'message' => '',
+        ];
+
+        if ($pendingDebtBefore <= 0) {
+            return array_merge($base, [
+                'message' => 'No hay creditos activos pendientes para liquidar.',
+            ]);
+        }
+
+        if ($available <= 0) {
+            return array_merge($base, [
+                'defer_actions' => $this->deferCreditActions($credits, [], $nextIncome),
+                'message' => 'No liquides creditos todavia; conserva efectivo para pagos, colchon y vida diaria.',
+            ]);
+        }
+
+        $recommendedActions = [];
+        $remaining = $available;
+        $appliedByCredit = [];
+
+        foreach ($this->sortedLiquidationCandidates($credits) as $credit) {
+            if ((float) $credit['pending_balance'] <= 0 || (float) $credit['pending_balance'] > $remaining) {
+                continue;
+            }
+
+            $amount = $this->money((float) $credit['pending_balance']);
+            $recommendedActions[] = [
+                'action' => 'liquidate',
+                'credit_id' => $credit['credit_id'],
+                'credit_name' => $credit['credit_name'],
+                'amount' => $amount,
+                'reason' => $this->liquidationReason($credit),
+            ];
+            $appliedByCredit[$credit['credit_id']] = $this->money(($appliedByCredit[$credit['credit_id']] ?? 0) + $amount);
+            $remaining = $this->money($remaining - $amount);
+        }
+
+        $partialTarget = $this->partialPayoffTarget($credits, $appliedByCredit);
+        if ($remaining > 0 && $partialTarget) {
+            $pendingAfterLiquidations = $this->money((float) $partialTarget['pending_balance'] - (float) ($appliedByCredit[$partialTarget['credit_id']] ?? 0));
+            $amount = $this->money(min($remaining, $pendingAfterLiquidations));
+
+            if ($amount > 0) {
+                $recommendedActions[] = [
+                    'action' => 'extra_payment',
+                    'credit_id' => $partialTarget['credit_id'],
+                    'credit_name' => $partialTarget['credit_name'],
+                    'amount' => $amount,
+                    'reason' => 'Usa el sobrante como abono extra al credito con pago proximo mas cercano sin tocar colchon ni vida diaria.',
+                ];
+                $appliedByCredit[$partialTarget['credit_id']] = $this->money(($appliedByCredit[$partialTarget['credit_id']] ?? 0) + $amount);
+                $remaining = $this->money($remaining - $amount);
+            }
+        }
+
+        $totalRecommended = $this->money(array_sum(array_column($recommendedActions, 'amount')));
+        $pendingDebtAfter = $this->money(max(0, $pendingDebtBefore - $totalRecommended));
+
+        return array_merge($base, [
+            'should_payoff_now' => $totalRecommended > 0,
+            'total_recommended_to_pay_now' => $totalRecommended,
+            'remaining_after_recommendation' => $remaining,
+            'pending_debt_after' => $pendingDebtAfter,
+            'recommended_actions' => $recommendedActions,
+            'defer_actions' => $this->deferCreditActions($credits, $appliedByCredit, $nextIncome),
+            'message' => $this->creditPayoffMessage($recommendedActions, $totalRecommended, $pendingDebtAfter),
+        ]);
+    }
+
+    private function creditPayoffRows(User $user, Carbon $start, Carbon $currentEnd, Carbon $horizonEnd): array
+    {
+        return CreditPurchase::query()
+            ->with(['account', 'installments'])
+            ->where('user_id', $user->id)
+            ->where('status', '!=', 'paid')
+            ->orderBy('name')
+            ->get()
+            ->map(function (CreditPurchase $credit) use ($start, $currentEnd, $horizonEnd) {
+                $pendingInstallments = $credit->installments
+                    ->filter(function (CreditInstallment $installment) {
+                        return $installment->status !== 'paid'
+                            && $this->installmentResidual($installment) > 0;
+                    })
+                    ->values();
+
+                if ($pendingInstallments->isEmpty()) {
+                    return null;
+                }
+
+                $pendingBalance = $this->money($pendingInstallments->sum(fn (CreditInstallment $installment) => $this->installmentResidual($installment)));
+                $nextDueDate = $pendingInstallments
+                    ->map(fn (CreditInstallment $installment) => $this->installmentEffectiveDate($installment))
+                    ->filter()
+                    ->sortBy(fn (Carbon $date) => $date->timestamp)
+                    ->first();
+                $overdueAmount = $this->money($pendingInstallments
+                    ->filter(function (CreditInstallment $installment) use ($start) {
+                        $due = $this->installmentEffectiveDate($installment);
+
+                        return $installment->status === 'overdue' || ($due && $due->lt($start));
+                    })
+                    ->sum(fn (CreditInstallment $installment) => $this->installmentResidual($installment)));
+                $dueBeforeIncome = $this->money($pendingInstallments
+                    ->filter(function (CreditInstallment $installment) use ($currentEnd) {
+                        $due = $this->installmentEffectiveDate($installment);
+
+                        return $due !== null && $due->lte($currentEnd);
+                    })
+                    ->sum(fn (CreditInstallment $installment) => $this->installmentResidual($installment)));
+                $dueInHorizon = $this->money($pendingInstallments
+                    ->filter(function (CreditInstallment $installment) use ($horizonEnd) {
+                        $due = $this->installmentEffectiveDate($installment);
+
+                        return $due !== null && $due->lte($horizonEnd);
+                    })
+                    ->sum(fn (CreditInstallment $installment) => $this->installmentResidual($installment)));
+
+                return [
+                    'credit_id' => $credit->id,
+                    'credit_name' => $credit->name,
+                    'account_name' => $credit->account?->name,
+                    'pending_balance' => $pendingBalance,
+                    'next_due_date' => $nextDueDate?->toDateString(),
+                    'overdue_amount' => $overdueAmount,
+                    'due_before_income' => $dueBeforeIncome,
+                    'due_in_horizon' => $dueInHorizon,
+                    'installments_pending_count' => $pendingInstallments->count(),
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    private function sortedLiquidationCandidates(array $credits): array
+    {
+        $sorted = $credits;
+
+        usort($sorted, function (array $a, array $b) {
+            return $this->compareCreditPriority($a, $b, true);
+        });
+
+        return $sorted;
+    }
+
+    private function partialPayoffTarget(array $credits, array $appliedByCredit): ?array
+    {
+        $remainingCredits = array_values(array_filter($credits, function (array $credit) use ($appliedByCredit) {
+            return $this->money((float) $credit['pending_balance'] - (float) ($appliedByCredit[$credit['credit_id']] ?? 0)) > 0;
+        }));
+
+        if ($remainingCredits === []) {
+            return null;
+        }
+
+        usort($remainingCredits, function (array $a, array $b) {
+            return $this->compareCreditPriority($a, $b, false);
+        });
+
+        return $remainingCredits[0];
+    }
+
+    private function compareCreditPriority(array $a, array $b, bool $preferLiquidationFit): int
+    {
+        $aOverdue = (float) $a['overdue_amount'] > 0 ? 1 : 0;
+        $bOverdue = (float) $b['overdue_amount'] > 0 ? 1 : 0;
+        if ($aOverdue !== $bOverdue) {
+            return $bOverdue <=> $aOverdue;
+        }
+
+        $aPressure = max((float) $a['due_before_income'], (float) $a['due_in_horizon']);
+        $bPressure = max((float) $b['due_before_income'], (float) $b['due_in_horizon']);
+        if ($aPressure !== $bPressure) {
+            return $bPressure <=> $aPressure;
+        }
+
+        $aDate = $this->sortDate($a['next_due_date'] ?? null);
+        $bDate = $this->sortDate($b['next_due_date'] ?? null);
+        if ($aDate !== $bDate) {
+            return $aDate <=> $bDate;
+        }
+
+        if ($preferLiquidationFit && (float) $a['pending_balance'] !== (float) $b['pending_balance']) {
+            return (float) $a['pending_balance'] <=> (float) $b['pending_balance'];
+        }
+
+        if (! $preferLiquidationFit && (float) $a['pending_balance'] !== (float) $b['pending_balance']) {
+            return (float) $b['pending_balance'] <=> (float) $a['pending_balance'];
+        }
+
+        return (int) $a['credit_id'] <=> (int) $b['credit_id'];
+    }
+
+    private function minimumCreditPaymentActions(array $credits): array
+    {
+        return collect($credits)
+            ->filter(fn (array $credit) => (float) $credit['due_before_income'] > 0)
+            ->map(fn (array $credit) => [
+                'credit_id' => $credit['credit_id'],
+                'credit_name' => $credit['credit_name'],
+                'amount' => $this->money((float) $credit['due_before_income']),
+                'next_due_date' => $credit['next_due_date'],
+                'reason' => 'Cubre la mensualidad minima antes del siguiente ingreso.',
+            ])
+            ->values()
+            ->all();
+    }
+
+    private function deferCreditActions(array $credits, array $appliedByCredit, ?array $nextIncome): array
+    {
+        return collect($credits)
+            ->map(function (array $credit) use ($appliedByCredit, $nextIncome) {
+                $pendingAfter = $this->money((float) $credit['pending_balance'] - (float) ($appliedByCredit[$credit['credit_id']] ?? 0));
+
+                if ($pendingAfter <= 0) {
+                    return null;
+                }
+
+                return [
+                    'credit_id' => $credit['credit_id'],
+                    'credit_name' => $credit['credit_name'],
+                    'pending_balance' => $pendingAfter,
+                    'suggested_moment' => $nextIncome ? 'Despues del proximo ingreso' : 'Mas adelante',
+                    'reason' => 'Conviene esperar para no bajar demasiado el efectivo actual.',
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    private function liquidationReason(array $credit): string
+    {
+        if ((float) $credit['overdue_amount'] > 0) {
+            return 'Tiene mensualidades vencidas y liquidarlo elimina esa presion.';
+        }
+
+        if ((float) $credit['due_before_income'] > 0) {
+            return 'Se puede liquidar completo y reduce presion antes del proximo ingreso.';
+        }
+
+        if ((float) $credit['pending_balance'] <= 300) {
+            return 'Se puede liquidar completo y elimina una deuda pequena.';
+        }
+
+        return 'Se puede liquidar completo sin romper colchon ni vida diaria.';
+    }
+
+    private function creditPayoffMessage(array $recommendedActions, float $totalRecommended, float $pendingDebtAfter): string
+    {
+        if ($totalRecommended <= 0) {
+            return 'No liquides creditos todavia; primero conserva efectivo para vivir.';
+        }
+
+        $liquidations = collect($recommendedActions)->where('action', 'liquidate')->values();
+        $extras = collect($recommendedActions)->where('action', 'extra_payment')->values();
+
+        if ($liquidations->isNotEmpty() && $extras->isEmpty()) {
+            $names = $liquidations->pluck('credit_name')->implode(' y ');
+
+            return 'Puedes usar '.$this->formatMoney($totalRecommended).' para liquidar '.$names.' sin romper tu colchon.';
+        }
+
+        if ($liquidations->isNotEmpty() && $extras->isNotEmpty()) {
+            $names = $liquidations->pluck('credit_name')->implode(' y ');
+            $extra = $extras->first();
+
+            return 'Puedes usar '.$this->formatMoney($totalRecommended).' para liquidar '.$names.' y abonar a '.$extra['credit_name'].' sin romper tu colchon.';
+        }
+
+        return 'Puedes abonar '.$this->formatMoney($totalRecommended).' a deuda sin romper tu colchon; quedarian '.$this->formatMoney($pendingDebtAfter).' pendientes.';
+    }
+
+    private function afterNextIncomeMessage(?array $nextIncome, array $credits): ?string
+    {
+        if (! $nextIncome || $credits === []) {
+            return null;
+        }
+
+        return 'Despues del ingreso del '.$nextIncome['date']->format('d/m/Y').' podrias revisar los creditos restantes si el plan sigue estable.';
+    }
+
+    private function installmentResidual(CreditInstallment $installment): float
+    {
+        return $this->money(max(0, (float) $installment->amount - (float) $installment->paid_amount));
+    }
+
+    private function installmentEffectiveDate(CreditInstallment $installment): ?Carbon
+    {
+        return $installment->due_date?->copy()->startOfDay()
+            ?? $installment->period_month?->copy()->startOfMonth();
+    }
+
+    private function sortDate(?string $date): int
+    {
+        return $date ? Carbon::parse($date)->timestamp : PHP_INT_MAX;
     }
 
     private function actions(array $events, array $moneyPlan, array $currentWindow, Carbon $start, ?array $nextIncome): array
