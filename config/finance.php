@@ -4,7 +4,7 @@ return [
     // Versión visible de la app (semver). Fuente única: se muestra en el menú
     // lateral y en el footer. SÚBELA en cada cambio que se despliegue para
     // confirmar a simple vista que el deploy llegó. Ver CLAUDE.md.
-    'version' => '2.6.2',
+    'version' => '2.7.0',
 
     'external_backup_path' => env('FINANCE_EXTERNAL_BACKUP_PATH'),
 

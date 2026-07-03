@@ -275,6 +275,8 @@
     </div>
 @endif
 
+@include('finance.projection.partials.period-plan')
+
 <div class="card border-info">
     <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
         <div>
