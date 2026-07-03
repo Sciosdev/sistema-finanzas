@@ -125,11 +125,12 @@ class FinanceDecisionPlanService
             $horizonEnd,
             $nextIncome
         );
+        $savingsGuidance = $this->savingsGuidance($moneyPlan, $buffer, $currentWindow);
         $creditPayoffStrategy = $this->creditPayoffStrategy($user, $moneyPlan, $currentWindow, $nextIncome, $start, $horizonEnd);
 
-        $actions = $this->actions($events, $moneyPlan, $currentWindow, $start, $nextIncome);
+        $actions = $this->actions($events, $moneyPlan, $savingsGuidance, $currentWindow, $start, $nextIncome);
         $categoryBudget = $this->categoryBudget($user, $survivalBudget, $start, $currentEnd, $moneyPlan['living_money'], $currentWindow['days_count']);
-        $timelineMessages = $this->timelineMessages($moneyPlan, $buffer, $currentWindow, $nextIncome, $actions);
+        $timelineMessages = $this->timelineMessages($moneyPlan, $buffer, $savingsGuidance, $currentWindow, $nextIncome, $actions);
         $status = $this->headlineStatus($moneyPlan, $currentWindow, $warnings);
 
         return [
@@ -142,6 +143,7 @@ class FinanceDecisionPlanService
             'after_next_income_window' => $afterNextIncomeWindow,
             'windows' => array_values(array_filter([$currentWindow, $afterNextIncomeWindow])),
             'money_plan' => $moneyPlan,
+            'savings_guidance' => $savingsGuidance,
             'credit_payoff_strategy' => $creditPayoffStrategy,
             'actions' => $actions,
             'category_budget' => $categoryBudget,
@@ -501,6 +503,51 @@ class FinanceDecisionPlanService
         ];
     }
 
+    private function savingsGuidance(array $moneyPlan, array $buffer, array $currentWindow): array
+    {
+        $normalBuffer = $this->money((float) ($buffer['recommended_min_buffer'] ?? 0));
+        $idealBuffer = $this->money((float) ($buffer['recommended_ideal_buffer'] ?? 0));
+        $bufferUsed = $this->money((float) ($buffer['buffer_used'] ?? 0));
+        $livingMinimum = $this->money((float) ($moneyPlan['minimum_living_need'] ?? 0));
+        $cashAfterPaymentsAndLiving = $this->money(
+            (float) ($moneyPlan['starting_balance'] ?? 0)
+            - (float) ($moneyPlan['urgent_payments_reserve'] ?? 0)
+            - (float) ($moneyPlan['before_income_payments_reserve'] ?? 0)
+            - (float) ($currentWindow['installments_inside_window'] ?? 0)
+            - $livingMinimum
+        );
+        $currentBufferGap = $this->money(max(0, $normalBuffer - $cashAfterPaymentsAndLiving));
+        $idealBufferGap = $this->money(max(0, $idealBuffer - $normalBuffer));
+        $freeSavingsAvailable = $this->money(max(0, (float) ($moneyPlan['savings_possible'] ?? 0)));
+        $riskLevel = (string) ($currentWindow['risk_level'] ?? 'ok');
+        $shouldSave = $freeSavingsAvailable > 0
+            && $currentBufferGap <= 0
+            && ! in_array($riskLevel, ['high', 'critical'], true);
+
+        if ($currentBufferGap > 0) {
+            $message = 'Primero completa tu colchón recomendado normal de '.$this->formatMoney($normalBuffer).' antes de ahorrar.';
+            $freeSavingsAvailable = 0.0;
+            $shouldSave = false;
+        } elseif (! $shouldSave && $idealBufferGap > 0 && ! in_array($riskLevel, ['high', 'critical'], true)) {
+            $message = 'Ya cubres tu colchón normal. El siguiente objetivo es acercarte al colchón ideal de '.$this->formatMoney($idealBuffer).'.';
+        } elseif ($shouldSave) {
+            $message = 'Puedes ahorrar '.$this->formatMoney($freeSavingsAvailable).' sin afectar pagos, vida diaria ni colchón.';
+        } else {
+            $message = 'No se recomienda ahorrar todavía; primero confirma pagos, vida diaria y colchón recomendado.';
+        }
+
+        return [
+            'recommended_normal_buffer' => $normalBuffer,
+            'recommended_ideal_buffer' => $idealBuffer,
+            'buffer_used' => $bufferUsed,
+            'current_buffer_gap' => $currentBufferGap,
+            'ideal_buffer_gap' => $idealBufferGap,
+            'free_savings_available' => min($freeSavingsAvailable, $this->money((float) ($moneyPlan['savings_possible'] ?? 0))),
+            'should_save' => $shouldSave,
+            'message' => $message,
+        ];
+    }
+
     private function creditPayoffStrategy(
         User $user,
         array $moneyPlan,
@@ -838,7 +885,7 @@ class FinanceDecisionPlanService
         return $date ? Carbon::parse($date)->timestamp : PHP_INT_MAX;
     }
 
-    private function actions(array $events, array $moneyPlan, array $currentWindow, Carbon $start, ?array $nextIncome): array
+    private function actions(array $events, array $moneyPlan, array $savingsGuidance, array $currentWindow, Carbon $start, ?array $nextIncome): array
     {
         $currentEnd = Carbon::parse($currentWindow['end_date'])->startOfDay();
         $nextIncomeDate = $nextIncome['date'] ?? null;
@@ -910,14 +957,14 @@ class FinanceDecisionPlanService
             ];
         }
 
-        if ((float) $moneyPlan['savings_possible'] > 0) {
+        if ((bool) ($savingsGuidance['should_save'] ?? false)) {
             $actions['save'][] = [
                 'type' => 'saving',
                 'id' => null,
-                'name' => 'Ahorro posible',
-                'amount' => $this->money((float) $moneyPlan['savings_possible']),
+                'name' => 'Ahorro libre',
+                'amount' => $this->money((float) ($savingsGuidance['free_savings_available'] ?? 0)),
                 'date' => $currentWindow['end_date'],
-                'reason' => 'Sobra despues de pagos, colchon recomendado y gasto diario basico.',
+                'reason' => $savingsGuidance['message'] ?: 'Sobra despues de pagos, colchon recomendado, colchon ideal y gasto diario basico.',
             ];
         }
 
@@ -1042,7 +1089,7 @@ class FinanceDecisionPlanService
             ->all();
     }
 
-    private function timelineMessages(array $moneyPlan, array $buffer, array $currentWindow, ?array $nextIncome, array $actions): array
+    private function timelineMessages(array $moneyPlan, array $buffer, array $savingsGuidance, array $currentWindow, ?array $nextIncome, array $actions): array
     {
         $messages = [];
         $payBeforeTotal = $this->money(
@@ -1079,8 +1126,8 @@ class FinanceDecisionPlanService
             $messages[] = 'Necesitas conseguir '.$this->formatMoney((float) $moneyPlan['shortfall']).' para sostener el plan.';
         }
 
-        if ((float) $moneyPlan['savings_possible'] > 0) {
-            $messages[] = 'Puedes ahorrar '.$this->formatMoney((float) $moneyPlan['savings_possible']).' sin afectar pagos ni gasto basico.';
+        if (($savingsGuidance['message'] ?? '') !== '') {
+            $messages[] = $savingsGuidance['message'];
         }
 
         return $messages;

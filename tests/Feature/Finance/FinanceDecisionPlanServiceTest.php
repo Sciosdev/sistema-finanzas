@@ -174,10 +174,12 @@ it('does not depend on the manual minimum buffer for buffer_used', function () {
     decisionPlanIncome($user);
     PlannerSetting::create(['user_id' => $user->id, 'minimum_buffer' => 3000]);
 
-    $buffer = decisionPlanReport($user)['buffer'];
+    $result = decisionPlanReport($user);
+    $buffer = $result['buffer'];
 
     expect($buffer['manual_buffer_reference'])->toBe(3000.0)
-        ->and($buffer['buffer_used'])->toBe(500.0);
+        ->and($buffer['buffer_used'])->toBe(500.0)
+        ->and($result['savings_guidance']['buffer_used'])->toBe(500.0);
 });
 
 it('shows the manual buffer only as a reference', function () {
@@ -186,10 +188,12 @@ it('shows the manual buffer only as a reference', function () {
     decisionPlanIncome($user);
     PlannerSetting::create(['user_id' => $user->id, 'minimum_buffer' => 2500]);
 
-    $buffer = decisionPlanReport($user)['buffer'];
+    $result = decisionPlanReport($user);
+    $buffer = $result['buffer'];
 
     expect($buffer['manual_buffer_reference'])->toBe(2500.0)
-        ->and($buffer['recommended_min_buffer'])->not->toBe(2500.0);
+        ->and($buffer['recommended_min_buffer'])->not->toBe(2500.0)
+        ->and($result['savings_guidance']['recommended_normal_buffer'])->toBe($buffer['recommended_min_buffer']);
 });
 
 it('detects the next income inside the horizon', function () {
@@ -287,6 +291,49 @@ it('generates savings_possible when there is real surplus', function () {
 
     expect($result['money_plan']['savings_possible'])->toBeGreaterThan(0)
         ->and($result['actions']['save'])->not->toBeEmpty();
+});
+
+it('does not recommend savings before the recommended normal buffer is covered', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 2000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+
+    $guidance = decisionPlanReport($user)['savings_guidance'];
+
+    expect($guidance['current_buffer_gap'])->toBe(450.0)
+        ->and($guidance['free_savings_available'])->toBe(0.0)
+        ->and($guidance['should_save'])->toBeFalse()
+        ->and($guidance['message'])->toContain('Primero completa tu colchón recomendado normal');
+});
+
+it('recommends strengthening the ideal buffer before free savings', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 2600]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+
+    $guidance = decisionPlanReport($user)['savings_guidance'];
+
+    expect($guidance['current_buffer_gap'])->toBe(0.0)
+        ->and($guidance['ideal_buffer_gap'])->toBe(550.0)
+        ->and($guidance['free_savings_available'])->toBe(0.0)
+        ->and($guidance['should_save'])->toBeFalse()
+        ->and($guidance['message'])->toContain('acercarte al colchón ideal');
+});
+
+it('shows free savings only after the ideal buffer is covered', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 4000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+
+    $result = decisionPlanReport($user);
+    $guidance = $result['savings_guidance'];
+
+    expect($guidance['current_buffer_gap'])->toBe(0.0)
+        ->and($guidance['free_savings_available'])->toBe(1000.0)
+        ->and($guidance['free_savings_available'])->toBeLessThanOrEqual($result['money_plan']['savings_possible'])
+        ->and($guidance['should_save'])->toBeTrue()
+        ->and($guidance['message'])->toContain('Puedes ahorrar $1,000.00')
+        ->and($result['actions']['save'][0]['name'])->toBe('Ahorro libre');
 });
 
 it('recommends paying overdue payments today', function () {
@@ -643,7 +690,10 @@ it('shows the recommended buffer section on the projection page', function () {
     $response = $this->actingAs($user)->get(route('finance.projection.index'));
 
     $response->assertOk()
-        ->assertSee('Colchón recomendado', false);
+        ->assertSee('Colchón recomendado normal', false)
+        ->assertSee('Colchón ideal', false)
+        ->assertSee('Meta más cómoda, no obligatoria.', false)
+        ->assertSee('Colchón protegido en este plan', false);
 });
 
 it('shows human timeline messages at the top of the recommended plan', function () {
@@ -714,7 +764,42 @@ it('renames the old manual buffer card on the projection page', function () {
     $response = $this->actingAs($user)->get(route('finance.projection.index'));
 
     $response->assertOk()
-        ->assertSee('Colchón manual / configuración anterior', false);
+        ->assertSee('Colchón manual anterior / referencia', false);
+});
+
+it('shows the money priority block on the projection page', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user);
+    decisionPlanIncome($user);
+
+    $response = $this->actingAs($user)->get(route('finance.projection.index'));
+
+    $response->assertOk()
+        ->assertSee('Prioridad del dinero:', false)
+        ->assertSee('Cobros automáticos', false)
+        ->assertSee('Ahorro libre', false);
+});
+
+it('shows free savings as a card label only when it applies', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 2600]);
+    decisionPlanIncome($user);
+
+    $this->actingAs($user)
+        ->get(route('finance.projection.index'))
+        ->assertOk()
+        ->assertSee('<p class="text-muted small mb-1">Ahorro sugerido</p>', false)
+        ->assertDontSee('<p class="text-muted small mb-1">Ahorro libre</p>', false);
+
+    $userWithSurplus = User::factory()->create();
+    decisionPlanAccount($userWithSurplus, ['opening_balance' => 4000]);
+    decisionPlanIncome($userWithSurplus);
+
+    $this->actingAs($userWithSurplus)
+        ->get(route('finance.projection.index'))
+        ->assertOk()
+        ->assertSee('<p class="text-muted small mb-1">Ahorro libre</p>', false)
+        ->assertSee('Puedes ahorrar $1,000.00 sin afectar pagos, vida diaria ni colchón.', false);
 });
 
 it('does not break finance survival budget', function () {

@@ -131,6 +131,16 @@
             'savings_possible' => 0,
             'shortfall' => 0,
         ],
+        'savings_guidance' => [
+            'recommended_normal_buffer' => 0,
+            'recommended_ideal_buffer' => 0,
+            'buffer_used' => 0,
+            'current_buffer_gap' => 0,
+            'ideal_buffer_gap' => 0,
+            'free_savings_available' => 0,
+            'should_save' => false,
+            'message' => '',
+        ],
         'actions' => [
             'pay_today' => [],
             'pay_before_income' => [],
@@ -149,6 +159,16 @@
     $decisionBuffer = $decisionPlan['buffer'];
     $decisionWindow = $decisionPlan['current_window'];
     $decisionMoney = $decisionPlan['money_plan'];
+    $decisionSavingsGuidance = $decisionPlan['savings_guidance'] ?? [
+        'recommended_normal_buffer' => $decisionBuffer['recommended_min_buffer'] ?? 0,
+        'recommended_ideal_buffer' => $decisionBuffer['recommended_ideal_buffer'] ?? 0,
+        'buffer_used' => $decisionBuffer['buffer_used'] ?? 0,
+        'current_buffer_gap' => 0,
+        'ideal_buffer_gap' => 0,
+        'free_savings_available' => $decisionMoney['savings_possible'] ?? 0,
+        'should_save' => (float) ($decisionMoney['savings_possible'] ?? 0) > 0,
+        'message' => '',
+    ];
     $decisionActions = $decisionPlan['actions'];
     $decisionCategoryBudget = $decisionPlan['category_budget'];
     $decisionMessages = $decisionPlan['timeline_messages'];
@@ -186,7 +206,7 @@
         'wait' => 'Espera',
         'after_next_income' => 'Despues del proximo ingreso',
         'need_money' => 'Necesitas conseguir',
-        'save' => 'Puedes ahorrar',
+        'save' => ($decisionSavingsGuidance['should_save'] ?? false) ? 'Ahorro libre' : 'Ahorro sugerido',
     ];
     $decisionHeadlineClass = match ($decisionHeadline['status'] ?? 'warning') {
         'ok' => 'alert-success',
@@ -287,7 +307,7 @@
         <div class="row g-2 mb-3">
             <div class="col-md-6 col-xl-3">
                 <div class="border rounded p-2 h-100">
-                    <p class="text-muted small mb-1">Colchón recomendado mínimo</p>
+                    <p class="text-muted small mb-1">Colchón recomendado normal</p>
                     <h5 class="mb-0">{{ $money($decisionBuffer['recommended_min_buffer']) }}</h5>
                 </div>
             </div>
@@ -295,17 +315,18 @@
                 <div class="border rounded p-2 h-100">
                     <p class="text-muted small mb-1">Colchón ideal</p>
                     <h5 class="mb-0">{{ $money($decisionBuffer['recommended_ideal_buffer']) }}</h5>
+                    <p class="small text-muted mb-0">Meta más cómoda, no obligatoria.</p>
                 </div>
             </div>
             <div class="col-md-6 col-xl-3">
                 <div class="border rounded p-2 h-100">
-                    <p class="text-muted small mb-1">Colchón usado en el plan</p>
+                    <p class="text-muted small mb-1">Colchón protegido en este plan</p>
                     <h5 class="mb-0">{{ $money($decisionBuffer['buffer_used']) }}</h5>
                 </div>
             </div>
             <div class="col-md-6 col-xl-3">
                 <div class="border rounded p-2 h-100">
-                    <p class="text-muted small mb-1">Colchón manual de referencia</p>
+                    <p class="text-muted small mb-1">Colchón manual anterior / referencia</p>
                     <h5 class="mb-0">
                         @if ($decisionBuffer['manual_buffer_reference'] !== null)
                             {{ $money($decisionBuffer['manual_buffer_reference']) }}
@@ -319,6 +340,19 @@
 
         <div class="alert alert-light border py-2 small mb-3">
             {{ $decisionBuffer['buffer_reason'] }}
+        </div>
+
+        <div class="alert alert-light border py-2 small mb-3">
+            <div class="fw-semibold mb-1">Prioridad del dinero:</div>
+            <ol class="mb-0 ps-3">
+                <li>Pagos urgentes</li>
+                <li>Cobros automáticos</li>
+                <li>Créditos mínimos</li>
+                <li>Comida, gasolina y gastos básicos</li>
+                <li>Colchón recomendado</li>
+                <li>Colchón ideal</li>
+                <li>Ahorro libre</li>
+            </ol>
         </div>
 
         <div class="row g-2 mb-3">
@@ -361,8 +395,8 @@
             </div>
             <div class="col-6 col-xl-3">
                 <div class="border rounded p-2 h-100">
-                    <p class="text-muted small mb-1">Ahorro posible</p>
-                    <h5 class="mb-0 text-success">{{ $money($decisionMoney['savings_possible']) }}</h5>
+                    <p class="text-muted small mb-1">{{ ($decisionSavingsGuidance['should_save'] ?? false) ? 'Ahorro libre' : 'Ahorro sugerido' }}</p>
+                    <h5 class="mb-0 text-success">{{ $money($decisionSavingsGuidance['free_savings_available'] ?? 0) }}</h5>
                 </div>
             </div>
             <div class="col-6 col-xl-3">
@@ -372,6 +406,12 @@
                 </div>
             </div>
         </div>
+
+        @if (($decisionSavingsGuidance['message'] ?? '') !== '')
+            <div class="alert alert-light border py-2 small mb-3">
+                {{ $decisionSavingsGuidance['message'] }}
+            </div>
+        @endif
 
         <div class="border rounded p-3 mb-3">
             <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 mb-3">
@@ -580,7 +620,7 @@
     <div class="col-6 col-lg-2">
         <div class="card">
             <div class="card-body">
-                <p class="text-muted mb-1 small">Colchón manual / configuración anterior</p>
+                <p class="text-muted mb-1 small">Colchón manual anterior / referencia</p>
                 <h5 class="mb-0">{{ $money($meta['buffer']) }}</h5>
             </div>
         </div>
