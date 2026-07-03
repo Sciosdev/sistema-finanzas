@@ -478,3 +478,68 @@ it('rejects horizons outside 7, 15 and 30 days', function () {
 
     app(FinanceProjectionService::class)->project($user, 10);
 })->throws(InvalidArgumentException::class);
+
+it('turns a credit planned flow into a card charge on the card payment day instead of cash', function () {
+    $user = User::factory()->create();
+    projectionAccount($user, ['name' => 'Efectivo', 'type' => 'cash', 'opening_balance' => 1000]);
+    $nu = projectionAccount($user, ['name' => 'NU', 'payment_day' => 28]);
+
+    PlannedPayment::create([
+        'user_id' => $user->id, 'period_month' => '2026-07-01', 'due_date' => '2026-07-17',
+        'name' => 'Mega Cable', 'amount' => 550, 'status' => 'pending',
+        'is_credit' => true, 'account_id' => $nu->id,
+    ]);
+
+    $result = app(FinanceProjectionService::class)->project($user, 30);
+    $days = collect($result['days']);
+    $chargeDay = $days->firstWhere('date', '2026-07-17');
+    $cardDay = $days->firstWhere('date', '2026-07-28');
+
+    // No pega al efectivo el día que se cobra a la tarjeta...
+    expect($chargeDay['payment_total'])->toBe(0.0)
+        ->and($chargeDay['closing_safe'])->toBe(1000.0)
+        // ...sino que sale como deuda de la tarjeta el día que se paga la tarjeta.
+        ->and($cardDay['card_charge_total'])->toBe(550.0)
+        ->and($cardDay['card_charges'])->toHaveCount(1)
+        ->and($cardDay['card_charges'][0]['card_account_name'])->toBe('NU')
+        ->and($cardDay['card_charges'][0]['charge_date'])->toBe('2026-07-17')
+        ->and($cardDay['closing_safe'])->toBe(450.0)
+        ->and($result['summary']['total_payments'])->toBe(0.0)
+        ->and($result['summary']['total_card_charges'])->toBe(550.0);
+});
+
+it('projects until an explicit end date beyond the 30 day horizon', function () {
+    $user = User::factory()->create();
+    projectionAccount($user, ['type' => 'cash', 'opening_balance' => 1000]);
+
+    ExpectedIncome::create([
+        'user_id' => $user->id, 'period_month' => '2026-08-01', 'due_date' => '2026-08-20',
+        'name' => 'Renta agosto', 'amount' => 700, 'status' => 'pending',
+    ]);
+
+    $result = app(FinanceProjectionService::class)->projectUntil($user, Carbon::parse('2026-08-31'));
+    $days = collect($result['days']);
+
+    expect($result['meta']['end_date'])->toBe('2026-08-31')
+        ->and($days->firstWhere('date', '2026-08-20')['income_total'])->toBe(700.0)
+        ->and($days->last()['date'])->toBe('2026-08-31');
+});
+
+it('uses the full credit cycle to place a card charge when statement and payment days exist', function () {
+    $user = User::factory()->create();
+    projectionAccount($user, ['name' => 'Efectivo', 'type' => 'cash', 'opening_balance' => 2000]);
+    $card = projectionAccount($user, ['name' => 'BBVA', 'statement_day' => 10, 'payment_day' => 28]);
+
+    PlannedPayment::create([
+        'user_id' => $user->id, 'period_month' => '2026-07-01', 'due_date' => '2026-07-17',
+        'name' => 'Domiciliado', 'amount' => 300, 'status' => 'pending',
+        'is_credit' => true, 'account_id' => $card->id,
+    ]);
+
+    $result = app(FinanceProjectionService::class)->projectUntil($user, Carbon::parse('2026-08-31'));
+    $days = collect($result['days']);
+
+    // Cargo 07-17 con corte día 10 → entra al estado de cuenta de agosto → se paga el 28-ago.
+    expect($days->firstWhere('date', '2026-08-28')['card_charge_total'])->toBe(300.0)
+        ->and($days->firstWhere('date', '2026-07-28')['card_charge_total'])->toBe(0.0);
+});
