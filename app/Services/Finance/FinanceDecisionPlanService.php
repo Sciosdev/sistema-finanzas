@@ -54,7 +54,8 @@ class FinanceDecisionPlanService
     public function __construct(
         private readonly FinanceProjectionService $projectionService,
         private readonly FinancePaymentRecommendationService $recommendationService,
-        private readonly FinanceSurvivalBudgetService $survivalBudgetService
+        private readonly FinanceSurvivalBudgetService $survivalBudgetService,
+        private readonly FinanceRentalContractIncomeService $rentalIncomes
     ) {}
 
     public function build(User $user, int $horizonDays = 30): array
@@ -168,7 +169,7 @@ class FinanceDecisionPlanService
 
     private function expectedIncomesWithinHorizon(User $user, Carbon $start, Carbon $horizonEnd): Collection
     {
-        return ExpectedIncome::query()
+        $manual = ExpectedIncome::query()
             ->where('user_id', $user->id)
             ->whereIn('status', ['pending', 'partial'])
             ->whereNotNull('due_date')
@@ -191,7 +192,21 @@ class FinanceDecisionPlanService
                     'amount' => $residual,
                 ];
             })
-            ->filter()
+            ->filter();
+
+        // Rentas por contrato (no viven en finance_expected_incomes) dentro del horizonte.
+        $rental = collect($this->rentalIncomes->eventsBetween($user, $start, $horizonEnd))
+            ->filter(fn (array $event) => $event['amount'] > 0 && $event['date']->betweenIncluded($start, $horizonEnd))
+            ->map(fn (array $event) => [
+                'id' => null,
+                'date' => $event['date']->copy()->startOfDay(),
+                'name' => $event['name'],
+                'amount' => $this->money((float) $event['amount']),
+            ]);
+
+        return $manual
+            ->concat($rental)
+            ->sortBy(fn (array $item) => $item['date']->timestamp)
             ->values();
     }
 

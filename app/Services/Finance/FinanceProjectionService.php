@@ -6,13 +6,10 @@ use App\Models\Finance\Account;
 use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\DailyCut;
 use App\Models\Finance\ExpectedIncome;
-use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
 use App\Models\Finance\PlannerSetting;
-use App\Models\Finance\RentalContract;
 use App\Models\User;
 use Carbon\Carbon;
-use Illuminate\Support\Str;
 use InvalidArgumentException;
 
 /**
@@ -33,8 +30,10 @@ class FinanceProjectionService
 
     private const RISK_RANK = ['ok' => 0, 'medium' => 1, 'high' => 2, 'critical' => 3];
 
-    public function __construct(private readonly FinanceCutSuggestionService $cutSuggestions)
-    {
+    public function __construct(
+        private readonly FinanceCutSuggestionService $cutSuggestions,
+        private readonly FinanceRentalContractIncomeService $rentalIncomes
+    ) {
     }
 
     public function project(User $user, int $horizonDays): array
@@ -325,114 +324,43 @@ class FinanceProjectionService
      */
     private function assignRentalContractIncomes(User $user, array &$buckets, Carbon $start, Carbon $end, string $dayOneKey, bool $countOverdueIncome): array
     {
-        $contracts = RentalContract::with('person')
-            ->where('user_id', $user->id)
-            ->where('is_active', true)
-            ->where('expected_amount', '>', 0)
-            ->where(function ($query) use ($end) {
-                $query->whereNull('starts_on')->orWhereDate('starts_on', '<=', $end->toDateString());
-            })
-            ->where(function ($query) use ($start) {
-                $query->whereNull('ends_on')->orWhereDate('ends_on', '>=', $start->toDateString());
-            })
-            ->get();
-
-        if ($contracts->isEmpty()) {
-            return [];
-        }
-
-        $manualRentIncomes = ExpectedIncome::query()
-            ->where('user_id', $user->id)
-            ->where('is_rent', true)
-            ->whereNotNull('person_id')
-            ->get(['person_id', 'period_month']);
-
-        $rentMovements = Movement::query()
-            ->where('user_id', $user->id)
-            ->where('movement_type', 'income')
-            ->where('is_rent', true)
-            ->whereDate('happened_on', '>=', $start->copy()->startOfMonth()->toDateString())
-            ->whereDate('happened_on', '<=', $end->copy()->endOfMonth()->toDateString())
-            ->get();
-
         $overdueItems = [];
-        $month = $start->copy()->startOfMonth();
-        $lastMonth = $end->copy()->startOfMonth();
 
-        while ($month->lte($lastMonth)) {
-            $monthStart = $month->copy()->startOfMonth();
-            $monthEnd = $month->copy()->endOfMonth();
+        foreach ($this->rentalIncomes->eventsBetween($user, $start, $end) as $event) {
+            $assigned = $event['date'];
+            $name = $event['name'];
+            $amountDue = $this->money((float) $event['amount']);
 
-            $manualPersonIds = $manualRentIncomes
-                ->filter(fn (ExpectedIncome $income) => $income->period_month
-                    && $income->period_month->copy()->startOfMonth()->isSameDay($monthStart))
-                ->pluck('person_id')
-                ->all();
-
-            $monthRentMovements = $rentMovements
-                ->filter(fn (Movement $movement) => $movement->happened_on
-                    && $movement->happened_on->betweenIncluded($monthStart, $monthEnd));
-
-            foreach ($contracts as $contract) {
-                if ($contract->starts_on && $contract->starts_on->copy()->startOfDay()->gt($monthEnd)) {
-                    continue;
-                }
-                if ($contract->ends_on && $contract->ends_on->copy()->startOfDay()->lt($monthStart)) {
-                    continue;
-                }
-                if (in_array($contract->person_id, $manualPersonIds, true)) {
-                    continue;
+            if ($assigned->lt($start)) {
+                if ($countOverdueIncome) {
+                    $buckets[$dayOneKey]['incomes'][] = [
+                        'id' => null,
+                        'name' => $name,
+                        'amount' => $amountDue,
+                        'is_overdue' => true,
+                    ];
+                } else {
+                    $overdueItems[] = [
+                        'id' => null,
+                        'name' => $name,
+                        'amount' => $amountDue,
+                        'due_date' => $assigned->toDateString(),
+                    ];
                 }
 
-                $personName = $contract->person?->name ?? 'Renta';
-                $needle = Str::lower($personName);
-                $paidAmount = $monthRentMovements
-                    ->filter(fn (Movement $movement) => $movement->person_id === $contract->person_id
-                        || ($needle !== '' && Str::contains(Str::lower((string) $movement->description), $needle)))
-                    ->sum(fn (Movement $movement) => (float) $movement->amount);
-                $amountDue = $this->money(max(0, (float) $contract->expected_amount - (float) $paidAmount));
-
-                if ($amountDue <= 0) {
-                    continue;
-                }
-
-                $dueDay = (int) ($contract->due_day ?: 1);
-                $assigned = $monthStart->copy()->day(min($dueDay, $monthStart->daysInMonth))->startOfDay();
-                $name = $contract->room ? 'Renta cuarto '.$contract->room : 'Renta San Juan';
-
-                if ($assigned->lt($start)) {
-                    if ($countOverdueIncome) {
-                        $buckets[$dayOneKey]['incomes'][] = [
-                            'id' => null,
-                            'name' => $name,
-                            'amount' => $amountDue,
-                            'is_overdue' => true,
-                        ];
-                    } else {
-                        $overdueItems[] = [
-                            'id' => null,
-                            'name' => $name,
-                            'amount' => $amountDue,
-                            'due_date' => $assigned->toDateString(),
-                        ];
-                    }
-
-                    continue;
-                }
-
-                if ($assigned->gt($end)) {
-                    continue;
-                }
-
-                $buckets[$assigned->toDateString()]['incomes'][] = [
-                    'id' => null,
-                    'name' => $name,
-                    'amount' => $amountDue,
-                    'is_overdue' => false,
-                ];
+                continue;
             }
 
-            $month->addMonth();
+            if ($assigned->gt($end)) {
+                continue;
+            }
+
+            $buckets[$assigned->toDateString()]['incomes'][] = [
+                'id' => null,
+                'name' => $name,
+                'amount' => $amountDue,
+                'is_overdue' => false,
+            ];
         }
 
         return $overdueItems;

@@ -35,7 +35,10 @@ class FinancePeriodPlanService
         9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre',
     ];
 
-    public function __construct(private readonly FinanceProjectionService $projectionService) {}
+    public function __construct(
+        private readonly FinanceProjectionService $projectionService,
+        private readonly FinanceRentalContractIncomeService $rentalIncomes
+    ) {}
 
     public function build(User $user): array
     {
@@ -100,7 +103,18 @@ class FinancePeriodPlanService
             ->get()
             ->first(fn (ExpectedIncome $i) => ((float) $i->amount - (float) $i->received_amount) > 0);
 
-        return $income?->due_date?->copy()->startOfDay();
+        // También la primera renta por contrato del mes siguiente (no vive en
+        // finance_expected_incomes) para no acortar el horizonte de planeación.
+        $rentalDate = collect($this->rentalIncomes->eventsBetween($user, $nextStart, $nextEnd))
+            ->filter(fn (array $event) => $event['amount'] > 0 && $event['date']->betweenIncluded($nextStart, $nextEnd))
+            ->map(fn (array $event) => $event['date'])
+            ->sort()
+            ->first();
+
+        return collect([$income?->due_date?->copy()->startOfDay(), $rentalDate])
+            ->filter()
+            ->sortBy(fn (Carbon $date) => $date->timestamp)
+            ->first();
     }
 
     /**

@@ -8,8 +8,10 @@ use App\Models\Finance\CreditOption;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\ExpectedIncome;
 use App\Models\Finance\Movement;
+use App\Models\Finance\Person;
 use App\Models\Finance\PlannedPayment;
 use App\Models\Finance\PlannerSetting;
+use App\Models\Finance\RentalContract;
 use App\Models\Finance\SpendingLimit;
 use App\Models\User;
 use App\Services\Finance\FinanceCreditOptionSimulationService;
@@ -194,6 +196,23 @@ it('shows the manual buffer only as a reference', function () {
     expect($buffer['manual_buffer_reference'])->toBe(2500.0)
         ->and($buffer['recommended_min_buffer'])->not->toBe(2500.0)
         ->and($result['savings_guidance']['recommended_normal_buffer'])->toBe($buffer['recommended_min_buffer']);
+});
+
+it('detects a rental contract income as the next income', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user);
+    $person = Person::create(['user_id' => $user->id, 'name' => 'Primo']);
+    RentalContract::create([
+        'user_id' => $user->id, 'person_id' => $person->id, 'room' => '5',
+        'expected_amount' => 2000, 'due_day' => 15, 'is_active' => true,
+    ]);
+
+    $window = decisionPlanReport($user)['current_window'];
+
+    expect($window['next_income_date'])->toBe('2026-07-15')
+        ->and($window['next_income_name'])->toBe('Renta cuarto 5')
+        ->and($window['next_income_amount'])->toBe(2000.0)
+        ->and($window['end_date'])->toBe('2026-07-14');
 });
 
 it('detects the next income inside the horizon', function () {

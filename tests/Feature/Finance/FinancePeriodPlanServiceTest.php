@@ -5,7 +5,9 @@ use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\ExpectedIncome;
 use App\Models\Finance\Movement;
+use App\Models\Finance\Person;
 use App\Models\Finance\PlannedPayment;
+use App\Models\Finance\RentalContract;
 use App\Models\User;
 use App\Services\Finance\FinancePeriodPlanService;
 use Carbon\Carbon;
@@ -119,6 +121,24 @@ function productivoFixture(User $user): Account
 
     return $cash;
 }
+
+it('includes rental contract income and extends the horizon to next month rent', function () {
+    $user = User::factory()->create();
+    periodPlanAccount($user, ['name' => 'Efectivo', 'opening_balance' => 5000]);
+    $person = Person::create(['user_id' => $user->id, 'name' => 'Primo']);
+    RentalContract::create([
+        'user_id' => $user->id, 'person_id' => $person->id, 'room' => '5',
+        'expected_amount' => 2000, 'due_day' => 5, 'is_active' => true,
+    ]);
+
+    $plan = app(FinancePeriodPlanService::class)->build($user);
+    $segments = collect($plan['segments']);
+
+    expect($plan['meta']['next_month_first_income_date'])->toBe('2026-08-05')
+        ->and($plan['meta']['planning_end'])->toBe('2026-08-05')
+        // La renta de julio (05/07) entra a la pista como ingreso.
+        ->and($segments->firstWhere('start_date', '2026-07-05')['income_total'])->toBe(2000.0);
+});
 
 it('sets the planning horizon to reach the first income of next month', function () {
     $user = User::factory()->create();
