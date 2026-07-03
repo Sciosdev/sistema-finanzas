@@ -369,6 +369,83 @@ class CreditPurchaseController extends Controller
         );
     }
 
+    /**
+     * Pago por selección manual: paga exactamente las mensualidades marcadas por
+     * el usuario (de cualquier crédito, típicamente del mismo acreedor). El total
+     * es la suma de las seleccionadas. Cada una se marca pagada y crea su
+     * movimiento, igual que el check verde. Todo en una transacción.
+     */
+    public function payInstallmentsSelection(Request $request)
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'installment_ids' => ['required', 'array', 'min:1'],
+            'installment_ids.*' => ['integer'],
+            'paid_on' => ['nullable', 'date'],
+        ]);
+
+        $paidOn = isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today();
+
+        $installments = CreditInstallment::with('creditPurchase')
+            ->where('user_id', $user->id)
+            ->whereIn('id', $data['installment_ids'])
+            ->get();
+
+        $paidCount = 0;
+        $paidTotal = 0.0;
+
+        DB::transaction(function () use ($installments, $paidOn, &$paidCount, &$paidTotal) {
+            $affected = [];
+
+            foreach ($installments as $installment) {
+                $credit = $installment->creditPurchase;
+
+                if ($installment->status === 'paid' || ! $credit) {
+                    continue;
+                }
+
+                $remaining = round(max(0, (float) $installment->amount - (float) $installment->paid_amount), 2);
+
+                if ($remaining <= 0) {
+                    continue;
+                }
+
+                $movement = Movement::create([
+                    'user_id' => $installment->user_id,
+                    'happened_on' => $paidOn->toDateString(),
+                    'movement_type' => 'expense',
+                    'amount' => $remaining,
+                    'description' => 'Crédito: ' . $credit->name . ' ' . $installment->installment_number . '/' . $credit->months,
+                    'account_id' => $credit->account_id,
+                    'category_id' => $credit->category_id,
+                    'source' => 'credit_installment',
+                ]);
+
+                $installment->update([
+                    'status' => 'paid',
+                    'paid_amount' => $installment->amount,
+                    'paid_on' => $paidOn->toDateString(),
+                    'movement_id' => $movement->id,
+                ]);
+
+                $paidCount++;
+                $paidTotal = round($paidTotal + $remaining, 2);
+                $affected[$credit->id] = $credit;
+            }
+
+            foreach ($affected as $credit) {
+                $this->refreshCreditStatus($credit);
+            }
+        });
+
+        if ($paidCount === 0) {
+            return back()->with('warning', 'No se pagó ninguna mensualidad (ya estaban pagadas).');
+        }
+
+        return back()->with('success', 'Se pagaron ' . $paidCount . ' mensualidad(es) por $' . number_format($paidTotal, 2) . '.');
+    }
+
     public function markInstallmentRegistered(Request $request, CreditInstallment $installment)
     {
         abort_unless($installment->user_id === $request->user()->id, 403);
@@ -766,11 +843,31 @@ class CreditPurchaseController extends Controller
                 $creditLimit = ($account && $account->credit_limit !== null) ? (float) $account->credit_limit : null;
                 $pending = round($items->sum('pending'), 2);
 
+                // Mensualidades pendientes del acreedor (de todos sus créditos), para
+                // el pago por selección manual con suma en vivo.
+                $pendingInstallments = $group
+                    ->flatMap(fn (CreditPurchase $credit) => $credit->installments
+                        ->filter(fn (CreditInstallment $installment) => $installment->status !== 'paid'
+                            && ((float) $installment->amount - (float) $installment->paid_amount) > 0.005)
+                        ->map(fn (CreditInstallment $installment) => [
+                            'id' => $installment->id,
+                            'credit_name' => $credit->name,
+                            'installment_number' => $installment->installment_number,
+                            'months' => $credit->months,
+                            'amount' => round(max(0, (float) $installment->amount - (float) $installment->paid_amount), 2),
+                            'due_date' => $installment->due_date?->toDateString(),
+                            'period_label' => $installment->period_month?->format('Y-m'),
+                        ]))
+                    ->sortBy(fn (array $installment) => $installment['due_date'] ?? '9999-99-99')
+                    ->values()
+                    ->all();
+
                 return [
                     'name' => $creditorName,
                     'key' => str('creditor-' . $creditorName)->slug()->toString() ?: 'sin-acreedor',
                     'account_id' => $account?->id,
                     'style' => $style,
+                    'pending_installments' => $pendingInstallments,
                     'count' => $items->count(),
                     'pending' => $pending,
                     'paid' => round($items->sum('paid'), 2),

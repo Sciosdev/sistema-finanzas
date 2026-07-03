@@ -223,12 +223,62 @@
                                 </button>
                             </form>
                         @endif
+                        @if (! empty($creditor['pending_installments']))
+                            <button type="button" class="btn btn-sm btn-outline-light w-100 mt-2"
+                                data-bs-toggle="modal" data-bs-target="#pay-select-{{ $creditor['key'] }}">
+                                <i data-lucide="list-checks" class="me-1"></i>Seleccionar y pagar
+                            </button>
+                        @endif
                         </div>
                     </div>
                 @endforeach
             </div>
         </div>
     </div>
+
+    @foreach ($creditorSummaries as $creditor)
+        @if (! empty($creditor['pending_installments']))
+            <div class="modal fade" id="pay-select-{{ $creditor['key'] }}" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog modal-dialog-scrollable modal-lg">
+                    <div class="modal-content">
+                        <form method="POST" action="{{ route('finance.credits.installments.pay-selected') }}"
+                              data-pay-select-form
+                              onsubmit="return confirm('¿Pagar las mensualidades seleccionadas? Se crearán los movimientos y se marcarán como pagadas.');">
+                            @csrf
+                            <div class="modal-header">
+                                <h5 class="modal-title">Pagar selección · {{ $creditor['name'] }}</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                            </div>
+                            <div class="modal-body">
+                                <p class="text-muted small mb-2">Marca las mensualidades que quieras pagar; el total se suma abajo. Cada una se marca pagada y crea su movimiento (no se parten mensualidades).</p>
+                                <div class="d-flex flex-column gap-1">
+                                    @foreach ($creditor['pending_installments'] as $inst)
+                                        <label class="d-flex align-items-center justify-content-between gap-2 border rounded p-2 mb-0">
+                                            <span class="d-flex align-items-center gap-2">
+                                                <input type="checkbox" class="form-check-input mt-0" name="installment_ids[]" value="{{ $inst['id'] }}" data-amount="{{ $inst['amount'] }}" data-pay-select-check>
+                                                <span>
+                                                    <span class="fw-semibold">{{ $inst['credit_name'] }}</span>
+                                                    <span class="text-muted small d-block">#{{ $inst['installment_number'] }}/{{ $inst['months'] }} · {{ $inst['period_label'] }}@if ($inst['due_date']) · vence {{ $inst['due_date'] }}@endif</span>
+                                                </span>
+                                            </span>
+                                            <span class="fw-semibold">{{ $money($inst['amount']) }}</span>
+                                        </label>
+                                    @endforeach
+                                </div>
+                            </div>
+                            <div class="modal-footer justify-content-between">
+                                <div>Seleccionado: <span class="fw-semibold" data-pay-select-total>$0.00</span> <span class="text-muted small">(<span data-pay-select-count>0</span> mensualidad(es))</span></div>
+                                <div class="d-flex gap-2">
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-sm btn-primary" data-pay-select-submit disabled>Pagar seleccionadas</button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        @endif
+    @endforeach
 @endif
 
 <div class="card">
@@ -835,6 +885,41 @@
 
         // Al abrir: solo los que debo, de todos los acreedores. Sin scroll inicial.
         apply();
+    })();
+
+    // Pago por selección: suma en vivo del total de las mensualidades marcadas.
+    (function () {
+        var forms = Array.prototype.slice.call(document.querySelectorAll('[data-pay-select-form]'));
+
+        forms.forEach(function (form) {
+            var totalEl = form.querySelector('[data-pay-select-total]');
+            var countEl = form.querySelector('[data-pay-select-count]');
+            var submitEl = form.querySelector('[data-pay-select-submit]');
+
+            function money(value) {
+                return '$' + value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+            }
+
+            function recalc() {
+                var total = 0;
+                var count = 0;
+                Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-check]:checked')).forEach(function (cb) {
+                    total += parseFloat(cb.getAttribute('data-amount')) || 0;
+                    count++;
+                });
+                if (totalEl) { totalEl.textContent = money(total); }
+                if (countEl) { countEl.textContent = count; }
+                if (submitEl) { submitEl.disabled = count === 0; }
+            }
+
+            form.addEventListener('change', function (e) {
+                if (e.target && e.target.matches('[data-pay-select-check]')) {
+                    recalc();
+                }
+            });
+
+            recalc();
+        });
     })();
 
     // Cuando la tarjeta seleccionada ya tiene su ciclo (corte/pago) en Cuentas,
