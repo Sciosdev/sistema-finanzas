@@ -122,6 +122,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::get('flujo-planeado', [PlannedPaymentController::class, 'index'])->name('planned.index');
         Route::post('flujo-planeado', [PlannedPaymentController::class, 'store'])->name('planned.store');
         Route::post('flujo-planeado/copiar', [PlannedPaymentController::class, 'copyMonth'])->name('planned.copy');
+        Route::post('flujo-planeado/actualizacion-masiva-cobro', [PlannedPaymentController::class, 'bulkAutomaticCharge'])->name('planned.bulk-automatic-charge');
         Route::put('flujo-planeado/{payment}', [PlannedPaymentController::class, 'update'])->name('planned.update');
         Route::post('flujo-planeado/{payment}/pagado', [PlannedPaymentController::class, 'markPaid'])->name('planned.paid');
         Route::post('flujo-planeado/{payment}/pagado-con-credito', [PlannedPaymentController::class, 'markPaidWithCredit'])->name('planned.credit-paid');

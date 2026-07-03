@@ -274,6 +274,60 @@ class PlannedPaymentController extends Controller
             ->with('success', "Flujo copiado: {$copied} pagos agregados, {$skipped} ya existian.");
     }
 
+    public function bulkAutomaticCharge(Request $request)
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => [
+                'integer',
+                Rule::exists('finance_planned_payments', 'id')->where(fn ($query) => $query->where('user_id', $user->id)),
+            ],
+            'bulk_action' => ['required', Rule::in(['set_forced_automatic', 'set_automatic_only', 'clear_automatic'])],
+            'charge_window_before_days' => ['nullable', 'integer', 'min:0', 'max:7'],
+            'charge_window_after_days' => ['nullable', 'integer', 'min:0', 'max:7'],
+            'month' => ['nullable', 'date_format:Y-m'],
+        ]);
+
+        $values = match ($data['bulk_action']) {
+            'set_forced_automatic' => [
+                'is_automatic_charge' => true,
+                'is_forced_charge_window' => true,
+                'charge_window_before_days' => (int) ($data['charge_window_before_days'] ?? 0),
+                'charge_window_after_days' => (int) ($data['charge_window_after_days'] ?? 0),
+            ],
+            'set_automatic_only' => [
+                'is_automatic_charge' => true,
+                'is_forced_charge_window' => false,
+                'charge_window_before_days' => 0,
+                'charge_window_after_days' => 0,
+            ],
+            default => [
+                'is_automatic_charge' => false,
+                'is_forced_charge_window' => false,
+                'charge_window_before_days' => 0,
+                'charge_window_after_days' => 0,
+            ],
+        };
+
+        $updated = PlannedPayment::where('user_id', $user->id)
+            ->whereIn('id', $data['ids'])
+            ->update($values);
+
+        $month = $data['month']
+            ?? PlannedPayment::where('user_id', $user->id)
+                ->whereIn('id', $data['ids'])
+                ->orderBy('period_month')
+                ->value('period_month');
+
+        $monthValue = $month ? Carbon::parse($month)->format('Y-m') : now()->format('Y-m');
+
+        return redirect()
+            ->route('finance.planned.index', ['month' => $monthValue])
+            ->with('success', "Se actualizaron {$updated} pagos planeados.");
+    }
+
     public function markPaid(Request $request, PlannedPayment $payment)
     {
         abort_unless($payment->user_id === $request->user()->id, 403);

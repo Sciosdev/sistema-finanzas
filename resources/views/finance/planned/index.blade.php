@@ -475,10 +475,59 @@
                 <div class="text-muted small">Sin deuda de creditos pendiente para este mes.</div>
             @endif
         </div>
+        <div class="border-bottom p-3">
+            <div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-3">
+                <div>
+                    <h5 class="mb-1">Acciones masivas</h5>
+                    <div class="text-muted small">
+                        Usa esto para marcar varios pagos como cobros automáticos, por ejemplo suscripciones que se cobran solas entre un día antes y un día después.
+                    </div>
+                    <div class="text-muted small">
+                        Esta acción no paga nada ni crea movimientos. Solo cambia cómo el Planificador interpreta estos pagos.
+                    </div>
+                </div>
+                <span class="badge badge-soft-info align-self-lg-start" data-bulk-planned-selected-count>0 seleccionados</span>
+            </div>
+            <form method="POST" action="{{ route('finance.planned.bulk-automatic-charge') }}" class="row g-2 align-items-end" data-bulk-planned-form>
+                @csrf
+                <input type="hidden" name="month" value="{{ $monthValue }}">
+                <div data-bulk-planned-ids></div>
+                <div class="col-lg-3 col-md-6">
+                    <label class="form-label">Acción</label>
+                    <select name="bulk_action" class="form-select" required>
+                        <option value="set_forced_automatic">Marcar como cobro automático con ventana forzosa</option>
+                        <option value="set_automatic_only">Marcar solo como cobro automático</option>
+                        <option value="clear_automatic">Quitar cobro automático</option>
+                    </select>
+                </div>
+                <div class="col-lg-2 col-md-3">
+                    <label class="form-label">Días antes</label>
+                    <input type="number" name="charge_window_before_days" class="form-control" min="0" max="7" value="1">
+                </div>
+                <div class="col-lg-2 col-md-3">
+                    <label class="form-label">Días después</label>
+                    <input type="number" name="charge_window_after_days" class="form-control" min="0" max="7" value="1">
+                </div>
+                <div class="col-lg-3 col-md-6">
+                    <div class="form-check mt-lg-4 pt-lg-2">
+                        <input class="form-check-input" type="checkbox" id="planned-bulk-select-visible" data-bulk-planned-select-visible>
+                        <label class="form-check-label" for="planned-bulk-select-visible">Seleccionar todos los pagos visibles</label>
+                    </div>
+                </div>
+                <div class="col-lg-2 col-md-6 text-lg-end">
+                    <button type="submit" class="btn btn-outline-primary w-100">
+                        <i data-lucide="settings-2" class="me-1"></i>Aplicar
+                    </button>
+                </div>
+            </form>
+        </div>
         <div class="table-responsive">
             <table class="table table-hover mb-0">
                 <thead>
                     <tr>
+                        <th style="width: 44px">
+                            <input class="form-check-input" type="checkbox" aria-label="Seleccionar todos los pagos visibles" data-bulk-planned-select-visible>
+                        </th>
                         <th>Vence</th>
                         <th>Pago</th>
                         <th>Categoría</th>
@@ -522,7 +571,10 @@
                                 default => 'badge-soft-primary',
                             };
                         @endphp
-                        <tr data-planned-row data-paid="{{ $payment->status === 'paid' ? '1' : '0' }}">
+                        <tr data-planned-row data-bulk-planned-payment-row data-paid="{{ $payment->status === 'paid' ? '1' : '0' }}">
+                            <td>
+                                <input class="form-check-input" type="checkbox" value="{{ $payment->id }}" aria-label="Seleccionar {{ $payment->name }}" data-bulk-planned-payment-checkbox>
+                            </td>
                             <td>{{ $payment->due_date?->format('Y-m-d') ?? '-' }}</td>
                             <td>
                                 {{ $payment->name }}
@@ -569,7 +621,7 @@
                         </tr>
                         @if ($editPaymentId === $payment->id)
                             <tr>
-                                <td colspan="9" class="bg-light-subtle">
+                                <td colspan="10" class="bg-light-subtle">
                                     <form method="POST" action="{{ route('finance.planned.update', $payment) }}" class="p-2">
                                         @csrf
                                         @method('PUT')
@@ -653,7 +705,7 @@
                         @endif
                     @empty
                         <tr>
-                            <td colspan="9" class="text-center text-muted py-4">Sin pagos planeados</td>
+                            <td colspan="10" class="text-center text-muted py-4">Sin pagos planeados</td>
                         </tr>
                     @endforelse
                 </tbody>
@@ -864,6 +916,44 @@
             return;
         }
 
+        var paymentRows = Array.prototype.slice.call(document.querySelectorAll('[data-bulk-planned-payment-row]'));
+        var paymentCheckboxes = Array.prototype.slice.call(document.querySelectorAll('[data-bulk-planned-payment-checkbox]'));
+        var selectVisibleCheckboxes = Array.prototype.slice.call(document.querySelectorAll('[data-bulk-planned-select-visible]'));
+        var selectedCount = document.querySelector('[data-bulk-planned-selected-count]');
+        var bulkForm = document.querySelector('[data-bulk-planned-form]');
+        var bulkIdsContainer = document.querySelector('[data-bulk-planned-ids]');
+
+        function visiblePaymentCheckboxes() {
+            return paymentRows
+                .filter(function (row) {
+                    return row.style.display !== 'none';
+                })
+                .map(function (row) {
+                    return row.querySelector('[data-bulk-planned-payment-checkbox]');
+                })
+                .filter(Boolean);
+        }
+
+        function updateBulkState() {
+            var checked = paymentCheckboxes.filter(function (checkbox) {
+                return checkbox.checked;
+            });
+            var visible = visiblePaymentCheckboxes();
+            var checkedVisible = visible.filter(function (checkbox) {
+                return checkbox.checked;
+            });
+            var allVisibleChecked = visible.length > 0 && checkedVisible.length === visible.length;
+
+            if (selectedCount) {
+                selectedCount.textContent = checked.length + (checked.length === 1 ? ' seleccionado' : ' seleccionados');
+            }
+
+            selectVisibleCheckboxes.forEach(function (checkbox) {
+                checkbox.checked = allVisibleChecked;
+                checkbox.indeterminate = checkedVisible.length > 0 && checkedVisible.length < visible.length;
+            });
+        }
+
         function applyFilter(filter) {
             rows.forEach(function (row) {
                 var paid = row.getAttribute('data-paid') === '1';
@@ -874,6 +964,8 @@
             buttons.forEach(function (btn) {
                 btn.classList.toggle('active', btn.getAttribute('data-planned-filter') === filter);
             });
+
+            updateBulkState();
         }
 
         buttons.forEach(function (btn) {
@@ -881,6 +973,44 @@
                 applyFilter(btn.getAttribute('data-planned-filter'));
             });
         });
+
+        paymentCheckboxes.forEach(function (checkbox) {
+            checkbox.addEventListener('change', updateBulkState);
+        });
+
+        selectVisibleCheckboxes.forEach(function (checkbox) {
+            checkbox.addEventListener('change', function () {
+                visiblePaymentCheckboxes().forEach(function (paymentCheckbox) {
+                    paymentCheckbox.checked = checkbox.checked;
+                });
+
+                updateBulkState();
+            });
+        });
+
+        if (bulkForm && bulkIdsContainer) {
+            bulkForm.addEventListener('submit', function (event) {
+                bulkIdsContainer.innerHTML = '';
+
+                var checked = paymentCheckboxes.filter(function (checkbox) {
+                    return checkbox.checked;
+                });
+
+                if (checked.length === 0) {
+                    event.preventDefault();
+                    window.alert('Selecciona al menos un pago planeado.');
+                    return;
+                }
+
+                checked.forEach(function (checkbox) {
+                    var input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'ids[]';
+                    input.value = checkbox.value;
+                    bulkIdsContainer.appendChild(input);
+                });
+            });
+        }
 
         // Por defecto mostramos solo los pendientes (lo que falta por pagar este mes).
         applyFilter('pending');
