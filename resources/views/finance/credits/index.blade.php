@@ -165,9 +165,10 @@
                         $style = $creditor['style'];
                     @endphp
                     <div class="col-xl-3 col-lg-4 col-md-6">
+                        <div class="d-flex flex-column h-100">
                         <button
                             type="button"
-                            class="w-100 text-start border-0 rounded-2 p-3 h-100"
+                            class="w-100 text-start border-0 rounded-2 p-3 flex-grow-1"
                             style="background: {{ $style['soft'] }}; border-left: 4px solid {{ $style['color'] }} !important; cursor: pointer;"
                             title="Filtrar la lista por {{ $creditor['name'] }}"
                             data-credit-creditor="{{ $creditor['key'] }}"
@@ -222,6 +223,7 @@
                                 </button>
                             </form>
                         @endif
+                        </div>
                     </div>
                 @endforeach
             </div>
