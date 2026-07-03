@@ -382,7 +382,7 @@ it('does not recommend credit payoff when cash is needed for plan buffer and liv
     expect($strategy['available_for_debt_payoff_now'])->toBe(0.0)
         ->and($strategy['should_payoff_now'])->toBeFalse()
         ->and($strategy['recommended_actions'])->toBeEmpty()
-        ->and($strategy['message'])->toContain('No liquides creditos todavia');
+        ->and($strategy['message'])->toContain('No liquides cuentas todavia');
 });
 
 it('calculates available cash for credit payoff after required reserves', function () {
@@ -412,18 +412,38 @@ it('calculates pending balance per credit from unpaid installments', function ()
         ->and($creditRow['installments_pending_count'])->toBe(2);
 });
 
-it('recommends liquidating a small credit when it fits completely', function () {
+it('groups credit payoff rows by account id', function () {
     $user = User::factory()->create();
     decisionPlanAccount($user, ['opening_balance' => 5000]);
     decisionPlanIncome($user, ['due_date' => '2026-07-15']);
-    $small = decisionPlanCredit($user, ['name' => 'DIDI']);
-    decisionPlanInstallment($user, $small, ['due_date' => '2026-07-20', 'amount' => 200]);
-    $large = decisionPlanCredit($user, ['name' => 'BBVA']);
-    decisionPlanInstallment($user, $large, ['due_date' => '2026-07-25', 'amount' => 3000]);
+    $nu = decisionPlanAccount($user, ['name' => 'NU', 'opening_balance' => 0]);
+    $amazon = decisionPlanCredit($user, ['name' => 'Amazon Gel', 'account_id' => $nu->id]);
+    decisionPlanInstallment($user, $amazon, ['due_date' => '2026-07-20', 'amount' => 398.29]);
+    $keyboard = decisionPlanCredit($user, ['name' => 'Amazon Teclado', 'account_id' => $nu->id]);
+    decisionPlanInstallment($user, $keyboard, ['due_date' => '2026-07-21', 'amount' => 1139.10]);
 
-    $actions = decisionPlanReport($user)['credit_payoff_strategy']['recommended_actions'];
+    $group = collect(decisionPlanReport($user)['credit_payoff_strategy']['credit_account_groups'])
+        ->firstWhere('account_name', 'NU');
 
-    expect(collect($actions)->where('action', 'liquidate')->pluck('credit_name')->all())->toContain('DIDI');
+    expect($group['account_id'])->toBe($nu->id)
+        ->and($group['pending_balance'])->toBe(1537.39)
+        ->and($group['credits_count'])->toBe(2)
+        ->and(collect($group['credit_items'])->pluck('credit_name')->all())->toBe(['Amazon Gel', 'Amazon Teclado']);
+});
+
+it('groups credits without account as sin cuenta', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 5000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $credit = decisionPlanCredit($user, ['name' => 'Sin tarjeta']);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-20', 'amount' => 200]);
+
+    $group = collect(decisionPlanReport($user)['credit_payoff_strategy']['credit_account_groups'])
+        ->firstWhere('account_name', 'Sin cuenta');
+
+    expect($group['account_id'])->toBeNull()
+        ->and($group['account_name'])->toBe('Sin cuenta')
+        ->and($group['credit_items'][0]['credit_name'])->toBe('Sin tarjeta');
 });
 
 it('includes account pressure and explanation on recommended credit payoff actions', function () {
@@ -435,16 +455,18 @@ it('includes account pressure and explanation on recommended credit payoff actio
     decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-01', 'amount' => 200, 'status' => 'overdue']);
 
     $action = collect(decisionPlanReport($user)['credit_payoff_strategy']['recommended_actions'])
-        ->firstWhere('credit_name', 'DIDI');
+        ->firstWhere('account_name', 'DIDI');
 
-    expect($action['account_name'])->toBe('DIDI')
+    expect($action['action'])->toBe('liquidate_account')
+        ->and($action['account_name'])->toBe('DIDI')
         ->and($action['next_due_date'])->toBe('2026-07-01')
         ->and($action['pending_balance'])->toBe(200.0)
         ->and($action['overdue_amount'])->toBe(200.0)
         ->and($action['due_before_income'])->toBe(200.0)
         ->and($action['due_in_horizon'])->toBe(200.0)
         ->and($action['pressure_label'])->toBe('Vencido')
-        ->and($action['explanation'])->toContain('mensualidad vencida');
+        ->and($action['explanation'])->toContain('cuenta DIDI')
+        ->and($action['credit_items'][0]['credit_name'])->toBe('DIDI');
 });
 
 it('includes account pressure and explanation on deferred credit payoff actions', function () {
@@ -456,12 +478,13 @@ it('includes account pressure and explanation on deferred credit payoff actions'
     decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-20', 'amount' => 1000]);
 
     $action = collect(decisionPlanReport($user)['credit_payoff_strategy']['defer_actions'])
-        ->firstWhere('credit_name', 'Compra Onix');
+        ->firstWhere('account_name', 'Onix');
 
     expect($action['account_name'])->toBe('Onix')
         ->and($action['action'])->toBe('wait')
         ->and($action['pressure_label'])->toBe('Dentro del horizonte')
-        ->and($action['explanation'])->toContain('Conviene esperar');
+        ->and($action['explanation'])->toContain('Conviene esperar')
+        ->and($action['credit_items'][0]['credit_name'])->toBe('Compra Onix');
 });
 
 it('includes account pressure and explanation on minimum payment actions', function () {
@@ -473,54 +496,95 @@ it('includes account pressure and explanation on minimum payment actions', funct
     decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-07', 'amount' => 300]);
 
     $action = collect(decisionPlanReport($user)['credit_payoff_strategy']['minimum_payment_actions'])
-        ->firstWhere('credit_name', 'NU - Tablet');
+        ->firstWhere('account_name', 'NU');
 
     expect($action['account_name'])->toBe('NU')
-        ->and($action['action'])->toBe('minimum_payment')
+        ->and($action['action'])->toBe('minimum_payment_account')
         ->and($action['pressure_label'])->toBe('Antes del próximo ingreso')
-        ->and($action['explanation'])->toContain('mensualidad mínima');
+        ->and($action['explanation'])->toContain('mensualidad mínima')
+        ->and($action['credit_items'][0]['credit_name'])->toBe('NU - Tablet');
 });
 
-it('uses a compact credit payoff message when many credits are recommended', function () {
+it('uses an account based credit payoff message instead of listing purchases', function () {
     $user = User::factory()->create();
-    decisionPlanAccount($user, ['opening_balance' => 10000]);
+    decisionPlanAccount($user, ['opening_balance' => 7000]);
     decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $nu = decisionPlanAccount($user, ['name' => 'NU', 'opening_balance' => 0]);
 
-    foreach (range(1, 12) as $number) {
-        $credit = decisionPlanCredit($user, ['name' => 'Credito '.$number]);
+    foreach (['Amazon Gel', 'Amazon Teclado', 'Envato Elements', 'Google Chat GPT'] as $index => $name) {
+        $credit = decisionPlanCredit($user, ['name' => $name, 'account_id' => $nu->id]);
         decisionPlanInstallment($user, $credit, [
             'due_date' => '2026-07-20',
-            'amount' => 100,
-            'installment_number' => $number,
+            'amount' => [398.29, 1139.10, 698.84, 395.00][$index],
+            'installment_number' => $index + 1,
         ]);
     }
 
     $message = decisionPlanReport($user)['credit_payoff_strategy']['message'];
 
-    expect($message)->toContain('liquidar 12 créditos')
-        ->and($message)->toContain('Revisa el detalle por cuenta abajo')
-        ->and($message)->not->toContain('Credito 1 y Credito 2');
+    expect($message)->toContain('liquidar 1 cuentas')
+        ->and($message)->toContain('NU')
+        ->and($message)->toContain('Esto elimina 4 créditos/compras')
+        ->and($message)->not->toContain('Amazon Gel')
+        ->and($message)->not->toContain('Amazon Teclado');
+});
+
+it('does not recommend a partial account payoff as a complete liquidation', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 4500]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $account = decisionPlanAccount($user, ['name' => 'NU', 'opening_balance' => 0]);
+    $credit = decisionPlanCredit($user, ['name' => 'NU grande', 'account_id' => $account->id]);
+    decisionPlanInstallment($user, $credit, ['due_date' => '2026-07-20', 'amount' => 3000]);
+
+    $actions = collect(decisionPlanReport($user)['credit_payoff_strategy']['recommended_actions']);
+
+    expect($actions->where('action', 'liquidate_account')->where('account_name', 'NU'))->toBeEmpty()
+        ->and($actions->pluck('action')->all())->toContain('extra_payment_account');
+});
+
+it('recommends extra payment to an account when leftover cannot liquidate it fully', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 3050]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    $didi = decisionPlanAccount($user, ['name' => 'DIDI', 'opening_balance' => 0]);
+    $didiCredit = decisionPlanCredit($user, ['name' => 'DIDI', 'account_id' => $didi->id]);
+    decisionPlanInstallment($user, $didiCredit, ['due_date' => '2026-07-20', 'amount' => 200]);
+    $mpw = decisionPlanAccount($user, ['name' => 'MPW', 'opening_balance' => 0]);
+    $mpwCredit = decisionPlanCredit($user, ['name' => 'MPW saldo', 'account_id' => $mpw->id]);
+    decisionPlanInstallment($user, $mpwCredit, ['due_date' => '2026-07-21', 'amount' => 1200]);
+
+    $actions = collect(decisionPlanReport($user)['credit_payoff_strategy']['recommended_actions']);
+    $extra = $actions->firstWhere('action', 'extra_payment_account');
+
+    expect($actions->where('action', 'liquidate_account')->pluck('account_name')->all())->toContain('DIDI')
+        ->and($extra['account_name'])->toBe('MPW')
+        ->and($extra['amount'])->toBe(400.0)
+        ->and($extra['explanation'])->toContain('No alcanza para liquidar MPW completo');
 });
 
 it('prioritizes liquidating a credit that reduces near term monthly pressure', function () {
     $user = User::factory()->create();
     decisionPlanAccount($user, ['opening_balance' => 6650]);
     decisionPlanIncome($user, ['due_date' => '2026-07-15']);
-    $a = decisionPlanCredit($user, ['name' => 'BBVA']);
+    $bbva = decisionPlanAccount($user, ['name' => 'BBVA', 'opening_balance' => 0]);
+    $nu = decisionPlanAccount($user, ['name' => 'NU', 'opening_balance' => 0]);
+    $didi = decisionPlanAccount($user, ['name' => 'DIDI', 'opening_balance' => 0]);
+    $a = decisionPlanCredit($user, ['name' => 'BBVA compra', 'account_id' => $bbva->id]);
     decisionPlanInstallment($user, $a, ['due_date' => '2026-07-27', 'amount' => 1000]);
-    $b = decisionPlanCredit($user, ['name' => 'NU']);
+    $b = decisionPlanCredit($user, ['name' => 'NU compra', 'account_id' => $nu->id]);
     decisionPlanInstallment($user, $b, ['due_date' => '2026-07-07', 'amount' => 2000]);
-    $c = decisionPlanCredit($user, ['name' => 'DIDI']);
+    $c = decisionPlanCredit($user, ['name' => 'DIDI compra', 'account_id' => $didi->id]);
     decisionPlanInstallment($user, $c, ['due_date' => '2026-07-20', 'amount' => 200]);
 
     $strategy = decisionPlanReport($user)['credit_payoff_strategy'];
-    $liquidations = collect($strategy['recommended_actions'])->where('action', 'liquidate')->values();
+    $liquidations = collect($strategy['recommended_actions'])->where('action', 'liquidate_account')->values();
 
     expect($strategy['available_for_debt_payoff_now'])->toBe(2200.0)
-        ->and($liquidations->pluck('credit_name')->all())->toBe(['NU', 'DIDI'])
+        ->and($liquidations->pluck('account_name')->all())->toBe(['NU', 'DIDI'])
         ->and($strategy['pending_debt_before'])->toBe(3200.0)
         ->and($strategy['pending_debt_after'])->toBe(1000.0)
-        ->and(collect($strategy['defer_actions'])->pluck('credit_name')->all())->toContain('BBVA');
+        ->and(collect($strategy['defer_actions'])->pluck('account_name')->all())->toContain('BBVA');
 });
 
 it('does not use buffer or minimum living money for credit payoff', function () {
@@ -769,10 +833,13 @@ it('shows account and explanation details on the credit payoff strategy page', f
     $this->actingAs($user)
         ->get(route('finance.projection.index'))
         ->assertOk()
+        ->assertSee('Cuentas recomendadas para liquidar', false)
         ->assertSee('Cuenta: DIDI', false)
         ->assertSee('Próximo vencimiento: 2026-07-01', false)
         ->assertSee('Vencido', false)
-        ->assertSee('Motivo: Tiene mensualidad vencida y liquidarlo elimina esa presión.', false);
+        ->assertSee('Créditos/compras incluidas:', false)
+        ->assertSee('DIDI $200.00', false)
+        ->assertSee('Motivo: Liquida toda la cuenta DIDI', false);
 });
 
 it('shows the recommended buffer section on the projection page', function () {
