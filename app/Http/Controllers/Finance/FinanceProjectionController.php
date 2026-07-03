@@ -8,6 +8,7 @@ use App\Models\Finance\Category;
 use App\Models\Finance\CreditOption;
 use App\Models\Finance\PlannerSetting;
 use App\Services\Finance\FinanceCreditOptionSimulationService;
+use App\Services\Finance\FinanceDecisionPlanService;
 use App\Services\Finance\FinancePaymentRecommendationService;
 use App\Services\Finance\FinanceProjectionService;
 use App\Services\Finance\FinanceSpendingLimitService;
@@ -21,6 +22,7 @@ class FinanceProjectionController extends Controller
         private readonly FinancePaymentRecommendationService $recommendationService,
         private readonly FinanceSpendingLimitService $spendingLimitService,
         private readonly FinanceCreditOptionSimulationService $creditSimulationService,
+        private readonly FinanceDecisionPlanService $decisionPlanService,
         private readonly FinanceSurvivalBudgetService $survivalBudgetService
     ) {}
 
@@ -40,6 +42,7 @@ class FinanceProjectionController extends Controller
         return view('finance.projection.index', [
             'projection' => $projection,
             'paymentRecommendations' => $paymentRecommendations,
+            'decisionPlan' => $this->decisionPlanService->build($user, $horizon),
             'survivalBudget' => $this->survivalBudgetService->build($user, 30),
             'spendingLimits' => $this->spendingLimitService->analyze($user, $horizon, $paymentRecommendations),
             'creditSimulation' => $creditSimulationInput['amount'] > 0

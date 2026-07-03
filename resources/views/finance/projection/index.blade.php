@@ -102,6 +102,69 @@
     $survivalMoney = $survivalBudget['money'];
     $survivalRows = $survivalBudget['categories'];
     $survivalAlerts = $survivalBudget['alerts'];
+    $decisionPlan = $decisionPlan ?? [
+        'headline' => ['message' => 'Plan recomendado no calculado.', 'status' => 'warning'],
+        'buffer' => [
+            'manual_buffer_reference' => null,
+            'recommended_min_buffer' => 0,
+            'recommended_ideal_buffer' => 0,
+            'buffer_used' => 0,
+            'buffer_reason' => 'Sin calculo disponible.',
+        ],
+        'current_window' => [
+            'start_date' => $meta['start_date'],
+            'end_date' => $meta['start_date'],
+            'days_count' => 1,
+            'next_income_date' => null,
+            'next_income_name' => null,
+            'next_income_amount' => 0,
+        ],
+        'money_plan' => [
+            'starting_balance' => 0,
+            'urgent_payments_reserve' => 0,
+            'before_income_payments_reserve' => 0,
+            'future_payments_reserve' => 0,
+            'credit_reserve' => 0,
+            'buffer_reserve' => 0,
+            'living_money' => 0,
+            'daily_living_allowance' => 0,
+            'savings_possible' => 0,
+            'shortfall' => 0,
+        ],
+        'actions' => [
+            'pay_today' => [],
+            'pay_before_income' => [],
+            'reserve' => [],
+            'wait' => [],
+            'after_next_income' => [],
+            'need_money' => [],
+            'save' => [],
+        ],
+        'category_budget' => [],
+        'timeline_messages' => [],
+        'warnings' => [],
+    ];
+    $decisionHeadline = $decisionPlan['headline'];
+    $decisionBuffer = $decisionPlan['buffer'];
+    $decisionWindow = $decisionPlan['current_window'];
+    $decisionMoney = $decisionPlan['money_plan'];
+    $decisionActions = $decisionPlan['actions'];
+    $decisionCategoryBudget = $decisionPlan['category_budget'];
+    $decisionMessages = $decisionPlan['timeline_messages'];
+    $decisionActionTitles = [
+        'pay_today' => 'Paga hoy',
+        'pay_before_income' => 'Paga antes del ingreso',
+        'reserve' => 'Reserva',
+        'wait' => 'Espera',
+        'after_next_income' => 'Despues del proximo ingreso',
+        'need_money' => 'Necesitas conseguir',
+        'save' => 'Puedes ahorrar',
+    ];
+    $decisionHeadlineClass = match ($decisionHeadline['status'] ?? 'warning') {
+        'ok' => 'alert-success',
+        'critical' => 'alert-danger',
+        default => 'alert-warning',
+    };
     $creditSimulationInput = $creditSimulationInput ?? ['amount' => 0, 'horizon_days' => $horizon, 'strategy' => 'balanced'];
     $creditSimulation = $creditSimulation ?? null;
     $creditOptions = $creditOptions ?? collect();
@@ -158,6 +221,189 @@
         El horizonte entra al mes siguiente y ese mes aún no tiene flujo planeado: los días de ese mes pueden verse más optimistas de lo real.
     </div>
 @endif
+
+<div class="card border-info">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div>
+            <h4 class="card-title mb-0">Plan recomendado</h4>
+            <p class="text-muted small mb-0">
+                Ventana del {{ $decisionWindow['start_date'] }} al {{ $decisionWindow['end_date'] }}
+                @if ($decisionWindow['next_income_date'])
+                    - siguiente ingreso: {{ $decisionWindow['next_income_date'] }}
+                    @if ($decisionWindow['next_income_name'])
+                        ({{ $decisionWindow['next_income_name'] }} por {{ $money($decisionWindow['next_income_amount']) }})
+                    @endif
+                @else
+                    - sin ingreso dentro del horizonte
+                @endif
+            </p>
+        </div>
+        <span class="badge badge-soft-info">{{ $decisionWindow['days_count'] }} dia(s)</span>
+    </div>
+    <div class="card-body">
+        <div class="alert {{ $decisionHeadlineClass }} d-flex align-items-center" role="alert">
+            <i data-lucide="{{ ($decisionHeadline['status'] ?? 'warning') === 'critical' ? 'triangle-alert' : 'wallet' }}" class="me-2"></i>
+            {{ $decisionHeadline['message'] }}
+        </div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-md-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Colchón recomendado mínimo</p>
+                    <h5 class="mb-0">{{ $money($decisionBuffer['recommended_min_buffer']) }}</h5>
+                </div>
+            </div>
+            <div class="col-md-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Colchón ideal</p>
+                    <h5 class="mb-0">{{ $money($decisionBuffer['recommended_ideal_buffer']) }}</h5>
+                </div>
+            </div>
+            <div class="col-md-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Colchón usado en el plan</p>
+                    <h5 class="mb-0">{{ $money($decisionBuffer['buffer_used']) }}</h5>
+                </div>
+            </div>
+            <div class="col-md-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Colchón manual de referencia</p>
+                    <h5 class="mb-0">
+                        @if ($decisionBuffer['manual_buffer_reference'] !== null)
+                            {{ $money($decisionBuffer['manual_buffer_reference']) }}
+                        @else
+                            Sin capturar
+                        @endif
+                    </h5>
+                </div>
+            </div>
+        </div>
+
+        <div class="alert alert-light border py-2 small mb-3">
+            {{ $decisionBuffer['buffer_reason'] }}
+        </div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Pagos urgentes</p>
+                    <h5 class="mb-0 text-danger">{{ $money($decisionMoney['urgent_payments_reserve']) }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Pagos antes del ingreso</p>
+                    <h5 class="mb-0 text-warning">{{ $money($decisionMoney['before_income_payments_reserve']) }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Pagos futuros</p>
+                    <h5 class="mb-0">{{ $money($decisionMoney['future_payments_reserve']) }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Créditos</p>
+                    <h5 class="mb-0">{{ $money($decisionMoney['credit_reserve']) }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Colchón</p>
+                    <h5 class="mb-0">{{ $money($decisionMoney['buffer_reserve']) }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Dinero para vivir</p>
+                    <h5 class="mb-0 {{ $decisionMoney['living_money'] > 0 ? 'text-success' : 'text-danger' }}">{{ $money($decisionMoney['living_money']) }}</h5>
+                    <p class="small text-muted mb-0">{{ $money($decisionMoney['daily_living_allowance']) }} diarios</p>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Ahorro posible</p>
+                    <h5 class="mb-0 text-success">{{ $money($decisionMoney['savings_possible']) }}</h5>
+                </div>
+            </div>
+            <div class="col-6 col-xl-3">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Faltante</p>
+                    <h5 class="mb-0 {{ $decisionMoney['shortfall'] > 0 ? 'text-danger' : 'text-success' }}">{{ $money($decisionMoney['shortfall']) }}</h5>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-2 mb-3">
+            @foreach ($decisionActionTitles as $actionKey => $title)
+                <div class="col-md-6 col-xl-4">
+                    <div class="border rounded p-2 h-100">
+                        <h6 class="mb-2">{{ $title }}</h6>
+                        @forelse ($decisionActions[$actionKey] ?? [] as $item)
+                            <div class="d-flex justify-content-between gap-2 mb-2">
+                                <div>
+                                    <div class="fw-semibold">{{ $item['name'] }}</div>
+                                    <div class="text-muted small">{{ $item['reason'] }}</div>
+                                    @if ($item['date'])
+                                        <div class="text-muted small">{{ $item['date'] }}</div>
+                                    @endif
+                                </div>
+                                <div class="text-end fw-semibold">{{ $money($item['amount']) }}</div>
+                            </div>
+                        @empty
+                            <p class="text-muted small mb-0">Sin acciones en esta bolsa.</p>
+                        @endforelse
+                    </div>
+                </div>
+            @endforeach
+        </div>
+
+        <div class="table-responsive mb-3">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Presupuesto por categoría</th>
+                        <th class="text-end">Total</th>
+                        <th class="text-end">Diario</th>
+                        <th class="text-end">Hoy</th>
+                        <th>Mensaje</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($decisionCategoryBudget as $row)
+                        <tr>
+                            <td class="fw-semibold">{{ $row['category_name'] }}</td>
+                            <td class="text-end">{{ $money($row['budget_total']) }}</td>
+                            <td class="text-end">{{ $money($row['daily_allowance']) }}</td>
+                            <td class="text-end">{{ $money($row['recommended_today']) }}</td>
+                            <td class="small text-muted">{{ $row['message'] }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="5" class="text-center text-muted py-3">No hay presupuesto por categoría disponible.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
+        </div>
+
+        @if (count($decisionMessages) > 0 || count($decisionPlan['warnings']) > 0)
+            <div class="row g-2">
+                @foreach ($decisionMessages as $message)
+                    <div class="col-md-6 col-xl-4">
+                        <div class="alert alert-light border mb-0 py-2 small">{{ $message }}</div>
+                    </div>
+                @endforeach
+                @foreach ($decisionPlan['warnings'] as $warning)
+                    <div class="col-md-6 col-xl-4">
+                        <div class="alert alert-warning mb-0 py-2 small">{{ $warning }}</div>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+    </div>
+</div>
 
 <div class="row">
     <div class="col-6 col-lg-2">
