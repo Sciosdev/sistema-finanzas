@@ -6,8 +6,10 @@ use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\DailyCut;
 use App\Models\Finance\ExpectedIncome;
 use App\Models\Finance\Movement;
+use App\Models\Finance\Person;
 use App\Models\Finance\PlannedPayment;
 use App\Models\Finance\PlannerSetting;
+use App\Models\Finance\RentalContract;
 use App\Models\User;
 use App\Services\Finance\FinanceCutSuggestionService;
 use App\Services\Finance\FinanceProjectionService;
@@ -523,6 +525,84 @@ it('projects until an explicit end date beyond the 30 day horizon', function () 
     expect($result['meta']['end_date'])->toBe('2026-08-31')
         ->and($days->firstWhere('date', '2026-08-20')['income_total'])->toBe(700.0)
         ->and($days->last()['date'])->toBe('2026-08-31');
+});
+
+function projectionPerson(User $user, string $name): Person
+{
+    return Person::create(['user_id' => $user->id, 'name' => $name]);
+}
+
+function projectionRental(User $user, Person $person, array $attributes = []): RentalContract
+{
+    return RentalContract::create(array_merge([
+        'user_id' => $user->id,
+        'person_id' => $person->id,
+        'room' => '5',
+        'expected_amount' => 2000,
+        'due_day' => 20,
+        'is_active' => true,
+    ], $attributes));
+}
+
+it('includes rental contract income in the projection on its due day', function () {
+    $user = User::factory()->create();
+    projectionAccount($user, ['type' => 'cash', 'opening_balance' => 1000]);
+    $wendy = projectionPerson($user, 'Wendy');
+    projectionRental($user, $wendy, ['room' => '5', 'expected_amount' => 2000, 'due_day' => 20]);
+
+    $result = app(FinanceProjectionService::class)->project($user, 30);
+    $day = collect($result['days'])->firstWhere('date', '2026-07-20');
+
+    expect($day['income_total'])->toBe(2000.0)
+        ->and($day['incomes'][0]['name'])->toBe('Renta cuarto 5')
+        ->and($result['summary']['total_incomes'])->toBe(2000.0);
+});
+
+it('does not double count a rental contract already captured as a manual income', function () {
+    $user = User::factory()->create();
+    projectionAccount($user, ['type' => 'cash', 'opening_balance' => 1000]);
+    $wendy = projectionPerson($user, 'Wendy');
+    projectionRental($user, $wendy, ['expected_amount' => 2000, 'due_day' => 20]);
+    ExpectedIncome::create([
+        'user_id' => $user->id, 'period_month' => '2026-07-01', 'due_date' => '2026-07-20',
+        'name' => 'Renta cuarto 5', 'amount' => 2000, 'received_amount' => 0, 'status' => 'pending',
+        'is_rent' => true, 'person_id' => $wendy->id,
+    ]);
+
+    $result = app(FinanceProjectionService::class)->project($user, 30);
+
+    // Solo cuenta una vez (la manual), no 4,000.
+    expect(collect($result['days'])->firstWhere('date', '2026-07-20')['income_total'])->toBe(2000.0)
+        ->and($result['summary']['total_incomes'])->toBe(2000.0);
+});
+
+it('subtracts already received rent movements from the rental contract income', function () {
+    $user = User::factory()->create();
+    projectionAccount($user, ['type' => 'cash', 'opening_balance' => 1000]);
+    $wendy = projectionPerson($user, 'Wendy');
+    projectionRental($user, $wendy, ['expected_amount' => 2000, 'due_day' => 20]);
+    Movement::create([
+        'user_id' => $user->id, 'happened_on' => '2026-07-16', 'movement_type' => 'income',
+        'amount' => 500, 'description' => 'Abono renta Wendy', 'person_id' => $wendy->id,
+        'is_rent' => true, 'source' => 'manual',
+    ]);
+
+    $result = app(FinanceProjectionService::class)->project($user, 30);
+
+    expect(collect($result['days'])->firstWhere('date', '2026-07-20')['income_total'])->toBe(1500.0);
+});
+
+it('repeats rental contract income for each month within the horizon', function () {
+    $user = User::factory()->create();
+    projectionAccount($user, ['type' => 'cash', 'opening_balance' => 1000]);
+    $wendy = projectionPerson($user, 'Wendy');
+    projectionRental($user, $wendy, ['expected_amount' => 2000, 'due_day' => 20]);
+
+    $result = app(FinanceProjectionService::class)->projectUntil($user, Carbon::parse('2026-08-31'));
+    $days = collect($result['days']);
+
+    expect($days->firstWhere('date', '2026-07-20')['income_total'])->toBe(2000.0)
+        ->and($days->firstWhere('date', '2026-08-20')['income_total'])->toBe(2000.0);
 });
 
 it('uses the full credit cycle to place a card charge when statement and payment days exist', function () {
