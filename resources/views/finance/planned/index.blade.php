@@ -84,10 +84,15 @@
     @php
         $isCreditPaid = $payment->status === 'paid' && (bool) $payment->is_credit;
         $linkedCredit = $payment->creditPurchase;
+        $isForcedChargeWindow = $payment->hasForcedChargeWindow();
+        $chargeWindowStart = $payment->chargeWindowStart();
+        $chargeWindowEnd = $payment->chargeWindowEnd();
         $overdue = in_array($payment->status, ['pending', 'overdue'], true)
             && (
                 $payment->status === 'overdue'
-                || ($payment->due_date && $payment->due_date->copy()->startOfDay()->lt(today()->startOfDay()))
+                || ($isForcedChargeWindow
+                    ? $payment->isAfterChargeWindow(today()->startOfDay())
+                    : ($payment->due_date && $payment->due_date->copy()->startOfDay()->lt(today()->startOfDay())))
             );
         $displayStatus = $overdue ? 'overdue' : $payment->status;
         $statusLabel = $payment->status === 'paid'
@@ -389,6 +394,29 @@
                     <label class="form-label">Notas</label>
                     <input type="text" name="notes" class="form-control" value="{{ old('notes') }}">
                 </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-md-4 pt-md-2">
+                        <input class="form-check-input" type="checkbox" name="is_automatic_charge" value="1" id="planned-is-automatic-charge" @checked((bool) old('is_automatic_charge'))>
+                        <label class="form-check-label" for="planned-is-automatic-charge">Cobro automático</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="form-check mt-md-4 pt-md-2">
+                        <input class="form-check-input" type="checkbox" name="is_forced_charge_window" value="1" id="planned-is-forced-charge-window" @checked((bool) old('is_forced_charge_window'))>
+                        <label class="form-check-label" for="planned-is-forced-charge-window">Fecha forzosa / no sugerir pago anticipado</label>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Días antes en que puede cobrarse</label>
+                    <input type="number" name="charge_window_before_days" class="form-control" min="0" max="7" value="{{ old('charge_window_before_days', 0) }}">
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Días después en que puede cobrarse</label>
+                    <input type="number" name="charge_window_after_days" class="form-control" min="0" max="7" value="{{ old('charge_window_after_days', 0) }}">
+                </div>
+                <div class="col-12">
+                    <div class="text-muted small">Ejemplo: si vence el día 10 y colocas 1 antes y 1 después, el sistema considerará que puede cobrarse del día 9 al 11.</div>
+                </div>
                 <div class="col-12 d-flex justify-content-end">
                     <button type="submit" class="btn btn-primary">
                         <i data-lucide="plus" class="me-1"></i>Agregar
@@ -467,10 +495,15 @@
                         @php
                             $isCreditPaid = $payment->status === 'paid' && (bool) $payment->is_credit;
                             $linkedCredit = $payment->creditPurchase;
+                            $isForcedChargeWindow = $payment->hasForcedChargeWindow();
+                            $chargeWindowStart = $payment->chargeWindowStart();
+                            $chargeWindowEnd = $payment->chargeWindowEnd();
                             $overdue = in_array($payment->status, ['pending', 'overdue'], true)
                                 && (
                                     $payment->status === 'overdue'
-                                    || ($payment->due_date && $payment->due_date->copy()->startOfDay()->lt(today()->startOfDay()))
+                                    || ($isForcedChargeWindow
+                                        ? $payment->isAfterChargeWindow(today()->startOfDay())
+                                        : ($payment->due_date && $payment->due_date->copy()->startOfDay()->lt(today()->startOfDay())))
                                 );
                             $displayStatus = $overdue ? 'overdue' : $payment->status;
                             $originLabel = match (true) {
@@ -496,6 +529,9 @@
                                 @if ($payment->is_san_juan)
                                     <span class="badge badge-soft-danger ms-1">SNJ</span>
                                 @endif
+                                @if ($payment->is_automatic_charge)
+                                    <span class="badge badge-soft-info ms-1">Cobro automático</span>
+                                @endif
                                 @if ($isCreditPaid)
                                     <span class="badge badge-soft-warning ms-1">Tarjeta</span>
                                     <div class="text-muted small">
@@ -504,6 +540,9 @@
                                             | Credito: {{ $linkedCredit->name }}
                                         @endif
                                     </div>
+                                @endif
+                                @if ($payment->hasForcedChargeWindow() && $chargeWindowStart && $chargeWindowEnd)
+                                    <div class="text-muted small">Ventana: {{ $chargeWindowStart->format('Y-m-d') }} a {{ $chargeWindowEnd->format('Y-m-d') }}</div>
                                 @endif
                             </td>
                             <td>{{ $payment->category?->name ?? '-' }}</td>
@@ -577,6 +616,29 @@
                                             <div class="col-md-6">
                                                 <label class="form-label">Notas</label>
                                                 <input type="text" name="notes" class="form-control form-control-sm" value="{{ old('notes', $payment->notes) }}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <div class="form-check mt-md-4 pt-md-2">
+                                                    <input class="form-check-input" type="checkbox" name="is_automatic_charge" value="1" id="planned-edit-is-automatic-charge-{{ $payment->id }}" @checked((bool) old('is_automatic_charge', $payment->is_automatic_charge))>
+                                                    <label class="form-check-label" for="planned-edit-is-automatic-charge-{{ $payment->id }}">Cobro automático</label>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <div class="form-check mt-md-4 pt-md-2">
+                                                    <input class="form-check-input" type="checkbox" name="is_forced_charge_window" value="1" id="planned-edit-is-forced-charge-window-{{ $payment->id }}" @checked((bool) old('is_forced_charge_window', $payment->is_forced_charge_window))>
+                                                    <label class="form-check-label" for="planned-edit-is-forced-charge-window-{{ $payment->id }}">Fecha forzosa / no sugerir pago anticipado</label>
+                                                </div>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Días antes en que puede cobrarse</label>
+                                                <input type="number" name="charge_window_before_days" class="form-control form-control-sm" min="0" max="7" value="{{ old('charge_window_before_days', $payment->charge_window_before_days) }}">
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label class="form-label">Días después en que puede cobrarse</label>
+                                                <input type="number" name="charge_window_after_days" class="form-control form-control-sm" min="0" max="7" value="{{ old('charge_window_after_days', $payment->charge_window_after_days) }}">
+                                            </div>
+                                            <div class="col-12">
+                                                <div class="text-muted small">Ejemplo: si vence el día 10 y colocas 1 antes y 1 después, el sistema considerará que puede cobrarse del día 9 al 11.</div>
                                             </div>
                                             <div class="col-md-3 d-flex gap-2 justify-content-md-end">
                                                 <a href="{{ route('finance.planned.index', ['month' => $monthValue]) }}" class="btn btn-sm btn-outline-secondary">Cancelar</a>

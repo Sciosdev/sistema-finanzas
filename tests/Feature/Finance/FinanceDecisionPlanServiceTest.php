@@ -322,6 +322,95 @@ it('recommends reserving payments inside the horizon', function () {
     expect(json_encode($reserve))->toContain('Internet');
 });
 
+it('does not recommend paying today for a forced automatic payment before its charge window', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    decisionPlanPayment($user, [
+        'name' => 'Google One',
+        'due_date' => '2026-07-10',
+        'amount' => 100,
+        'is_automatic_charge' => true,
+        'is_forced_charge_window' => true,
+        'charge_window_before_days' => 1,
+        'charge_window_after_days' => 1,
+    ]);
+
+    $payToday = decisionPlanReport($user)['actions']['pay_today'];
+
+    expect(json_encode($payToday))->not->toContain('Google One');
+});
+
+it('recommends reserve for a forced automatic payment before its charge window', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    decisionPlanPayment($user, [
+        'name' => 'Google One',
+        'due_date' => '2026-07-10',
+        'amount' => 100,
+        'is_automatic_charge' => true,
+        'is_forced_charge_window' => true,
+        'charge_window_before_days' => 1,
+        'charge_window_after_days' => 1,
+    ]);
+
+    $reserve = decisionPlanReport($user)['actions']['reserve'];
+
+    expect(json_encode($reserve))->toContain('Google One')
+        ->and($reserve[0]['reason'])->toContain('No lo pagues todavía')
+        ->and($reserve[0]['automatic_charge_state'])->toBe('before');
+});
+
+it('marks a forced automatic payment as in progress when today is inside its charge window', function () {
+    Carbon::setTestNow('2026-07-10 10:00:00');
+
+    $user = User::factory()->create();
+    decisionPlanAccount($user);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    decisionPlanPayment($user, [
+        'name' => 'Google One',
+        'due_date' => '2026-07-10',
+        'amount' => 100,
+        'is_automatic_charge' => true,
+        'is_forced_charge_window' => true,
+        'charge_window_before_days' => 1,
+        'charge_window_after_days' => 1,
+    ]);
+
+    $payToday = decisionPlanReport($user)['actions']['pay_today'];
+
+    expect($payToday)->toHaveCount(1)
+        ->and($payToday[0]['name'])->toBe('Google One')
+        ->and($payToday[0]['reason'])->toContain('Este cobro automático puede caer')
+        ->and($payToday[0]['automatic_charge_state'])->toBe('in_window');
+});
+
+it('treats a forced automatic payment as overdue when its charge window already passed', function () {
+    Carbon::setTestNow('2026-07-12 10:00:00');
+
+    $user = User::factory()->create();
+    decisionPlanAccount($user);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    decisionPlanPayment($user, [
+        'name' => 'Google One',
+        'due_date' => '2026-07-10',
+        'amount' => 100,
+        'is_automatic_charge' => true,
+        'is_forced_charge_window' => true,
+        'charge_window_before_days' => 1,
+        'charge_window_after_days' => 1,
+    ]);
+
+    $payToday = decisionPlanReport($user)['actions']['pay_today'];
+
+    expect($payToday)->toHaveCount(1)
+        ->and($payToday[0]['name'])->toBe('Google One')
+        ->and($payToday[0]['reason'])->toContain('La ventana de cobro ya pasó')
+        ->and($payToday[0]['is_overdue'])->toBeTrue()
+        ->and($payToday[0]['automatic_charge_state'])->toBe('after');
+});
+
 it('uses the category budget produced by the survival budget service as basis', function () {
     $user = User::factory()->create();
     decisionPlanAccount($user);
@@ -429,6 +518,29 @@ it('shows human timeline messages at the top of the recommended plan', function 
         ->assertSee('Primero guarda', false)
         ->assertSee('El sistema recomienda conservar', false)
         ->assertSee('Puedes vivir con', false);
+});
+
+it('shows reserve messaging for forced automatic payments on the recommended plan page', function () {
+    $user = User::factory()->create();
+    decisionPlanAccount($user, ['opening_balance' => 10000]);
+    decisionPlanIncome($user, ['due_date' => '2026-07-15']);
+    decisionPlanPayment($user, [
+        'name' => 'Google One',
+        'due_date' => '2026-07-10',
+        'amount' => 100,
+        'is_automatic_charge' => true,
+        'is_forced_charge_window' => true,
+        'charge_window_before_days' => 1,
+        'charge_window_after_days' => 1,
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('finance.projection.index'))
+        ->assertOk()
+        ->assertSee('Cobro automático', false)
+        ->assertSee('Ventana de cobro: 2026-07-09 a 2026-07-11', false)
+        ->assertSee('Reserva este dinero; no es pago manual anticipado.', false)
+        ->assertSee('No lo pagues todavía', false);
 });
 
 it('does not show technical warning keys on the recommended plan', function () {

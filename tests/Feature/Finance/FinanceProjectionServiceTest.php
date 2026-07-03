@@ -127,6 +127,96 @@ it('moves an overdue planned payment to day one', function () {
         ->and($result['summary']['overdue_payments_count'])->toBe(1);
 });
 
+it('assigns a forced automatic planned payment to the first possible charge day', function () {
+    Carbon::setTestNow('2026-07-02 10:00:00');
+
+    $user = User::factory()->create();
+    projectionAccount($user, ['opening_balance' => 1000]);
+
+    PlannedPayment::create([
+        'user_id' => $user->id,
+        'period_month' => '2026-07-01',
+        'due_date' => '2026-07-10',
+        'name' => 'Google One',
+        'amount' => 100,
+        'status' => 'pending',
+        'is_automatic_charge' => true,
+        'is_forced_charge_window' => true,
+        'charge_window_before_days' => 1,
+        'charge_window_after_days' => 1,
+    ]);
+
+    $result = app(FinanceProjectionService::class)->project($user, 15);
+    $chargeDay = collect($result['days'])->firstWhere('date', '2026-07-09');
+
+    expect($chargeDay['payments'])->toHaveCount(1)
+        ->and($chargeDay['payments'][0]['name'])->toBe('Google One')
+        ->and($chargeDay['payments'][0]['is_overdue'])->toBeFalse()
+        ->and($chargeDay['payments'][0]['is_automatic_charge'])->toBeTrue()
+        ->and($chargeDay['payments'][0]['is_forced_charge_window'])->toBeTrue()
+        ->and($chargeDay['payments'][0]['charge_window_start'])->toBe('2026-07-09')
+        ->and($chargeDay['payments'][0]['charge_window_end'])->toBe('2026-07-11')
+        ->and($chargeDay['payments'][0]['effective_due_date'])->toBe('2026-07-09')
+        ->and($chargeDay['payments'][0]['original_due_date'])->toBe('2026-07-10');
+});
+
+it('assigns a forced automatic planned payment to today when today is inside the charge window', function () {
+    Carbon::setTestNow('2026-07-10 10:00:00');
+
+    $user = User::factory()->create();
+    projectionAccount($user, ['opening_balance' => 1000]);
+
+    PlannedPayment::create([
+        'user_id' => $user->id,
+        'period_month' => '2026-07-01',
+        'due_date' => '2026-07-10',
+        'name' => 'Google One',
+        'amount' => 100,
+        'status' => 'pending',
+        'is_automatic_charge' => true,
+        'is_forced_charge_window' => true,
+        'charge_window_before_days' => 1,
+        'charge_window_after_days' => 1,
+    ]);
+
+    $result = app(FinanceProjectionService::class)->project($user, 7);
+    $dayOne = $result['days'][0];
+
+    expect($dayOne['date'])->toBe('2026-07-10')
+        ->and($dayOne['payments'])->toHaveCount(1)
+        ->and($dayOne['payments'][0]['effective_due_date'])->toBe('2026-07-10')
+        ->and($dayOne['payments'][0]['is_overdue'])->toBeFalse();
+});
+
+it('assigns a forced automatic planned payment to today as overdue after the charge window passed', function () {
+    Carbon::setTestNow('2026-07-12 10:00:00');
+
+    $user = User::factory()->create();
+    projectionAccount($user, ['opening_balance' => 1000]);
+
+    PlannedPayment::create([
+        'user_id' => $user->id,
+        'period_month' => '2026-07-01',
+        'due_date' => '2026-07-10',
+        'name' => 'Google One',
+        'amount' => 100,
+        'status' => 'pending',
+        'is_automatic_charge' => true,
+        'is_forced_charge_window' => true,
+        'charge_window_before_days' => 1,
+        'charge_window_after_days' => 1,
+    ]);
+
+    $result = app(FinanceProjectionService::class)->project($user, 7);
+    $dayOne = $result['days'][0];
+
+    expect($dayOne['date'])->toBe('2026-07-12')
+        ->and($dayOne['payments'])->toHaveCount(1)
+        ->and($dayOne['payments'][0]['effective_due_date'])->toBe('2026-07-12')
+        ->and($dayOne['payments'][0]['is_overdue'])->toBeTrue()
+        ->and($result['summary']['overdue_payments_total'])->toBe(100.0);
+});
+
 it('moves an overdue credit installment to day one', function () {
     $user = User::factory()->create();
     projectionAccount($user, ['opening_balance' => 1000]);

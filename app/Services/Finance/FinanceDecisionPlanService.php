@@ -280,7 +280,12 @@ class FinanceDecisionPlanService
                     'date_carbon' => $date->copy(),
                     'is_overdue' => (bool) ($payment['is_overdue'] ?? false),
                     'has_due_date' => (bool) ($payment['has_due_date'] ?? true),
-                    'original_due_date' => null,
+                    'is_automatic_charge' => (bool) ($payment['is_automatic_charge'] ?? false),
+                    'is_forced_charge_window' => (bool) ($payment['is_forced_charge_window'] ?? false),
+                    'charge_window_start' => $payment['charge_window_start'] ?? null,
+                    'charge_window_end' => $payment['charge_window_end'] ?? null,
+                    'effective_due_date' => $payment['effective_due_date'] ?? $date->toDateString(),
+                    'original_due_date' => $payment['original_due_date'] ?? null,
                     'status' => null,
                 ];
             }
@@ -332,6 +337,11 @@ class FinanceDecisionPlanService
                 $payment = $payments->get($event['id']);
                 $event['original_due_date'] = $payment?->due_date?->toDateString();
                 $event['status'] = $payment?->status;
+                $event['is_automatic_charge'] = (bool) $payment?->is_automatic_charge;
+                $event['is_forced_charge_window'] = (bool) $payment?->is_forced_charge_window;
+                $event['charge_window_start'] = $payment?->chargeWindowStart()?->toDateString();
+                $event['charge_window_end'] = $payment?->chargeWindowEnd()?->toDateString();
+                $event['effective_due_date'] = $event['effective_due_date'] ?? $event['date'];
             }
 
             if ($event['type'] === 'installment' && $event['id']) {
@@ -503,6 +513,29 @@ class FinanceDecisionPlanService
         ];
 
         foreach ($events as $event) {
+            $forcedChargeState = $this->forcedChargeWindowState($event, $start);
+
+            if ($forcedChargeState === 'before') {
+                $actions['reserve'][] = $this->actionItem($event, $this->forcedChargeBeforeWindowReason($event));
+
+                if ($nextIncomeDate && $event['date_carbon']->gte($nextIncomeDate)) {
+                    $actions['wait'][] = $this->actionItem($event, 'Vence/cobra después del siguiente ingreso; no lo adelantes, solo resérvalo cuando corresponda.');
+                    $actions['after_next_income'][] = $this->actionItem($event, 'Cuando entre el siguiente ingreso, revisa la reserva para este cobro automático.');
+                }
+
+                continue;
+            }
+
+            if ($forcedChargeState === 'in_window') {
+                $actions['pay_today'][] = $this->actionItem($event, $this->forcedChargeInWindowReason($event));
+                continue;
+            }
+
+            if ($forcedChargeState === 'after') {
+                $actions['pay_today'][] = $this->actionItem($event, 'La ventana de cobro ya pasó. Revisa si se cobró o si quedó pendiente.');
+                continue;
+            }
+
             if ($this->isUrgent($event, $start)) {
                 $actions['pay_today'][] = $this->actionItem($event, 'Vencido o vence hoy; pagalo primero.');
                 continue;
@@ -558,6 +591,53 @@ class FinanceDecisionPlanService
             && ! in_array($currentWindow['risk_level'], ['high', 'critical'], true);
     }
 
+    private function forcedChargeWindowState(array $event, Carbon $date): ?string
+    {
+        if (! (bool) ($event['is_forced_charge_window'] ?? false)) {
+            return null;
+        }
+
+        if (empty($event['charge_window_start']) || empty($event['charge_window_end'])) {
+            return null;
+        }
+
+        $windowStart = Carbon::parse($event['charge_window_start'])->startOfDay();
+        $windowEnd = Carbon::parse($event['charge_window_end'])->startOfDay();
+        $date = $date->copy()->startOfDay();
+
+        if ($date->lt($windowStart)) {
+            return 'before';
+        }
+
+        if ($date->betweenIncluded($windowStart, $windowEnd)) {
+            return 'in_window';
+        }
+
+        return 'after';
+    }
+
+    private function forcedChargeBeforeWindowReason(array $event): string
+    {
+        return 'No lo pagues todavía; se cobrará automáticamente entre '
+            .$this->formatDate((string) $event['charge_window_start'])
+            .' y '
+            .$this->formatDate((string) $event['charge_window_end'])
+            .'. Reserva '
+            .$this->formatMoney((float) $event['amount'])
+            .'.';
+    }
+
+    private function forcedChargeInWindowReason(array $event): string
+    {
+        return 'Este cobro automático puede caer entre '
+            .$this->formatDate((string) $event['charge_window_start'])
+            .' y '
+            .$this->formatDate((string) $event['charge_window_end'])
+            .'. Ten disponible '
+            .$this->formatMoney((float) $event['amount'])
+            .'.';
+    }
+
     private function actionItem(array $event, string $reason): array
     {
         return [
@@ -569,6 +649,12 @@ class FinanceDecisionPlanService
             'due_date' => $event['original_due_date'] ?? $event['date'],
             'reason' => $reason,
             'is_overdue' => (bool) $event['is_overdue'],
+            'is_automatic_charge' => (bool) ($event['is_automatic_charge'] ?? false),
+            'is_forced_charge_window' => (bool) ($event['is_forced_charge_window'] ?? false),
+            'charge_window_start' => $event['charge_window_start'] ?? null,
+            'charge_window_end' => $event['charge_window_end'] ?? null,
+            'effective_due_date' => $event['effective_due_date'] ?? $event['date'],
+            'automatic_charge_state' => $this->forcedChargeWindowState($event, today()->startOfDay()),
         ];
     }
 

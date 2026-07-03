@@ -144,11 +144,16 @@ class PlannedPaymentController extends Controller
             'category_id' => ['nullable', 'integer', Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'person_id' => ['nullable', 'integer', Rule::exists('finance_people', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'notes' => ['nullable', 'string'],
+            'is_automatic_charge' => ['sometimes', 'boolean'],
+            'is_forced_charge_window' => ['sometimes', 'boolean'],
+            'charge_window_before_days' => ['nullable', 'integer', 'min:0', 'max:7'],
+            'charge_window_after_days' => ['nullable', 'integer', 'min:0', 'max:7'],
         ]);
 
         $flags = $this->classifyFlags($user, $data);
+        $automaticCharge = $this->automaticChargeData($data);
 
-        PlannedPayment::create(array_merge($data, [
+        PlannedPayment::create(array_merge($data, $automaticCharge, [
             'user_id' => $user->id,
             'period_month' => Carbon::createFromFormat('Y-m', $data['period_month'])->startOfMonth()->toDateString(),
             'status' => 'pending',
@@ -173,9 +178,14 @@ class PlannedPaymentController extends Controller
             'category_id' => ['nullable', 'integer', Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'person_id' => ['nullable', 'integer', Rule::exists('finance_people', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'notes' => ['nullable', 'string'],
+            'is_automatic_charge' => ['sometimes', 'boolean'],
+            'is_forced_charge_window' => ['sometimes', 'boolean'],
+            'charge_window_before_days' => ['nullable', 'integer', 'min:0', 'max:7'],
+            'charge_window_after_days' => ['nullable', 'integer', 'min:0', 'max:7'],
         ]);
 
         $flags = $this->classifyFlags($user, $data);
+        $automaticCharge = $this->automaticChargeData($data);
         $amount = round((float) $data['amount'], 2);
         $paidAmount = (float) $payment->paid_amount;
 
@@ -185,7 +195,7 @@ class PlannedPaymentController extends Controller
             $paidAmount = $amount;
         }
 
-        $payment->update(array_merge($data, [
+        $payment->update(array_merge($data, $automaticCharge, [
             'amount' => $amount,
             'paid_amount' => $paidAmount,
             'is_san_juan' => $flags['is_san_juan'] || (bool) $payment->is_san_juan,
@@ -249,6 +259,10 @@ class PlannedPaymentController extends Controller
                 'person_id' => $payment->person_id,
                 'is_credit' => $payment->is_credit,
                 'is_san_juan' => $payment->is_san_juan,
+                'is_automatic_charge' => $payment->is_automatic_charge,
+                'is_forced_charge_window' => $payment->is_forced_charge_window,
+                'charge_window_before_days' => $payment->charge_window_before_days,
+                'charge_window_after_days' => $payment->charge_window_after_days,
                 'notes' => $payment->notes,
             ]);
 
@@ -439,6 +453,19 @@ class PlannedPaymentController extends Controller
                 'status' => 'pending',
             ]);
         }
+    }
+
+    private function automaticChargeData(array $data): array
+    {
+        $forcedWindow = (bool) ($data['is_forced_charge_window'] ?? false);
+        $automaticCharge = (bool) ($data['is_automatic_charge'] ?? false) || $forcedWindow;
+
+        return [
+            'is_automatic_charge' => $automaticCharge,
+            'is_forced_charge_window' => $forcedWindow,
+            'charge_window_before_days' => (int) ($data['charge_window_before_days'] ?? 0),
+            'charge_window_after_days' => (int) ($data['charge_window_after_days'] ?? 0),
+        ];
     }
 
     public function link(Request $request, PlannedPayment $payment)

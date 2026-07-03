@@ -297,9 +297,17 @@ class FinanceProjectionService
             }
 
             $due = $payment->due_date?->copy()->startOfDay();
+            $windowStart = $payment->chargeWindowStart();
+            $windowEnd = $payment->chargeWindowEnd();
+            $hasForcedWindow = $windowStart !== null && $windowEnd !== null;
             $isOverdue = $payment->status === 'overdue' || ($due && $due->lt($start));
 
-            if ($due === null) {
+            if ($hasForcedWindow) {
+                $isOverdue = $payment->status === 'overdue' || $payment->isAfterChargeWindow($start);
+                $assigned = $payment->isBeforeChargeWindow($start)
+                    ? $windowStart
+                    : $start->copy();
+            } elseif ($due === null) {
                 // Sin fecha: el egreso pega lo antes posible (conservador).
                 // Mes en curso o pasado → día 1; mes futuro → día 1 de ese mes.
                 $period = $payment->period_month->copy()->startOfMonth();
@@ -321,6 +329,12 @@ class FinanceProjectionService
                 'amount' => $residual,
                 'is_overdue' => $isOverdue,
                 'has_due_date' => $due !== null,
+                'is_automatic_charge' => (bool) $payment->is_automatic_charge,
+                'is_forced_charge_window' => (bool) $payment->is_forced_charge_window,
+                'charge_window_start' => $windowStart?->toDateString(),
+                'charge_window_end' => $windowEnd?->toDateString(),
+                'effective_due_date' => $assigned->toDateString(),
+                'original_due_date' => $due?->toDateString(),
             ];
         }
     }

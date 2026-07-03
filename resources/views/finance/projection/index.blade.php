@@ -370,9 +370,34 @@
                             <div class="badge badge-soft-info mb-2">Ya incluido en Paga hoy</div>
                         @endif
                         @forelse ($decisionDisplayActions[$actionKey] ?? [] as $item)
+                            @php
+                                $automaticChargeState = $item['automatic_charge_state'] ?? null;
+                                $automaticChargeStateLabel = match ($automaticChargeState) {
+                                    'before' => 'Reserva este dinero; no es pago manual anticipado.',
+                                    'in_window' => 'En ventana de cobro',
+                                    'after' => 'Ventana vencida',
+                                    default => null,
+                                };
+                                $automaticChargeStateClass = match ($automaticChargeState) {
+                                    'in_window' => 'badge-soft-warning',
+                                    'after' => 'badge-soft-danger',
+                                    default => 'badge-soft-info',
+                                };
+                            @endphp
                             <div class="d-flex justify-content-between gap-2 mb-2">
                                 <div>
                                     <div class="fw-semibold">{{ $item['name'] }}</div>
+                                    @if ($item['is_automatic_charge'] ?? false)
+                                        <div class="d-flex flex-wrap gap-1 my-1">
+                                            <span class="badge badge-soft-info">Cobro automático</span>
+                                            @if ($automaticChargeStateLabel)
+                                                <span class="badge {{ $automaticChargeStateClass }}">{{ $automaticChargeStateLabel }}</span>
+                                            @endif
+                                        </div>
+                                    @endif
+                                    @if (($item['is_forced_charge_window'] ?? false) && ($item['charge_window_start'] ?? null) && ($item['charge_window_end'] ?? null))
+                                        <div class="text-muted small">Ventana de cobro: {{ $item['charge_window_start'] }} a {{ $item['charge_window_end'] }}</div>
+                                    @endif
                                     <div class="text-muted small">{{ $item['reason'] }}</div>
                                     @if ($item['date'])
                                         <div class="text-muted small">{{ $item['date'] }}</div>
