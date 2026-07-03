@@ -557,250 +557,250 @@ class FinanceDecisionPlanService
         Carbon $horizonEnd
     ): array {
         $currentEnd = Carbon::parse($currentWindow['end_date'])->startOfDay();
-        $credits = $this->creditPayoffRows($user, $start, $currentEnd, $horizonEnd);
-        $accountGroups = $this->creditAccountGroups($credits);
-        $pendingDebtBefore = $this->money(collect($accountGroups)->sum('pending_balance'));
-        $mandatoryCreditDueBeforeIncome = $this->money((float) ($currentWindow['installments_inside_window'] ?? 0));
+        $accountGroups = $this->creditAccountGroups($user, $start, $currentEnd, $horizonEnd);
+
+        $currentPeriodDue = $this->money(collect($accountGroups)->sum('current_month_balance'));
+        $horizonDue = $this->money(collect($accountGroups)->sum('horizon_balance'));
+        $futureReference = $this->money(collect($accountGroups)->sum('future_balance_reference'));
+        $totalPendingReference = $this->money(collect($accountGroups)->sum('total_pending_reference'));
+
         $livingMinimum = $this->money((float) ($moneyPlan['minimum_living_need'] ?? 0));
+        // Efectivo libre para créditos: NO se descuentan las mensualidades del
+        // horizonte aquí; esas se cubren explícitamente con recommended_to_pay_now.
+        // Así evitamos tratar la deuda futura (fuera del horizonte) como algo que
+        // hay que liquidar hoy.
         $availableRaw = $this->money(
             (float) ($moneyPlan['starting_balance'] ?? 0)
             - (float) ($moneyPlan['urgent_payments_reserve'] ?? 0)
             - (float) ($moneyPlan['before_income_payments_reserve'] ?? 0)
-            - $mandatoryCreditDueBeforeIncome
             - (float) ($moneyPlan['buffer_reserve'] ?? 0)
             - $livingMinimum
         );
         $available = $this->money(max(0, $availableRaw));
 
         $base = [
-            'mode' => 'reduce_monthly_pressure',
-            'available_for_debt_payoff_now' => $available,
-            'available_for_debt_payoff_raw' => $availableRaw,
-            'should_payoff_now' => false,
-            'total_recommended_to_pay_now' => 0.0,
+            'mode' => 'period_credit_strategy',
+            'current_period_credit_due' => $currentPeriodDue,
+            'horizon_credit_due' => $horizonDue,
+            'future_credit_balance_reference' => $futureReference,
+            'total_pending_reference' => $totalPendingReference,
+            'available_for_credit_payoff_now' => $available,
+            'available_for_credit_payoff_raw' => $availableRaw,
+            'recommended_to_pay_now' => 0.0,
+            'optional_extra_payment' => 0.0,
             'remaining_after_recommendation' => $available,
-            'pending_debt_before' => $pendingDebtBefore,
-            'pending_debt_after' => $pendingDebtBefore,
-            'mandatory_credit_due_before_income' => $mandatoryCreditDueBeforeIncome,
             'living_money_minimum_until_next_income' => $livingMinimum,
+            'account_groups' => $accountGroups,
             'recommended_actions' => [],
-            'defer_actions' => [],
+            'defer_actions' => $this->deferFutureBalanceActions($accountGroups, $nextIncome),
             'minimum_payment_actions' => $this->minimumCreditPaymentActions($accountGroups),
-            'credits' => $credits,
-            'credit_account_groups' => $accountGroups,
-            'after_next_income_message' => $this->afterNextIncomeMessage($nextIncome, $credits),
+            'after_next_income_message' => $this->afterNextIncomeMessage($nextIncome, $accountGroups),
             'message' => '',
         ];
 
-        if ($pendingDebtBefore <= 0) {
+        if ($totalPendingReference <= 0) {
             return array_merge($base, [
-                'message' => 'No hay creditos activos pendientes para liquidar.',
+                'message' => 'No hay créditos activos pendientes.',
+            ]);
+        }
+
+        if ($horizonDue <= 0) {
+            return array_merge($base, [
+                'message' => 'No hay mensualidades de crédito dentro de este horizonte. Tu deuda futura es '
+                    .$this->formatMoney($futureReference).' y se muestra solo como referencia, no como obligación inmediata.',
             ]);
         }
 
         if ($available <= 0) {
             return array_merge($base, [
-                'defer_actions' => $this->deferCreditActions($accountGroups, [], $nextIncome),
-                'message' => 'No liquides cuentas todavia; conserva efectivo para pagos, colchon y vida diaria.',
+                'message' => 'Este horizonte requiere cubrir '.$this->formatMoney($horizonDue)
+                    .' de créditos, pero por ahora conserva efectivo para pagos, colchón y vida diaria.',
             ]);
         }
 
+        // Recomendación principal: cubrir solo las mensualidades del horizonte,
+        // cuenta por cuenta y en orden de presión, hasta donde alcance el efectivo.
         $recommendedActions = [];
         $remaining = $available;
-        $appliedByAccount = [];
 
-        foreach ($this->sortedLiquidationCandidates($accountGroups) as $credit) {
-            if ((float) $credit['pending_balance'] <= 0 || (float) $credit['pending_balance'] > $remaining) {
+        foreach ($this->sortedAccountGroups($accountGroups) as $group) {
+            $horizonBalance = (float) $group['horizon_balance'];
+
+            if ($horizonBalance <= 0 || $remaining <= 0) {
                 continue;
             }
 
-            $amount = $this->money((float) $credit['pending_balance']);
+            $amount = $this->money(min($remaining, $horizonBalance));
+
+            if ($amount <= 0) {
+                continue;
+            }
+
+            $coversFull = $amount >= $horizonBalance;
             $recommendedActions[] = [
-                'action' => 'liquidate_account',
+                'action' => 'pay_current_horizon_account',
                 'amount' => $amount,
-            ] + $this->accountGroupActionMetadata($credit, $this->accountLiquidationReason($credit));
-            $appliedByAccount[$this->accountGroupKey($credit)] = $this->money(($appliedByAccount[$this->accountGroupKey($credit)] ?? 0) + $amount);
+                'covers_full_horizon' => $coversFull,
+            ] + $this->accountGroupActionMetadata($group, $this->horizonCoverReason($group, $coversFull, $amount));
             $remaining = $this->money($remaining - $amount);
         }
 
-        $partialTarget = $this->partialPayoffTarget($accountGroups, $appliedByAccount);
-        if ($remaining > 0 && $partialTarget) {
-            $pendingAfterLiquidations = $this->money((float) $partialTarget['pending_balance'] - (float) ($appliedByAccount[$this->accountGroupKey($partialTarget)] ?? 0));
-            $amount = $this->money(min($remaining, $pendingAfterLiquidations));
+        $recommendedToPayNow = $this->money(array_sum(array_column($recommendedActions, 'amount')));
 
-            if ($amount > 0) {
+        // Abono extra opcional: solo si sobra dinero tras cubrir el horizonte y hay
+        // deuda futura a la cual adelantar. Nunca se presenta como obligación.
+        $optionalExtra = 0.0;
+        $extraTarget = $this->optionalExtraTarget($accountGroups);
+
+        if ($remaining > 0 && $extraTarget && (float) $extraTarget['future_balance_reference'] > 0) {
+            $optionalExtra = $this->money(min($remaining, (float) $extraTarget['future_balance_reference']));
+
+            if ($optionalExtra > 0) {
                 $recommendedActions[] = [
-                    'action' => 'extra_payment_account',
-                    'amount' => $amount,
-                ] + $this->accountGroupActionMetadata(
-                    $partialTarget,
-                    'No alcanza para liquidar '.$this->accountGroupName($partialTarget).' completo, pero puedes abonar a la cuenta con mayor presión próxima.',
-                    $pendingAfterLiquidations
-                );
-                $appliedByAccount[$this->accountGroupKey($partialTarget)] = $this->money(($appliedByAccount[$this->accountGroupKey($partialTarget)] ?? 0) + $amount);
-                $remaining = $this->money($remaining - $amount);
+                    'action' => 'optional_extra_payment_account',
+                    'amount' => $optionalExtra,
+                    'is_optional' => true,
+                ] + $this->accountGroupActionMetadata($extraTarget, $this->optionalExtraReason($extraTarget, $optionalExtra));
+                $remaining = $this->money($remaining - $optionalExtra);
             }
         }
 
-        $totalRecommended = $this->money(array_sum(array_column($recommendedActions, 'amount')));
-        $pendingDebtAfter = $this->money(max(0, $pendingDebtBefore - $totalRecommended));
-
         return array_merge($base, [
-            'should_payoff_now' => $totalRecommended > 0,
-            'total_recommended_to_pay_now' => $totalRecommended,
+            'recommended_to_pay_now' => $recommendedToPayNow,
+            'optional_extra_payment' => $optionalExtra,
             'remaining_after_recommendation' => $remaining,
-            'pending_debt_after' => $pendingDebtAfter,
             'recommended_actions' => $recommendedActions,
-            'defer_actions' => $this->deferCreditActions($accountGroups, $appliedByAccount, $nextIncome),
-            'message' => $this->creditPayoffMessage($recommendedActions, $totalRecommended, $pendingDebtAfter),
+            'message' => $this->creditPayoffMessage($recommendedActions, $horizonDue, $futureReference, $optionalExtra),
         ]);
     }
 
-    private function creditPayoffRows(User $user, Carbon $start, Carbon $currentEnd, Carbon $horizonEnd): array
+    /**
+     * Agrupa las mensualidades pendientes por cuenta/tarjeta separando lo que cae
+     * dentro del horizonte (obligación del periodo) de la deuda futura (referencia).
+     */
+    private function creditAccountGroups(User $user, Carbon $start, Carbon $currentEnd, Carbon $horizonEnd): array
     {
+        $currentMonth = today()->startOfDay();
+
         return CreditPurchase::query()
             ->with(['account', 'installments'])
             ->where('user_id', $user->id)
             ->where('status', '!=', 'paid')
             ->orderBy('name')
             ->get()
-            ->map(function (CreditPurchase $credit) use ($start, $currentEnd, $horizonEnd) {
-                $pendingInstallments = $credit->installments
-                    ->filter(function (CreditInstallment $installment) {
-                        return $installment->status !== 'paid'
-                            && $this->installmentResidual($installment) > 0;
-                    })
+            ->flatMap(function (CreditPurchase $credit) {
+                return $credit->installments
+                    ->filter(fn (CreditInstallment $installment) => $installment->status !== 'paid'
+                        && $this->installmentResidual($installment) > 0)
+                    ->map(function (CreditInstallment $installment) use ($credit) {
+                        $due = $this->installmentEffectiveDate($installment);
+
+                        return [
+                            'credit_id' => $credit->id,
+                            'credit_name' => $credit->name,
+                            'account_id' => $credit->account_id,
+                            'account_name' => $credit->account?->name,
+                            'amount' => $this->installmentResidual($installment),
+                            'due_date' => $due?->toDateString(),
+                            'due_carbon' => $due,
+                            'period_month' => $installment->period_month?->toDateString(),
+                            'status' => $installment->status,
+                        ];
+                    });
+            })
+            ->groupBy(fn (array $item) => $item['account_id'] ?? 'no-account')
+            ->map(function ($items) use ($start, $currentEnd, $horizonEnd, $currentMonth) {
+                $items = collect($items);
+                $first = $items->first();
+
+                $inHorizon = $items
+                    ->filter(fn (array $i) => $i['due_carbon'] !== null && $i['due_carbon']->lte($horizonEnd))
+                    ->sortBy(fn (array $i) => $i['due_carbon']->timestamp)
                     ->values();
+                $future = $items
+                    ->filter(fn (array $i) => $i['due_carbon'] === null || $i['due_carbon']->gt($horizonEnd))
+                    ->sortBy(fn (array $i) => $i['due_carbon']?->timestamp ?? PHP_INT_MAX)
+                    ->values();
+                $currentMonthItems = $items->filter(fn (array $i) => $i['period_month'] !== null
+                    && Carbon::parse($i['period_month'])->isSameMonth($currentMonth));
+                $overdue = $items->filter(fn (array $i) => $i['status'] === 'overdue'
+                    || ($i['due_carbon'] !== null && $i['due_carbon']->lt($start)));
+                $dueBeforeIncome = $items->filter(fn (array $i) => $i['due_carbon'] !== null
+                    && $i['due_carbon']->lte($currentEnd));
 
-                if ($pendingInstallments->isEmpty()) {
-                    return null;
-                }
-
-                $pendingBalance = $this->money($pendingInstallments->sum(fn (CreditInstallment $installment) => $this->installmentResidual($installment)));
-                $nextDueDate = $pendingInstallments
-                    ->map(fn (CreditInstallment $installment) => $this->installmentEffectiveDate($installment))
+                $nextDueDate = $items
+                    ->pluck('due_carbon')
                     ->filter()
                     ->sortBy(fn (Carbon $date) => $date->timestamp)
-                    ->first();
-                $overdueAmount = $this->money($pendingInstallments
-                    ->filter(function (CreditInstallment $installment) use ($start) {
-                        $due = $this->installmentEffectiveDate($installment);
-
-                        return $installment->status === 'overdue' || ($due && $due->lt($start));
-                    })
-                    ->sum(fn (CreditInstallment $installment) => $this->installmentResidual($installment)));
-                $dueBeforeIncome = $this->money($pendingInstallments
-                    ->filter(function (CreditInstallment $installment) use ($currentEnd) {
-                        $due = $this->installmentEffectiveDate($installment);
-
-                        return $due !== null && $due->lte($currentEnd);
-                    })
-                    ->sum(fn (CreditInstallment $installment) => $this->installmentResidual($installment)));
-                $dueInHorizon = $this->money($pendingInstallments
-                    ->filter(function (CreditInstallment $installment) use ($horizonEnd) {
-                        $due = $this->installmentEffectiveDate($installment);
-
-                        return $due !== null && $due->lte($horizonEnd);
-                    })
-                    ->sum(fn (CreditInstallment $installment) => $this->installmentResidual($installment)));
-
-                return [
-                    'credit_id' => $credit->id,
-                    'credit_name' => $credit->name,
-                    'account_id' => $credit->account_id,
-                    'account_name' => $credit->account?->name,
-                    'pending_balance' => $pendingBalance,
-                    'next_due_date' => $nextDueDate?->toDateString(),
-                    'overdue_amount' => $overdueAmount,
-                    'due_before_income' => $dueBeforeIncome,
-                    'due_in_horizon' => $dueInHorizon,
-                    'installments_pending_count' => $pendingInstallments->count(),
-                ];
-            })
-            ->filter()
-            ->values()
-            ->all();
-    }
-
-    private function creditAccountGroups(array $credits): array
-    {
-        return collect($credits)
-            ->groupBy(fn (array $credit) => $credit['account_id'] ?? 'no-account')
-            ->map(function ($items) {
-                $items = collect($items)->values();
-                $first = $items->first();
-                $nextDueDate = $items
-                    ->pluck('next_due_date')
-                    ->filter()
-                    ->sort()
                     ->first();
 
                 return [
                     'account_id' => $first['account_id'] ?? null,
-                    'account_name' => $first['account_name'] ?? 'Sin cuenta',
-                    'pending_balance' => $this->money($items->sum('pending_balance')),
-                    'overdue_amount' => $this->money($items->sum('overdue_amount')),
-                    'due_before_income' => $this->money($items->sum('due_before_income')),
-                    'due_in_horizon' => $this->money($items->sum('due_in_horizon')),
-                    'next_due_date' => $nextDueDate,
-                    'credits_count' => $items->count(),
-                    'installments_pending_count' => $items->sum('installments_pending_count'),
-                    'credit_items' => $items
-                        ->map(fn (array $credit) => [
-                            'credit_id' => $credit['credit_id'],
-                            'credit_name' => $credit['credit_name'],
-                            'pending_balance' => $this->money((float) $credit['pending_balance']),
-                            'next_due_date' => $credit['next_due_date'],
-                            'overdue_amount' => $this->money((float) $credit['overdue_amount']),
-                            'due_before_income' => $this->money((float) $credit['due_before_income']),
-                            'due_in_horizon' => $this->money((float) $credit['due_in_horizon']),
-                        ])
-                        ->values()
-                        ->all(),
+                    'account_name' => $first['account_name'] ?: 'Sin cuenta',
+                    'current_month_balance' => $this->money($currentMonthItems->sum('amount')),
+                    'horizon_balance' => $this->money($inHorizon->sum('amount')),
+                    'future_balance_reference' => $this->money($future->sum('amount')),
+                    'total_pending_reference' => $this->money($items->sum('amount')),
+                    'overdue_amount' => $this->money($overdue->sum('amount')),
+                    'due_before_income' => $this->money($dueBeforeIncome->sum('amount')),
+                    'next_due_date' => $nextDueDate?->toDateString(),
+                    'credits_count' => $items->pluck('credit_id')->unique()->count(),
+                    'installments_pending_count' => $items->count(),
+                    'items_in_horizon' => $inHorizon->map(fn (array $i) => $this->creditItemView($i))->all(),
+                    'future_items_reference' => $future->map(fn (array $i) => $this->creditItemView($i))->all(),
                 ];
             })
+            ->sortBy(fn (array $group) => $group['account_name'])
             ->values()
             ->all();
     }
 
-    private function sortedLiquidationCandidates(array $credits): array
+    private function creditItemView(array $item): array
     {
-        $sorted = $credits;
+        return [
+            'credit_id' => $item['credit_id'],
+            'credit_name' => $item['credit_name'],
+            'amount' => $this->money((float) $item['amount']),
+            'due_date' => $item['due_date'],
+            'period_month' => $item['period_month'],
+        ];
+    }
 
-        usort($sorted, function (array $a, array $b) {
-            return $this->compareCreditPriority($a, $b, true);
-        });
+    private function sortedAccountGroups(array $groups): array
+    {
+        $sorted = $groups;
+
+        usort($sorted, fn (array $a, array $b) => $this->compareAccountPriority($a, $b));
 
         return $sorted;
     }
 
-    private function partialPayoffTarget(array $credits, array $appliedByCredit): ?array
+    private function optionalExtraTarget(array $groups): ?array
     {
-        $remainingCredits = array_values(array_filter($credits, function (array $credit) use ($appliedByCredit) {
-            return $this->money((float) $credit['pending_balance'] - (float) ($appliedByCredit[$this->accountGroupKey($credit)] ?? 0)) > 0;
-        }));
+        $candidates = array_values(array_filter(
+            $groups,
+            fn (array $group) => (float) $group['future_balance_reference'] > 0
+        ));
 
-        if ($remainingCredits === []) {
+        if ($candidates === []) {
             return null;
         }
 
-        usort($remainingCredits, function (array $a, array $b) {
-            return $this->compareCreditPriority($a, $b, false);
-        });
+        usort($candidates, fn (array $a, array $b) => $this->compareAccountPriority($a, $b));
 
-        return $remainingCredits[0];
+        return $candidates[0];
     }
 
-    private function compareCreditPriority(array $a, array $b, bool $preferLiquidationFit): int
+    private function compareAccountPriority(array $a, array $b): int
     {
-        $aOverdue = (float) $a['overdue_amount'] > 0 ? 1 : 0;
-        $bOverdue = (float) $b['overdue_amount'] > 0 ? 1 : 0;
+        $aOverdue = (float) ($a['overdue_amount'] ?? 0) > 0 ? 1 : 0;
+        $bOverdue = (float) ($b['overdue_amount'] ?? 0) > 0 ? 1 : 0;
         if ($aOverdue !== $bOverdue) {
             return $bOverdue <=> $aOverdue;
         }
 
-        $aPressure = max((float) $a['due_before_income'], (float) $a['due_in_horizon']);
-        $bPressure = max((float) $b['due_before_income'], (float) $b['due_in_horizon']);
+        $aPressure = max((float) $a['due_before_income'], (float) $a['horizon_balance']);
+        $bPressure = max((float) $b['due_before_income'], (float) $b['horizon_balance']);
         if ($aPressure !== $bPressure) {
             return $bPressure <=> $aPressure;
         }
@@ -811,56 +811,36 @@ class FinanceDecisionPlanService
             return $aDate <=> $bDate;
         }
 
-        if ($preferLiquidationFit && (float) $a['pending_balance'] !== (float) $b['pending_balance']) {
-            return (float) $a['pending_balance'] <=> (float) $b['pending_balance'];
-        }
-
-        if (! $preferLiquidationFit && (float) $a['pending_balance'] !== (float) $b['pending_balance']) {
-            return (float) $b['pending_balance'] <=> (float) $a['pending_balance'];
-        }
-
         return strcmp($this->accountGroupName($a), $this->accountGroupName($b));
     }
 
-    private function minimumCreditPaymentActions(array $credits): array
+    private function minimumCreditPaymentActions(array $groups): array
     {
-        return collect($credits)
-            ->filter(fn (array $credit) => (float) $credit['due_before_income'] > 0)
-            ->map(fn (array $credit) => [
+        return collect($groups)
+            ->filter(fn (array $group) => (float) $group['due_before_income'] > 0)
+            ->map(fn (array $group) => [
                 'action' => 'minimum_payment_account',
-                'amount' => $this->money((float) $credit['due_before_income']),
-            ] + $this->accountGroupActionMetadata($credit, 'Cubre solo la mensualidad mínima antes del siguiente ingreso.'))
+                'amount' => $this->money((float) $group['due_before_income']),
+            ] + $this->accountGroupActionMetadata($group, 'Cubre solo la mensualidad mínima antes del siguiente ingreso.'))
             ->values()
             ->all();
     }
 
-    private function deferCreditActions(array $credits, array $appliedByCredit, ?array $nextIncome): array
+    private function deferFutureBalanceActions(array $groups, ?array $nextIncome): array
     {
-        return collect($credits)
-            ->map(function (array $credit) use ($appliedByCredit, $nextIncome) {
-                $pendingAfter = $this->money((float) $credit['pending_balance'] - (float) ($appliedByCredit[$this->accountGroupKey($credit)] ?? 0));
-
-                if ($pendingAfter <= 0) {
-                    return null;
-                }
-
-                return [
-                    'action' => 'wait',
-                    'suggested_moment' => $nextIncome ? 'Despues del proximo ingreso' : 'Mas adelante',
-                ] + $this->accountGroupActionMetadata(
-                    $credit,
-                    'Conviene esperar para no bajar demasiado el efectivo actual.',
-                    $pendingAfter
-                );
-            })
-            ->filter()
+        return collect($groups)
+            ->filter(fn (array $group) => (float) $group['future_balance_reference'] > 0)
+            ->map(fn (array $group) => [
+                'action' => 'defer_future_balance',
+                'amount' => $this->money((float) $group['future_balance_reference']),
+                'suggested_moment' => $nextIncome ? 'Después del próximo ingreso' : 'Más adelante',
+            ] + $this->accountGroupActionMetadata(
+                $group,
+                'La deuda futura de '.$this->accountGroupName($group).' ('.$this->formatMoney((float) $group['future_balance_reference'])
+                    .') corresponde a mensualidades fuera del horizonte; se muestra solo como referencia, no como obligación de hoy.'
+            ))
             ->values()
             ->all();
-    }
-
-    private function accountGroupKey(array $group): string
-    {
-        return $group['account_id'] === null ? 'no-account' : 'account:'.$group['account_id'];
     }
 
     private function accountGroupName(array $group): string
@@ -868,98 +848,95 @@ class FinanceDecisionPlanService
         return (string) ($group['account_name'] ?: 'Sin cuenta');
     }
 
-    private function accountGroupActionMetadata(array $credit, string $explanation, ?float $pendingBalance = null): array
+    private function accountGroupActionMetadata(array $group, string $explanation): array
     {
-        $effectiveCredit = $credit;
-        if ($pendingBalance !== null) {
-            $effectiveCredit['pending_balance'] = $pendingBalance;
-        }
-
         return [
-            'account_id' => $credit['account_id'] ?? null,
-            'account_name' => $this->accountGroupName($credit),
-            'next_due_date' => $credit['next_due_date'] ?? null,
-            'pending_balance' => $this->money((float) ($effectiveCredit['pending_balance'] ?? 0)),
-            'overdue_amount' => $this->money((float) ($credit['overdue_amount'] ?? 0)),
-            'due_before_income' => $this->money((float) ($credit['due_before_income'] ?? 0)),
-            'due_in_horizon' => $this->money((float) ($credit['due_in_horizon'] ?? 0)),
-            'pressure_label' => $this->creditPressureLabel($effectiveCredit),
-            'credits_count' => (int) ($credit['credits_count'] ?? 0),
-            'installments_pending_count' => (int) ($credit['installments_pending_count'] ?? 0),
-            'credit_items' => $credit['credit_items'] ?? [],
+            'account_id' => $group['account_id'] ?? null,
+            'account_name' => $this->accountGroupName($group),
+            'next_due_date' => $group['next_due_date'] ?? null,
+            'current_month_balance' => $this->money((float) ($group['current_month_balance'] ?? 0)),
+            'horizon_balance' => $this->money((float) ($group['horizon_balance'] ?? 0)),
+            'future_balance_reference' => $this->money((float) ($group['future_balance_reference'] ?? 0)),
+            'total_pending_reference' => $this->money((float) ($group['total_pending_reference'] ?? 0)),
+            'overdue_amount' => $this->money((float) ($group['overdue_amount'] ?? 0)),
+            'due_before_income' => $this->money((float) ($group['due_before_income'] ?? 0)),
+            'pressure_label' => $this->creditPressureLabel($group),
+            'credits_count' => (int) ($group['credits_count'] ?? 0),
+            'installments_pending_count' => (int) ($group['installments_pending_count'] ?? 0),
+            'items_in_horizon' => $group['items_in_horizon'] ?? [],
+            'future_items_reference' => $group['future_items_reference'] ?? [],
             'explanation' => $explanation,
             'reason' => $explanation,
         ];
     }
 
-    private function creditPressureLabel(array $credit): string
+    private function creditPressureLabel(array $group): string
     {
-        if ((float) ($credit['overdue_amount'] ?? 0) > 0) {
+        if ((float) ($group['overdue_amount'] ?? 0) > 0) {
             return 'Vencido';
         }
 
-        if ((float) ($credit['due_before_income'] ?? 0) > 0) {
+        if ((float) ($group['due_before_income'] ?? 0) > 0) {
             return 'Antes del próximo ingreso';
         }
 
-        if ((float) ($credit['due_in_horizon'] ?? 0) > 0) {
+        if ((float) ($group['horizon_balance'] ?? 0) > 0) {
             return 'Dentro del horizonte';
         }
 
-        if ((float) ($credit['pending_balance'] ?? 0) <= 300) {
-            return 'Deuda pequeña';
+        if ((float) ($group['future_balance_reference'] ?? 0) > 0) {
+            return 'Deuda futura';
         }
 
         return 'Deuda pendiente';
     }
 
-    private function accountLiquidationReason(array $credit): string
+    private function horizonCoverReason(array $group, bool $coversFull, float $amount): string
     {
-        $accountName = $this->accountGroupName($credit);
-        $creditsCount = (int) ($credit['credits_count'] ?? 0);
+        $accountName = $this->accountGroupName($group);
+        $horizonBalance = $this->money((float) ($group['horizon_balance'] ?? 0));
 
-        if ((float) $credit['overdue_amount'] > 0) {
-            return 'Liquida toda la cuenta '.$accountName.' para eliminar '.$creditsCount.' créditos/compras y quitar mensualidades vencidas.';
+        if ($coversFull) {
+            return 'Cubre las mensualidades de '.$accountName.' que caen en este horizonte ('
+                .$this->formatMoney($horizonBalance).'). No incluye deuda de meses futuros.';
         }
 
-        if ((float) $credit['due_before_income'] > 0) {
-            return 'Liquida toda la cuenta '.$accountName.' para eliminar '.$creditsCount.' créditos/compras y liberar presión antes del próximo ingreso.';
-        }
-
-        if ((float) $credit['pending_balance'] <= 300) {
-            return 'Liquida toda la cuenta '.$accountName.' para eliminar '.$creditsCount.' créditos/compras pequeños.';
-        }
-
-        if ((float) $credit['due_in_horizon'] > 0) {
-            return 'Liquida toda la cuenta '.$accountName.' para eliminar '.$creditsCount.' créditos/compras y reducir presión de pagos próximos.';
-        }
-
-        return 'Liquida toda la cuenta '.$accountName.' para eliminar '.$creditsCount.' créditos/compras sin romper colchón ni vida diaria.';
+        return 'Abona '.$this->formatMoney($amount).' a las mensualidades de '.$accountName
+            .' del horizonte; aún quedará saldo del periodo por '.$this->formatMoney($this->money($horizonBalance - $amount)).'.';
     }
 
-    private function creditPayoffMessage(array $recommendedActions, float $totalRecommended, float $pendingDebtAfter): string
+    private function optionalExtraReason(array $group, float $amount): string
     {
-        if ($totalRecommended <= 0) {
-            return 'No liquides cuentas todavia; conserva efectivo para pagos, colchon y vida diaria.';
+        $accountName = $this->accountGroupName($group);
+        $futureReference = $this->money((float) ($group['future_balance_reference'] ?? 0));
+
+        return 'Opcional: puedes adelantar '.$this->formatMoney($amount).' a '.$accountName
+            .' como abono extra a su deuda futura ('.$this->formatMoney($futureReference).') sin romper tu colchón. No es obligación del periodo.';
+    }
+
+    private function creditPayoffMessage(array $recommendedActions, float $horizonDue, float $futureReference, float $optionalExtra): string
+    {
+        $horizonActions = collect($recommendedActions)->where('action', 'pay_current_horizon_account')->values();
+        $names = $horizonActions->pluck('account_name')->all();
+        $parts = [];
+
+        if ($names !== []) {
+            $parts[] = 'Para este horizonte necesitas cubrir '.$this->formatMoney($horizonDue).' en '.$this->humanList($names).'.';
+        } else {
+            $parts[] = 'Para este horizonte necesitas cubrir '.$this->formatMoney($horizonDue).' de créditos.';
         }
 
-        $liquidations = collect($recommendedActions)->where('action', 'liquidate_account')->values();
-        $extras = collect($recommendedActions)->where('action', 'extra_payment_account')->values();
-
-        if ($liquidations->isNotEmpty() && $extras->isEmpty()) {
-            return 'Puedes usar '.$this->formatMoney($totalRecommended).' para liquidar '.$liquidations->count().' cuentas sin romper tu colchón: '.$this->humanList($liquidations->pluck('account_name')->all()).'. Esto elimina '.$liquidations->sum('credits_count').' créditos/compras.';
+        if ($futureReference > 0) {
+            $parts[] = 'La deuda futura es '.$this->formatMoney($futureReference).' y se muestra solo como referencia, no como obligación inmediata.';
         }
 
-        if ($liquidations->isNotEmpty() && $extras->isNotEmpty()) {
-            $extra = $extras->first();
-            $liquidationTotal = $this->money($liquidations->sum('amount'));
-
-            return 'Puedes usar '.$this->formatMoney($liquidationTotal).' para liquidar '.$liquidations->count().' cuentas sin romper tu colchón: '.$this->humanList($liquidations->pluck('account_name')->all()).'. Esto elimina '.$liquidations->sum('credits_count').' créditos/compras. Además, puedes abonar '.$this->formatMoney((float) $extra['amount']).' a '.$extra['account_name'].'.';
+        if ($optionalExtra > 0) {
+            $extra = collect($recommendedActions)->firstWhere('action', 'optional_extra_payment_account');
+            $parts[] = 'Si sobra, puedes adelantar '.$this->formatMoney($optionalExtra).' a '
+                .($extra['account_name'] ?? 'una cuenta').' como abono extra opcional sin romper tu colchón.';
         }
 
-        $extra = $extras->first();
-
-        return 'Puedes abonar '.$this->formatMoney($totalRecommended).' a '.($extra['account_name'] ?? 'una cuenta').' como abono extra sin romper tu colchón; quedarían '.$this->formatMoney($pendingDebtAfter).' pendientes.';
+        return implode(' ', $parts);
     }
 
     private function humanList(array $items): string
@@ -975,13 +952,14 @@ class FinanceDecisionPlanService
         return implode(', ', $items).' y '.$last;
     }
 
-    private function afterNextIncomeMessage(?array $nextIncome, array $credits): ?string
+    private function afterNextIncomeMessage(?array $nextIncome, array $accountGroups): ?string
     {
-        if (! $nextIncome || $credits === []) {
+        if (! $nextIncome || $accountGroups === []) {
             return null;
         }
 
-        return 'Despues del ingreso del '.$nextIncome['date']->format('d/m/Y').' podrias revisar los creditos restantes si el plan sigue estable.';
+        return 'Después del ingreso del '.$nextIncome['date']->format('d/m/Y')
+            .' revisa si conviene adelantar más a tus créditos si el plan sigue estable.';
     }
 
     private function installmentResidual(CreditInstallment $installment): float

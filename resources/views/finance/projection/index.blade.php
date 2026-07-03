@@ -173,14 +173,18 @@
     $decisionCategoryBudget = $decisionPlan['category_budget'];
     $decisionMessages = $decisionPlan['timeline_messages'];
     $decisionCreditPayoff = $decisionPlan['credit_payoff_strategy'] ?? [
-        'available_for_debt_payoff_now' => 0,
-        'pending_debt_before' => 0,
-        'pending_debt_after' => 0,
-        'total_recommended_to_pay_now' => 0,
+        'mode' => 'period_credit_strategy',
+        'current_period_credit_due' => 0,
+        'horizon_credit_due' => 0,
+        'future_credit_balance_reference' => 0,
+        'total_pending_reference' => 0,
+        'available_for_credit_payoff_now' => 0,
+        'recommended_to_pay_now' => 0,
+        'optional_extra_payment' => 0,
+        'account_groups' => [],
         'recommended_actions' => [],
         'defer_actions' => [],
         'minimum_payment_actions' => [],
-        'credit_account_groups' => [],
         'message' => 'Estrategia no calculada.',
         'after_next_income_message' => null,
     ];
@@ -417,104 +421,123 @@
         <div class="border rounded p-3 mb-3">
             <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 mb-3">
                 <div>
-                    <h5 class="mb-1">Estrategia de liquidación de créditos</h5>
+                    <h5 class="mb-1">Estrategia de créditos del periodo</h5>
                     <div class="text-muted small">{{ $decisionCreditPayoff['message'] }}</div>
                     @if ($decisionCreditPayoff['after_next_income_message'] ?? null)
                         <div class="text-muted small">{{ $decisionCreditPayoff['after_next_income_message'] }}</div>
                     @endif
                 </div>
-                <span class="badge badge-soft-info align-self-lg-start">Modo: {{ $decisionCreditPayoff['mode'] ?? 'reduce_monthly_pressure' }}</span>
+                <span class="badge badge-soft-info align-self-lg-start">Modo: {{ $decisionCreditPayoff['mode'] ?? 'period_credit_strategy' }}</span>
             </div>
 
             <div class="row g-2 mb-3">
                 <div class="col-md-6 col-xl-3">
                     <div class="border rounded p-2 h-100">
-                        <p class="text-muted small mb-1">Disponible para liquidar hoy</p>
-                        <h5 class="mb-0">{{ $money($decisionCreditPayoff['available_for_debt_payoff_now'] ?? 0) }}</h5>
+                        <p class="text-muted small mb-1">Monto a cubrir en el horizonte</p>
+                        <h5 class="mb-0 text-primary">{{ $money($decisionCreditPayoff['horizon_credit_due'] ?? 0) }}</h5>
+                        <div class="text-muted small">Este mes: {{ $money($decisionCreditPayoff['current_period_credit_due'] ?? 0) }}</div>
                     </div>
                 </div>
                 <div class="col-md-6 col-xl-3">
                     <div class="border rounded p-2 h-100">
-                        <p class="text-muted small mb-1">Deuda pendiente antes</p>
-                        <h5 class="mb-0">{{ $money($decisionCreditPayoff['pending_debt_before'] ?? 0) }}</h5>
+                        <p class="text-muted small mb-1">Deuda futura como referencia</p>
+                        <h5 class="mb-0">{{ $money($decisionCreditPayoff['future_credit_balance_reference'] ?? 0) }}</h5>
+                        <div class="text-muted small">No es obligación inmediata.</div>
                     </div>
                 </div>
                 <div class="col-md-6 col-xl-3">
                     <div class="border rounded p-2 h-100">
                         <p class="text-muted small mb-1">Recomendado pagar hoy</p>
-                        <h5 class="mb-0 text-primary">{{ $money($decisionCreditPayoff['total_recommended_to_pay_now'] ?? 0) }}</h5>
+                        <h5 class="mb-0 text-primary">{{ $money($decisionCreditPayoff['recommended_to_pay_now'] ?? 0) }}</h5>
+                        <div class="text-muted small">Disponible: {{ $money($decisionCreditPayoff['available_for_credit_payoff_now'] ?? 0) }}</div>
                     </div>
                 </div>
                 <div class="col-md-6 col-xl-3">
                     <div class="border rounded p-2 h-100">
-                        <p class="text-muted small mb-1">Deuda pendiente después</p>
-                        <h5 class="mb-0">{{ $money($decisionCreditPayoff['pending_debt_after'] ?? 0) }}</h5>
+                        <p class="text-muted small mb-1">Abono extra opcional</p>
+                        <h5 class="mb-0">{{ $money($decisionCreditPayoff['optional_extra_payment'] ?? 0) }}</h5>
+                        <div class="text-muted small">Solo si sobra dinero.</div>
                     </div>
                 </div>
             </div>
 
             <div class="row g-3">
                 <div class="col-lg-4">
-                    <h6 class="mb-2">Cuentas recomendadas para liquidar</h6>
+                    <h6 class="mb-2">Cuentas a cubrir en este periodo</h6>
                     @forelse ($decisionCreditPayoff['recommended_actions'] ?? [] as $action)
+                        @php $isOptional = ($action['action'] ?? '') === 'optional_extra_payment_account'; @endphp
                         <div class="d-flex justify-content-between gap-2 mb-2">
                             <div>
                                 <div class="fw-semibold">Cuenta: {{ $action['account_name'] ?: 'Sin cuenta' }}</div>
-                                <div class="text-muted small">{{ ($action['action'] ?? '') === 'liquidate_account' ? 'Total a liquidar' : 'Abono recomendado' }}: {{ $money($action['amount']) }}</div>
+                                <div class="text-muted small">{{ $isOptional ? 'Abono extra opcional' : 'Cubrir periodo' }}: {{ $money($action['amount']) }}</div>
+                                <div class="text-muted small">Monto a cubrir en el horizonte: {{ $money($action['horizon_balance'] ?? 0) }}</div>
                                 @if ($action['next_due_date'] ?? null)
                                     <div class="text-muted small">Próximo vencimiento: {{ $action['next_due_date'] }}</div>
                                 @endif
+                                @if (($action['future_balance_reference'] ?? 0) > 0)
+                                    <div class="text-muted small">Deuda futura como referencia: {{ $money($action['future_balance_reference']) }}</div>
+                                @endif
                                 <div class="d-flex flex-wrap gap-1 my-1">
-                                    <span class="badge {{ ($action['action'] ?? '') === 'liquidate_account' ? 'badge-soft-success' : 'badge-soft-info' }}">
-                                        {{ ($action['action'] ?? '') === 'liquidate_account' ? 'Liquidar cuenta' : 'Abono extra' }}
+                                    <span class="badge {{ $isOptional ? 'badge-soft-info' : 'badge-soft-success' }}">
+                                        {{ $isOptional ? 'Abono extra opcional' : 'Cubrir periodo' }}
                                     </span>
                                     <span class="badge badge-soft-warning">{{ $action['pressure_label'] ?? 'Deuda pendiente' }}</span>
                                 </div>
-                                @if (! empty($action['credit_items']))
-                                    <div class="text-muted small">Créditos/compras incluidas:</div>
+                                @if (! empty($action['items_in_horizon']))
+                                    <div class="text-muted small">Mensualidades incluidas en este periodo:</div>
                                     <ul class="small text-muted mb-1 ps-3">
-                                        @foreach ($action['credit_items'] as $item)
-                                            <li>{{ $item['credit_name'] }} {{ $money($item['pending_balance'] ?? 0) }}</li>
+                                        @foreach ($action['items_in_horizon'] as $item)
+                                            <li>{{ $item['credit_name'] }} {{ $money($item['amount'] ?? 0) }} @if ($item['due_date'] ?? null)<span class="text-muted">({{ $item['due_date'] }})</span>@endif</li>
                                         @endforeach
                                     </ul>
+                                @endif
+                                @if (! empty($action['future_items_reference']))
+                                    <details class="small mb-1">
+                                        <summary class="text-muted">Deuda futura como referencia ({{ count($action['future_items_reference']) }})</summary>
+                                        <ul class="small text-muted mb-1 ps-3">
+                                            @foreach ($action['future_items_reference'] as $item)
+                                                <li>{{ $item['credit_name'] }} {{ $money($item['amount'] ?? 0) }} @if ($item['due_date'] ?? null)<span class="text-muted">({{ $item['due_date'] }})</span>@endif</li>
+                                            @endforeach
+                                        </ul>
+                                    </details>
                                 @endif
                                 <div class="text-muted small">Motivo: {{ $action['explanation'] ?? $action['reason'] }}</div>
                             </div>
                             <div class="fw-semibold text-end">{{ $money($action['amount']) }}</div>
                         </div>
                     @empty
-                        <p class="text-muted small mb-0">Sin liquidaciones recomendadas por ahora.</p>
+                        <p class="text-muted small mb-0">Sin mensualidades del periodo por cubrir por ahora.</p>
                     @endforelse
                 </div>
                 <div class="col-lg-4">
-                    <h6 class="mb-2">Después del próximo ingreso</h6>
+                    <h6 class="mb-2">Deuda futura / después del horizonte</h6>
                     @forelse ($decisionCreditPayoff['defer_actions'] ?? [] as $action)
                         <div class="d-flex justify-content-between gap-2 mb-2">
                             <div>
                                 <div class="fw-semibold">Cuenta: {{ $action['account_name'] ?: 'Sin cuenta' }}</div>
-                                <div class="text-muted small">Saldo pendiente: {{ $money($action['pending_balance'] ?? 0) }}</div>
+                                <div class="text-muted small">Deuda futura como referencia: {{ $money($action['future_balance_reference'] ?? 0) }}</div>
                                 @if ($action['next_due_date'] ?? null)
                                     <div class="text-muted small">Próximo vencimiento: {{ $action['next_due_date'] }}</div>
                                 @endif
                                 <div class="d-flex flex-wrap gap-1 my-1">
-                                    <span class="badge badge-soft-secondary">Esperar</span>
-                                    <span class="badge badge-soft-warning">{{ $action['pressure_label'] ?? 'Deuda pendiente' }}</span>
+                                    <span class="badge badge-soft-secondary">Referencia</span>
+                                    <span class="badge badge-soft-warning">{{ $action['pressure_label'] ?? 'Deuda futura' }}</span>
                                 </div>
                                 <div class="text-muted small">{{ $action['suggested_moment'] }}</div>
-                                @if (! empty($action['credit_items']))
-                                    <div class="text-muted small">Créditos/compras incluidas:</div>
+                                @if (! empty($action['future_items_reference']))
+                                    <div class="text-muted small">Mensualidades futuras:</div>
                                     <ul class="small text-muted mb-1 ps-3">
-                                        @foreach ($action['credit_items'] as $item)
-                                            <li>{{ $item['credit_name'] }} {{ $money($item['pending_balance'] ?? 0) }}</li>
+                                        @foreach ($action['future_items_reference'] as $item)
+                                            <li>{{ $item['credit_name'] }} {{ $money($item['amount'] ?? 0) }} @if ($item['due_date'] ?? null)<span class="text-muted">({{ $item['due_date'] }})</span>@endif</li>
                                         @endforeach
                                     </ul>
                                 @endif
                                 <div class="text-muted small">Motivo: {{ $action['explanation'] ?? $action['reason'] }}</div>
                             </div>
-                            <div class="fw-semibold text-end">{{ $money($action['pending_balance']) }}</div>
+                            <div class="fw-semibold text-end">{{ $money($action['future_balance_reference'] ?? 0) }}</div>
                         </div>
                     @empty
-                        <p class="text-muted small mb-0">No quedan créditos pendientes después de la recomendación.</p>
+                        <p class="text-muted small mb-0">No hay deuda futura fuera del horizonte.</p>
                     @endforelse
                 </div>
                 <div class="col-lg-4">
@@ -531,11 +554,11 @@
                                     <span class="badge badge-soft-info">Mensualidad mínima</span>
                                     <span class="badge badge-soft-warning">{{ $action['pressure_label'] ?? 'Deuda pendiente' }}</span>
                                 </div>
-                                @if (! empty($action['credit_items']))
+                                @if (! empty($action['items_in_horizon']))
                                     <div class="text-muted small">Créditos/mensualidades incluidas:</div>
                                     <ul class="small text-muted mb-1 ps-3">
-                                        @foreach ($action['credit_items'] as $item)
-                                            <li>{{ $item['credit_name'] }} {{ $money($item['due_before_income'] ?? 0) }}</li>
+                                        @foreach ($action['items_in_horizon'] as $item)
+                                            <li>{{ $item['credit_name'] }} {{ $money($item['amount'] ?? 0) }}</li>
                                         @endforeach
                                     </ul>
                                 @endif
@@ -551,6 +574,7 @@
 
             <div class="alert alert-light border py-2 small mb-0 mt-3">
                 Esto es solo una recomendación. No se creó ningún movimiento ni se marcó ningún crédito como pagado.
+                La deuda futura se muestra como referencia; no recomendamos cubrir hoy mensualidades de meses futuros.
             </div>
         </div>
 
