@@ -281,6 +281,94 @@ class CreditPurchaseController extends Controller
         return back()->with('success', 'Mensualidad marcada como pagada.');
     }
 
+    /**
+     * Pago masivo por acreedor: salda TODAS las mensualidades del mes en curso de
+     * un acreedor (cuenta/tarjeta) de un clic. Hace lo mismo que el check verde
+     * por cada mensualidad: crea el movimiento (egreso ligado a la cuenta del
+     * crédito) y la marca pagada. Todo en una transacción.
+     */
+    public function payCreditorMonth(Request $request)
+    {
+        $user = $request->user();
+
+        $data = $request->validate([
+            'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'creditor_name' => ['nullable', 'string', 'max:255'],
+            'paid_on' => ['nullable', 'date'],
+        ]);
+
+        $accountId = $data['account_id'] ?? null;
+        $paidOn = isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today();
+        $currentMonth = now()->startOfMonth();
+
+        $credits = CreditPurchase::with('installments')
+            ->where('user_id', $user->id)
+            ->where('status', '!=', 'paid')
+            ->when($accountId !== null, fn ($query) => $query->where('account_id', $accountId))
+            ->when($accountId === null, fn ($query) => $query->whereNull('account_id'))
+            ->get();
+
+        $paidCount = 0;
+        $paidTotal = 0.0;
+
+        DB::transaction(function () use ($credits, $currentMonth, $paidOn, &$paidCount, &$paidTotal) {
+            foreach ($credits as $credit) {
+                $touched = false;
+
+                foreach ($credit->installments as $installment) {
+                    if ($installment->status === 'paid'
+                        || ! $installment->period_month
+                        || ! $installment->period_month->isSameMonth($currentMonth)) {
+                        continue;
+                    }
+
+                    $remaining = round(max(0, (float) $installment->amount - (float) $installment->paid_amount), 2);
+
+                    if ($remaining <= 0) {
+                        continue;
+                    }
+
+                    $movement = Movement::create([
+                        'user_id' => $installment->user_id,
+                        'happened_on' => $paidOn->toDateString(),
+                        'movement_type' => 'expense',
+                        'amount' => $remaining,
+                        'description' => 'Crédito: ' . $credit->name . ' ' . $installment->installment_number . '/' . $credit->months,
+                        'account_id' => $credit->account_id,
+                        'category_id' => $credit->category_id,
+                        'source' => 'credit_installment',
+                    ]);
+
+                    $installment->update([
+                        'status' => 'paid',
+                        'paid_amount' => $installment->amount,
+                        'paid_on' => $paidOn->toDateString(),
+                        'movement_id' => $movement->id,
+                    ]);
+
+                    $paidCount++;
+                    $paidTotal = round($paidTotal + $remaining, 2);
+                    $touched = true;
+                }
+
+                if ($touched) {
+                    $this->refreshCreditStatus($credit);
+                }
+            }
+        });
+
+        $label = $data['creditor_name'] ?? 'el acreedor';
+
+        if ($paidCount === 0) {
+            return back()->with('warning', 'No había mensualidades de ' . $label . ' por pagar en este mes.');
+        }
+
+        return back()->with(
+            'success',
+            'Se pagaron ' . $paidCount . ' mensualidad(es) de ' . $label . ' de este mes por $' . number_format($paidTotal, 2) . '.'
+        );
+    }
+
     public function markInstallmentRegistered(Request $request, CreditInstallment $installment)
     {
         abort_unless($installment->user_id === $request->user()->id, 403);
@@ -681,6 +769,7 @@ class CreditPurchaseController extends Controller
                 return [
                     'name' => $creditorName,
                     'key' => str('creditor-' . $creditorName)->slug()->toString() ?: 'sin-acreedor',
+                    'account_id' => $account?->id,
                     'style' => $style,
                     'count' => $items->count(),
                     'pending' => $pending,

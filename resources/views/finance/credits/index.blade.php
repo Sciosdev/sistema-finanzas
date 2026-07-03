@@ -207,6 +207,21 @@
                                 </div>
                             @endif
                         </button>
+                        @if (($creditor['current_due'] ?? 0) > 0)
+                            <form
+                                method="POST"
+                                action="{{ route('finance.credits.creditors.pay-month') }}"
+                                class="mt-2"
+                                onsubmit="return confirm('¿Pagar {{ $money($creditor['current_due']) }} de {{ $creditor['name'] }} de este mes? Se crearán los movimientos y se marcarán las mensualidades como pagadas.');"
+                            >
+                                @csrf
+                                <input type="hidden" name="account_id" value="{{ $creditor['account_id'] ?? '' }}">
+                                <input type="hidden" name="creditor_name" value="{{ $creditor['name'] }}">
+                                <button type="submit" class="btn btn-sm w-100" style="background: {{ $style['color'] }}; color: {{ $style['badge_text'] ?? '#111827' }};">
+                                    <i data-lucide="check-check" class="me-1"></i>Pagar el mes ({{ $money($creditor['current_due']) }})
+                                </button>
+                            </form>
+                        @endif
                     </div>
                 @endforeach
             </div>

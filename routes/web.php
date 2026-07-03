@@ -155,6 +155,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::get('creditos', [CreditPurchaseController::class, 'index'])->name('credits.index');
         Route::post('creditos', [CreditPurchaseController::class, 'store'])->name('credits.store');
         Route::post('creditos/recalcular-fechas', [CreditPurchaseController::class, 'recalculateDueDates'])->name('credits.recalculate-dates');
+        Route::post('creditos/acreedores/pagar-mes', [CreditPurchaseController::class, 'payCreditorMonth'])->name('credits.creditors.pay-month');
         Route::post('creditos/{credit}/abonos-libres', [CreditPurchaseController::class, 'storeFreePayment'])->name('credits.free-payments.store');
         Route::delete('creditos/abonos-libres/{payment}', [CreditPurchaseController::class, 'destroyFreePayment'])->name('credits.free-payments.destroy');
         Route::put('creditos/{credit}', [CreditPurchaseController::class, 'update'])->name('credits.update');
