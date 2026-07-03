@@ -61,6 +61,47 @@
     $spendingLimitSummary = $spendingLimitReport['summary'];
     $spendingLimitRows = $spendingLimitReport['limits'];
     $expenseCategories = $expenseCategories ?? collect();
+    $survivalBudget = $survivalBudget ?? [
+        'window' => [
+            'start_date' => $meta['start_date'],
+            'end_date' => $meta['start_date'],
+            'days_count' => 1,
+            'next_income_date' => null,
+            'next_income_name' => null,
+            'next_income_amount' => 0,
+            'window_reason' => 'Sin presupuesto calculado.',
+            'has_next_income' => false,
+        ],
+        'money' => [
+            'starting_balance' => 0,
+            'obligations_total' => 0,
+            'overdue_obligations_total' => 0,
+            'upcoming_obligations_total' => 0,
+            'buffer' => 0,
+            'raw_survival_pool' => 0,
+            'survival_pool' => 0,
+            'shortfall_for_survival' => 0,
+            'daily_total_allowance' => 0,
+        ],
+        'categories' => [],
+        'summary' => [
+            'total_categories' => 0,
+            'total_assigned' => 0,
+            'unassigned_amount' => 0,
+            'has_historical_basis' => false,
+        ],
+        'alerts' => [
+            'missing_next_income' => true,
+            'insufficient_history' => true,
+            'obligations_exceed_balance' => false,
+            'buffer_at_risk' => false,
+        ],
+        'messages' => [],
+    ];
+    $survivalWindow = $survivalBudget['window'];
+    $survivalMoney = $survivalBudget['money'];
+    $survivalRows = $survivalBudget['categories'];
+    $survivalAlerts = $survivalBudget['alerts'];
     $creditSimulationInput = $creditSimulationInput ?? ['amount' => 0, 'horizon_days' => $horizon, 'strategy' => 'balanced'];
     $creditSimulation = $creditSimulation ?? null;
     $creditOptions = $creditOptions ?? collect();
@@ -340,6 +381,130 @@
                     <p class="text-muted small mb-0">No hay ingresos vencidos reportados.</p>
                 @endforelse
             </div>
+        </div>
+    </div>
+</div>
+
+<div class="card border-success">
+    <div class="card-header d-flex flex-wrap align-items-center justify-content-between gap-2">
+        <div>
+            <h4 class="card-title mb-0">Presupuesto sugerido hasta tu proximo ingreso</h4>
+            <p class="text-muted small mb-0">{{ $survivalWindow['window_reason'] }}</p>
+        </div>
+        <span class="badge {{ $survivalMoney['survival_pool'] > 0 ? 'badge-soft-success' : 'badge-soft-danger' }}">
+            {{ $survivalWindow['days_count'] }} dia(s)
+        </span>
+    </div>
+    <div class="card-body">
+        <div class="alert {{ $survivalMoney['survival_pool'] > 0 ? 'alert-success' : 'alert-danger' }} d-flex align-items-center" role="alert">
+            <i data-lucide="{{ $survivalMoney['survival_pool'] > 0 ? 'wallet' : 'triangle-alert' }}" class="me-2"></i>
+            @if ($survivalMoney['survival_pool'] > 0)
+                Puedes vivir con {{ $money($survivalMoney['daily_total_allowance']) }} diarios hasta tu proximo ingreso.
+            @else
+                No hay dinero libre para gastar sin romper pagos o colchon. Te faltan {{ $money($survivalMoney['shortfall_for_survival']) }}.
+            @endif
+        </div>
+
+        <div class="row g-2 mb-3">
+            <div class="col-6 col-xl-2">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Desde hoy</p>
+                    <h6 class="mb-0">{{ $survivalWindow['start_date'] }}</h6>
+                </div>
+            </div>
+            <div class="col-6 col-xl-2">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Siguiente ingreso</p>
+                    <h6 class="mb-0">{{ $survivalWindow['next_income_date'] ?? 'No capturado' }}</h6>
+                    @if ($survivalWindow['next_income_name'])
+                        <p class="small text-muted mb-0">{{ $survivalWindow['next_income_name'] }} - {{ $money($survivalWindow['next_income_amount']) }}</p>
+                    @endif
+                </div>
+            </div>
+            <div class="col-6 col-xl-2">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Saldo actual</p>
+                    <h6 class="mb-0">{{ $money($survivalMoney['starting_balance']) }}</h6>
+                </div>
+            </div>
+            <div class="col-6 col-xl-2">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Pagos a cubrir</p>
+                    <h6 class="mb-0 text-danger">{{ $money($survivalMoney['obligations_total']) }}</h6>
+                </div>
+            </div>
+            <div class="col-6 col-xl-2">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Colchon</p>
+                    <h6 class="mb-0">{{ $money($survivalMoney['buffer']) }}</h6>
+                </div>
+            </div>
+            <div class="col-6 col-xl-2">
+                <div class="border rounded p-2 h-100">
+                    <p class="text-muted small mb-1">Para vivir</p>
+                    <h6 class="mb-0 {{ $survivalMoney['raw_survival_pool'] < 0 ? 'text-danger' : 'text-success' }}">{{ $money($survivalMoney['raw_survival_pool']) }}</h6>
+                </div>
+            </div>
+        </div>
+
+        @if ($survivalAlerts['missing_next_income'] || $survivalAlerts['insufficient_history'] || $survivalAlerts['obligations_exceed_balance'] || $survivalAlerts['buffer_at_risk'])
+            <div class="row g-2 mb-3">
+                @if ($survivalAlerts['missing_next_income'])
+                    <div class="col-md-6 col-xl-3"><div class="alert alert-warning mb-0 py-2 small">No hay siguiente ingreso capturado.</div></div>
+                @endif
+                @if ($survivalAlerts['insufficient_history'])
+                    <div class="col-md-6 col-xl-3"><div class="alert alert-info mb-0 py-2 small">No hay historial suficiente; se uso distribucion base.</div></div>
+                @endif
+                @if ($survivalAlerts['obligations_exceed_balance'])
+                    <div class="col-md-6 col-xl-3"><div class="alert alert-danger mb-0 py-2 small">Tus pagos superan tu saldo disponible.</div></div>
+                @endif
+                @if ($survivalAlerts['buffer_at_risk'])
+                    <div class="col-md-6 col-xl-3"><div class="alert alert-danger mb-0 py-2 small">El colchon esta en riesgo.</div></div>
+                @endif
+            </div>
+        @endif
+
+        @if (count($survivalBudget['messages']) > 0)
+            <div class="row g-2 mb-3">
+                @foreach ($survivalBudget['messages'] as $message)
+                    <div class="col-md-6 col-xl-4">
+                        <div class="alert alert-light border mb-0 py-2 small">{{ $message }}</div>
+                    </div>
+                @endforeach
+            </div>
+        @endif
+
+        <div class="table-responsive">
+            <table class="table table-sm align-middle mb-0">
+                <thead>
+                    <tr>
+                        <th>Categoria</th>
+                        <th class="text-end">Presupuesto total</th>
+                        <th class="text-end">Recomendado diario</th>
+                        <th class="text-end">Gastado en ventana</th>
+                        <th class="text-end">Restante</th>
+                        <th class="text-end">Recomendado hoy</th>
+                        <th>Mensaje</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse ($survivalRows as $row)
+                        <tr>
+                            <td class="fw-semibold">{{ $row['category_name'] }}</td>
+                            <td class="text-end">{{ $money($row['budget_total']) }}</td>
+                            <td class="text-end">{{ $money($row['daily_allowance']) }}</td>
+                            <td class="text-end text-danger">{{ $money($row['already_spent_in_window']) }}</td>
+                            <td class="text-end {{ $row['remaining_for_category'] < 0 ? 'text-danger' : 'text-success' }}">{{ $money($row['remaining_for_category']) }}</td>
+                            <td class="text-end fw-semibold">{{ $money($row['recommended_today']) }}</td>
+                            <td class="small text-muted">{{ $row['message'] }}</td>
+                        </tr>
+                    @empty
+                        <tr>
+                            <td colspan="7" class="text-center text-muted py-3">No hay presupuesto sugerido disponible.</td>
+                        </tr>
+                    @endforelse
+                </tbody>
+            </table>
         </div>
     </div>
 </div>

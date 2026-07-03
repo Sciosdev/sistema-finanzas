@@ -11,6 +11,7 @@ use App\Services\Finance\FinanceCreditOptionSimulationService;
 use App\Services\Finance\FinancePaymentRecommendationService;
 use App\Services\Finance\FinanceProjectionService;
 use App\Services\Finance\FinanceSpendingLimitService;
+use App\Services\Finance\FinanceSurvivalBudgetService;
 use Illuminate\Http\Request;
 
 class FinanceProjectionController extends Controller
@@ -19,7 +20,8 @@ class FinanceProjectionController extends Controller
         private readonly FinanceProjectionService $projectionService,
         private readonly FinancePaymentRecommendationService $recommendationService,
         private readonly FinanceSpendingLimitService $spendingLimitService,
-        private readonly FinanceCreditOptionSimulationService $creditSimulationService
+        private readonly FinanceCreditOptionSimulationService $creditSimulationService,
+        private readonly FinanceSurvivalBudgetService $survivalBudgetService
     ) {}
 
     public function index(Request $request)
@@ -38,6 +40,7 @@ class FinanceProjectionController extends Controller
         return view('finance.projection.index', [
             'projection' => $projection,
             'paymentRecommendations' => $paymentRecommendations,
+            'survivalBudget' => $this->survivalBudgetService->build($user, 30),
             'spendingLimits' => $this->spendingLimitService->analyze($user, $horizon, $paymentRecommendations),
             'creditSimulation' => $creditSimulationInput['amount'] > 0
                 ? $this->creditSimulationService->simulate(
