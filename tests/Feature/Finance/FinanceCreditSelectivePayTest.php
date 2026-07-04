@@ -119,6 +119,8 @@ it('shows the select-and-pay button and modal on the credits page', function () 
         ->assertOk()
         ->assertSee('Seleccionar y pagar', false)
         ->assertSee('Pagar selección · NU', false)
+        ->assertSee('Auto-seleccionar', false)
+        ->assertSee('data-pay-select-auto', false)
         ->assertSee('installment_ids[]', false)
         ->assertSee('NU televisor', false);
 });

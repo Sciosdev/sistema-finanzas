@@ -251,6 +251,12 @@
                             </div>
                             <div class="modal-body">
                                 <p class="text-muted small mb-2">Marca las mensualidades que quieras pagar; el total se suma abajo. Cada una se marca pagada y crea su movimiento (no se parten mensualidades).</p>
+                                <div class="input-group input-group-sm mb-3">
+                                    <span class="input-group-text">Auto hasta $</span>
+                                    <input type="number" step="0.01" min="0" class="form-control" data-pay-select-target placeholder="Ej. 1500">
+                                    <button type="button" class="btn btn-outline-primary" data-pay-select-auto>Auto-seleccionar</button>
+                                </div>
+                                <p class="text-muted small mb-2">Precarga las mensualidades por vencimiento más próximo sin pasarse del monto; luego puedes ajustarlas a mano.</p>
                                 <div class="d-flex flex-column gap-1">
                                     @foreach ($creditor['pending_installments'] as $inst)
                                         <label class="d-flex align-items-center justify-content-between gap-2 border rounded p-2 mb-0">
@@ -917,6 +923,42 @@
                     recalc();
                 }
             });
+
+            // Auto-seleccionar hasta un monto: marca las mensualidades por orden
+            // (vencimiento más próximo) mientras quepan sin pasarse del presupuesto.
+            var autoBtn = form.querySelector('[data-pay-select-auto]');
+            var targetEl = form.querySelector('[data-pay-select-target]');
+            var checks = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-check]'));
+
+            function autoSelect() {
+                var budget = parseFloat(targetEl && targetEl.value) || 0;
+                if (budget <= 0) {
+                    return;
+                }
+                var running = 0;
+                checks.forEach(function (cb) {
+                    var amount = parseFloat(cb.getAttribute('data-amount')) || 0;
+                    if (running + amount <= budget + 0.005) {
+                        cb.checked = true;
+                        running += amount;
+                    } else {
+                        cb.checked = false;
+                    }
+                });
+                recalc();
+            }
+
+            if (autoBtn) {
+                autoBtn.addEventListener('click', autoSelect);
+            }
+            if (targetEl) {
+                targetEl.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        autoSelect();
+                    }
+                });
+            }
 
             recalc();
         });
