@@ -183,15 +183,10 @@ class FinanceCutSuggestionService
     }
 
     /**
-     * Cambio neto por cuenta desde un corte base hasta una fecha tope.
-     *
-     * Cuenta los movimientos POSTERIORES al corte base. La regla "humana": un
-     * movimiento del MISMO día del corte pero registrado DESPUÉS de haberlo hecho
-     * (created_at posterior a la hora del corte) SÍ cuenta — antes se "perdía" y
-     * dejaba descuadres fantasma cuando hacías el corte y luego pagabas el mismo
-     * día. Se excluyen los rendimientos automáticos (source auto:daily-cut) porque
-     * se generan a la hora del corte y ya están dentro de su saldo declarado; si
-     * se contaran de nuevo se duplicarían.
+     * Cambio neto por cuenta desde un corte base hasta una fecha tope: cuenta los
+     * movimientos con happened_on posterior a la fecha del corte base y hasta la
+     * fecha tope (inclusive). Los movimientos del MISMO día del corte se
+     * consideran ya incluidos en el saldo declarado de ese corte.
      *
      * @return array<int, float>
      */
@@ -203,22 +198,7 @@ class FinanceCutSuggestionService
             ->whereDate('happened_on', '<=', $upperBound->toDateString());
 
         if ($baselineCut !== null) {
-            $cutDateString = $baselineCut->cut_date->toDateString();
-            $cutCreatedAt = $baselineCut->created_at;
-
-            $query->where(function ($outer) use ($cutDateString, $cutCreatedAt) {
-                $outer->whereDate('happened_on', '>', $cutDateString);
-
-                if ($cutCreatedAt !== null) {
-                    $outer->orWhere(function ($sameDay) use ($cutDateString, $cutCreatedAt) {
-                        $sameDay->whereDate('happened_on', '=', $cutDateString)
-                            ->where('created_at', '>', $cutCreatedAt)
-                            ->where(function ($source) {
-                                $source->whereNull('source')->orWhere('source', '!=', 'auto:daily-cut');
-                            });
-                    });
-                }
-            });
+            $query->whereDate('happened_on', '>', $baselineCut->cut_date->toDateString());
         }
 
         $delta = [];
