@@ -239,7 +239,7 @@
     @foreach ($creditorSummaries as $creditor)
         @if (! empty($creditor['pending_installments']))
             <div class="modal fade" id="pay-select-{{ $creditor['key'] }}" tabindex="-1" aria-hidden="true">
-                <div class="modal-dialog modal-dialog-scrollable modal-lg">
+                <div class="modal-dialog modal-dialog-centered modal-lg">
                     <div class="modal-content">
                         <form method="POST" action="{{ route('finance.credits.installments.pay-selected') }}"
                               data-pay-select-form
@@ -257,7 +257,11 @@
                                     <button type="button" class="btn btn-outline-primary" data-pay-select-auto>Auto-seleccionar</button>
                                 </div>
                                 <p class="text-muted small mb-2">Precarga las mensualidades por vencimiento más próximo sin pasarse del monto; luego puedes ajustarlas a mano.</p>
-                                <div class="d-flex flex-column gap-1">
+                                <div class="alert alert-secondary d-flex justify-content-between align-items-center py-2 mb-2">
+                                    <span>Vas seleccionando:</span>
+                                    <span class="fw-semibold fs-6"><span data-pay-select-total>$0.00</span> <span class="text-muted small">(<span data-pay-select-count>0</span> mensualidad(es))</span></span>
+                                </div>
+                                <div class="d-flex flex-column gap-1" style="max-height: 45vh; overflow-y: auto;">
                                     @foreach ($creditor['pending_installments'] as $inst)
                                         <label class="d-flex align-items-center justify-content-between gap-2 border rounded p-2 mb-0">
                                             <span class="d-flex align-items-center gap-2">
@@ -898,8 +902,8 @@
         var forms = Array.prototype.slice.call(document.querySelectorAll('[data-pay-select-form]'));
 
         forms.forEach(function (form) {
-            var totalEl = form.querySelector('[data-pay-select-total]');
-            var countEl = form.querySelector('[data-pay-select-count]');
+            var totalEls = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-total]'));
+            var countEls = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-count]'));
             var submitEl = form.querySelector('[data-pay-select-submit]');
 
             function money(value) {
@@ -913,8 +917,8 @@
                     total += parseFloat(cb.getAttribute('data-amount')) || 0;
                     count++;
                 });
-                if (totalEl) { totalEl.textContent = money(total); }
-                if (countEl) { countEl.textContent = count; }
+                totalEls.forEach(function (el) { el.textContent = money(total); });
+                countEls.forEach(function (el) { el.textContent = count; });
                 if (submitEl) { submitEl.disabled = count === 0; }
             }
 
