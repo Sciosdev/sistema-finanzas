@@ -394,15 +394,20 @@
         </div>
         <div class="d-flex flex-wrap gap-2">
             <div class="finance-hero-pill">
-                <div class="finance-hero-pill-label text-muted">Proyectado del mes</div>
-                <div class="fw-bold fs-5 {{ $heroLeftover >= 0 ? 'text-success' : 'text-danger' }}"
-                     data-countup="{{ $heroLeftover }}" data-countup-prefix="$" data-countup-decimals="2">{{ $money($heroLeftover) }}</div>
+                <div class="finance-hero-pill-label text-muted">Efectivo</div>
+                <div class="fw-bold fs-5"
+                     data-countup="{{ $availableCash ?? 0 }}" data-countup-prefix="$" data-countup-decimals="2">{{ $money($availableCash ?? 0) }}</div>
             </div>
-            <a href="{{ route('finance.pending.index') }}" class="finance-hero-pill text-decoration-none">
-                <div class="finance-hero-pill-label text-muted">Pendientes</div>
-                <div class="fw-bold fs-5 {{ $pendingSummary['total'] > 0 ? 'text-warning' : 'text-success' }}"
-                     data-countup="{{ $pendingSummary['total'] }}" data-countup-decimals="0">{{ number_format($pendingSummary['total']) }}</div>
-            </a>
+            <div class="finance-hero-pill">
+                <div class="finance-hero-pill-label text-muted">Tarjeta</div>
+                <div class="fw-bold fs-5"
+                     data-countup="{{ $availableCards ?? 0 }}" data-countup-prefix="$" data-countup-decimals="2">{{ $money($availableCards ?? 0) }}</div>
+            </div>
+            <div class="finance-hero-pill">
+                <div class="finance-hero-pill-label text-muted">Total</div>
+                <div class="fw-bold fs-5 {{ ($availableTotal ?? 0) >= 0 ? 'text-success' : 'text-danger' }}"
+                     data-countup="{{ $availableTotal ?? 0 }}" data-countup-prefix="$" data-countup-decimals="2">{{ $money($availableTotal ?? 0) }}</div>
+            </div>
             <div class="finance-hero-pill">
                 <div class="finance-hero-pill-label text-muted">Próximo pago</div>
                 @if ($heroNextPayment)

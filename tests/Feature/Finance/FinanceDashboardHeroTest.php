@@ -19,8 +19,9 @@ it('greets the user by name with a time-aware message and shows the hero pills',
         ->get(route('finance.dashboard'))
         ->assertOk()
         ->assertSee('Buenos días, Axel')
-        ->assertSee('Proyectado del mes')
-        ->assertSee('Pendientes')
+        ->assertSee('Efectivo')
+        ->assertSee('Tarjeta')
+        ->assertSee('Total')
         ->assertSee('Próximo pago')
         ->assertSee('finance-hero', false);
 });

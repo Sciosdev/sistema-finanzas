@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
+use App\Models\Finance\Account;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceCutSuggestionService;
 use App\Services\Finance\FinancePendingResolutionService;
@@ -35,6 +36,20 @@ class FinanceDashboardController extends Controller
         $accounts = $this->accountsFor($user);
         $cutSuggestion = $this->cutSuggestions->suggest($user, $accounts, today());
 
+        // Dinero disponible real de hoy (misma base conciliada que los cortes),
+        // separado en efectivo (cash/banco/billetera) y tarjeta (card/crédito).
+        $expectedBalances = $this->cutSuggestions->expectedBalances($user, $accounts, today());
+        $availableCash = 0.0;
+        $availableCards = 0.0;
+        foreach ($accounts as $account) {
+            $balance = (float) ($expectedBalances[$account->id]['expected'] ?? 0);
+            if (in_array(Account::normalizeType($account->type), ['card', 'credit'], true)) {
+                $availableCards += $balance;
+            } else {
+                $availableCash += $balance;
+            }
+        }
+
         $monthStart = $summary['month'];
         $previousTotals = $this->summaryService->monthTotals($user, $monthStart->copy()->subMonth());
 
@@ -51,6 +66,9 @@ class FinanceDashboardController extends Controller
             'previousCutDate' => $cutSuggestion['previous_cut_date'],
             'creditLine' => $this->summaryService->creditLineSummary($user),
             'pendingSummary' => $this->pending->summaryCounts($user),
+            'availableCash' => round($availableCash, 2),
+            'availableCards' => round($availableCards, 2),
+            'availableTotal' => round($availableCash + $availableCards, 2),
             'monthComparison' => $this->buildMonthComparison($summary, $previousTotals, $monthStart),
             'dashboardLayout' => $user->dashboard_layout,
         ]);
