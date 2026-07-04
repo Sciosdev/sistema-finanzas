@@ -108,20 +108,33 @@ it('ignores installments from another user in the selection', function () {
         ->and(Movement::count())->toBe($movementsBefore + 1);
 });
 
-it('shows the select-and-pay button and modal on the credits page', function () {
+it('shows the select-and-pay modal only for current month installments', function () {
     $user = User::factory()->create();
+    Account::create([
+        'user_id' => $user->id, 'name' => 'Efectivo', 'type' => 'cash',
+        'opening_balance' => 5000, 'is_active' => true,
+    ]);
     $nu = selPayAccount($user, 'NU');
-    $credit = selPayCredit($user, $nu, 'NU televisor');
-    selPayInstallment($user, $credit, 1, 500);
+    $nuCredit = selPayCredit($user, $nu, 'NU televisor');
+    selPayInstallment($user, $nuCredit, 1, 500, '2026-07-01', '2026-07-25'); // este mes
+
+    // Otro acreedor con SOLO mensualidad futura: no debe tener selector de este mes.
+    $mpw = selPayAccount($user, 'MPW');
+    $mpwCredit = selPayCredit($user, $mpw, 'MPW futuro');
+    selPayInstallment($user, $mpwCredit, 1, 800, '2026-09-01', '2026-09-27'); // mes futuro
 
     $this->actingAs($user)
         ->get(route('finance.credits.index'))
         ->assertOk()
         ->assertSee('Seleccionar y pagar', false)
-        ->assertSee('Pagar selección · NU', false)
+        ->assertSee('Pagar selección de este mes · NU', false)
         ->assertSee('Auto-seleccionar', false)
         ->assertSee('data-pay-select-auto', false)
         ->assertSee('Vas seleccionando:', false)
+        ->assertSee('Te quedas con:', false)
+        ->assertSee('data-available-cash="5000.00"', false)
         ->assertSee('installment_ids[]', false)
-        ->assertSee('NU televisor', false);
+        ->assertSee('NU televisor', false)
+        // El acreedor con solo mensualidad futura no tiene modal de selección de este mes.
+        ->assertDontSee('Pagar selección de este mes · MPW', false);
 });

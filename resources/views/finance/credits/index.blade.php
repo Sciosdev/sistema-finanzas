@@ -243,23 +243,30 @@
                     <div class="modal-content">
                         <form method="POST" action="{{ route('finance.credits.installments.pay-selected') }}"
                               data-pay-select-form
+                              data-available-cash="{{ number_format($availableCash ?? 0, 2, '.', '') }}"
                               onsubmit="return confirm('¿Pagar las mensualidades seleccionadas? Se crearán los movimientos y se marcarán como pagadas.');">
                             @csrf
                             <div class="modal-header">
-                                <h5 class="modal-title">Pagar selección · {{ $creditor['name'] }}</h5>
+                                <h5 class="modal-title">Pagar selección de este mes · {{ $creditor['name'] }}</h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                             </div>
                             <div class="modal-body">
-                                <p class="text-muted small mb-2">Marca las mensualidades que quieras pagar; el total se suma abajo. Cada una se marca pagada y crea su movimiento (no se parten mensualidades).</p>
+                                <p class="text-muted small mb-2">Solo mensualidades de <strong>este mes</strong>. Marca las que quieras pagar; el total se suma abajo. Cada una se marca pagada y crea su movimiento (no se parten mensualidades).</p>
                                 <div class="input-group input-group-sm mb-3">
                                     <span class="input-group-text">Auto hasta $</span>
                                     <input type="number" step="0.01" min="0" class="form-control" data-pay-select-target placeholder="Ej. 1500">
                                     <button type="button" class="btn btn-outline-primary" data-pay-select-auto>Auto-seleccionar</button>
                                 </div>
                                 <p class="text-muted small mb-2">Precarga las mensualidades por vencimiento más próximo sin pasarse del monto; luego puedes ajustarlas a mano.</p>
-                                <div class="alert alert-secondary d-flex justify-content-between align-items-center py-2 mb-2">
-                                    <span>Vas seleccionando:</span>
-                                    <span class="fw-semibold fs-6"><span data-pay-select-total>$0.00</span> <span class="text-muted small">(<span data-pay-select-count>0</span> mensualidad(es))</span></span>
+                                <div class="alert alert-secondary py-2 mb-2">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span>Vas seleccionando:</span>
+                                        <span class="fw-semibold"><span data-pay-select-total>$0.00</span> <span class="text-muted small">(<span data-pay-select-count>0</span> mensualidad(es))</span></span>
+                                    </div>
+                                    <div class="d-flex justify-content-between align-items-center mt-1">
+                                        <span>Te quedas con:</span>
+                                        <span class="fw-semibold fs-6" data-pay-select-remaining>$0.00</span>
+                                    </div>
                                 </div>
                                 <div class="d-flex flex-column gap-1" style="max-height: 45vh; overflow-y: auto;">
                                     @foreach ($creditor['pending_installments'] as $inst)
@@ -277,7 +284,7 @@
                                 </div>
                             </div>
                             <div class="modal-footer justify-content-between">
-                                <div>Seleccionado: <span class="fw-semibold" data-pay-select-total>$0.00</span> <span class="text-muted small">(<span data-pay-select-count>0</span> mensualidad(es))</span></div>
+                                <div>Seleccionado: <span class="fw-semibold" data-pay-select-total>$0.00</span> <span class="text-muted small">(<span data-pay-select-count>0</span> mensualidad(es))</span> · Te quedas con: <span class="fw-semibold" data-pay-select-remaining>$0.00</span></div>
                                 <div class="d-flex gap-2">
                                     <button type="button" class="btn btn-sm btn-outline-secondary" data-bs-dismiss="modal">Cancelar</button>
                                     <button type="submit" class="btn btn-sm btn-primary" data-pay-select-submit disabled>Pagar seleccionadas</button>
@@ -904,10 +911,13 @@
         forms.forEach(function (form) {
             var totalEls = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-total]'));
             var countEls = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-count]'));
+            var remainingEls = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-remaining]'));
             var submitEl = form.querySelector('[data-pay-select-submit]');
+            var availableCash = parseFloat(form.getAttribute('data-available-cash')) || 0;
 
             function money(value) {
-                return '$' + value.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                var sign = value < 0 ? '-' : '';
+                return sign + '$' + Math.abs(value).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
             }
 
             function recalc() {
@@ -919,6 +929,13 @@
                 });
                 totalEls.forEach(function (el) { el.textContent = money(total); });
                 countEls.forEach(function (el) { el.textContent = count; });
+
+                var remaining = availableCash - total;
+                remainingEls.forEach(function (el) {
+                    el.textContent = money(remaining);
+                    el.classList.toggle('text-danger', remaining < 0);
+                });
+
                 if (submitEl) { submitEl.disabled = count === 0; }
             }
 

@@ -11,6 +11,7 @@ use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
 use App\Services\Finance\CreditFreePaymentService;
 use App\Services\Finance\FinanceCatalogService;
+use App\Services\Finance\FinanceCutSuggestionService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -26,6 +27,7 @@ class CreditPurchaseController extends Controller
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
         private readonly CreditFreePaymentService $freePayments,
+        private readonly FinanceCutSuggestionService $cutSuggestions,
     ) {
     }
 
@@ -58,6 +60,17 @@ class CreditPurchaseController extends Controller
             'available' => round($creditorsWithLimit->sum('available'), 2),
             'cards' => $creditorsWithLimit->count(),
         ];
+        // Dinero disponible real de hoy (misma base conciliada que el Planificador
+        // y los cortes): sirve para el "Te quedas con" del pago por selección.
+        $activeAccounts = Account::where('user_id', $user->id)
+            ->where('is_active', true)
+            ->get();
+        $availableCash = round(
+            collect($this->cutSuggestions->expectedBalances($user, $activeAccounts, today()))
+                ->sum(fn ($row) => (float) ($row['expected'] ?? 0)),
+            2
+        );
+
         $summary = $this->creditSummary($credits, $creditTotals, $currentMonth, $nextMonth);
         $summaryWithoutOnix = $this->creditSummary(
             $credits->reject(fn (CreditPurchase $credit) => $this->isOnixCredit($credit))->values(),
@@ -73,6 +86,7 @@ class CreditPurchaseController extends Controller
             'creditLineSummary' => $creditLineSummary,
             'summary' => $summary,
             'summaryWithoutOnix' => $summaryWithoutOnix,
+            'availableCash' => $availableCash,
             'currentMonthLabel' => $currentMonth->format('Y-m'),
             'nextMonthLabel' => $nextMonth->format('Y-m'),
             'accounts' => $this->accountsFor($user),
@@ -843,11 +857,13 @@ class CreditPurchaseController extends Controller
                 $creditLimit = ($account && $account->credit_limit !== null) ? (float) $account->credit_limit : null;
                 $pending = round($items->sum('pending'), 2);
 
-                // Mensualidades pendientes del acreedor (de todos sus créditos), para
-                // el pago por selección manual con suma en vivo.
+                // Mensualidades pendientes del acreedor DE ESTE MES (de todos sus
+                // créditos), para el pago por selección manual con suma en vivo.
                 $pendingInstallments = $group
                     ->flatMap(fn (CreditPurchase $credit) => $credit->installments
                         ->filter(fn (CreditInstallment $installment) => $installment->status !== 'paid'
+                            && $installment->period_month
+                            && $installment->period_month->isSameMonth($currentMonth)
                             && ((float) $installment->amount - (float) $installment->paid_amount) > 0.005)
                         ->map(fn (CreditInstallment $installment) => [
                             'id' => $installment->id,
