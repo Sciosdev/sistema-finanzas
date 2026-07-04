@@ -42,27 +42,7 @@ class FinanceCutSuggestionService
             ->keyBy('account_id')
             ->map(fn ($balance) => (float) $balance->balance);
 
-        $movements = Movement::query()
-            ->where('user_id', $user->id)
-            ->whereNotNull('account_id')
-            ->whereDate('happened_on', '>', $lastCut->cut_date->toDateString())
-            ->whereDate('happened_on', '<=', $targetDate->toDateString())
-            ->get(['account_id', 'movement_type', 'amount']);
-
-        $delta = [];
-        foreach ($movements as $movement) {
-            $sign = match ($movement->movement_type) {
-                'income', 'yield' => 1,
-                'expense' => -1,
-                default => 0,
-            };
-
-            if ($sign === 0) {
-                continue;
-            }
-
-            $delta[$movement->account_id] = ($delta[$movement->account_id] ?? 0) + $sign * (float) $movement->amount;
-        }
+        $delta = $this->movementDeltaSince($user->id, $lastCut, $targetDate);
 
         $suggested = [];
         $previous = [];
@@ -102,29 +82,7 @@ class FinanceCutSuggestionService
             : collect();
         $cutDate = $lastCut?->cut_date;
 
-        $movementQuery = Movement::query()
-            ->where('user_id', $user->id)
-            ->whereNotNull('account_id')
-            ->whereDate('happened_on', '<=', $asOf->toDateString());
-
-        if ($cutDate) {
-            $movementQuery->whereDate('happened_on', '>', $cutDate->toDateString());
-        }
-
-        $delta = [];
-        foreach ($movementQuery->get(['account_id', 'movement_type', 'amount']) as $movement) {
-            $sign = match ($movement->movement_type) {
-                'income', 'yield' => 1,
-                'expense' => -1,
-                default => 0,
-            };
-
-            if ($sign === 0) {
-                continue;
-            }
-
-            $delta[$movement->account_id] = ($delta[$movement->account_id] ?? 0) + $sign * (float) $movement->amount;
-        }
+        $delta = $this->movementDeltaSince($user->id, $lastCut, $asOf);
 
         $result = [];
         foreach ($accounts as $account) {
@@ -163,29 +121,7 @@ class FinanceCutSuggestionService
             ? $previousCut->balances->keyBy('account_id')->map(fn ($balance) => (float) $balance->balance)
             : collect();
 
-        $movementQuery = Movement::query()
-            ->where('user_id', $cut->user_id)
-            ->whereNotNull('account_id')
-            ->whereDate('happened_on', '<=', $cut->cut_date->toDateString());
-
-        if ($previousCut) {
-            $movementQuery->whereDate('happened_on', '>', $previousCut->cut_date->toDateString());
-        }
-
-        $delta = [];
-        foreach ($movementQuery->get(['account_id', 'movement_type', 'amount']) as $movement) {
-            $sign = match ($movement->movement_type) {
-                'income', 'yield' => 1,
-                'expense' => -1,
-                default => 0,
-            };
-
-            if ($sign === 0) {
-                continue;
-            }
-
-            $delta[$movement->account_id] = ($delta[$movement->account_id] ?? 0) + $sign * (float) $movement->amount;
-        }
+        $delta = $this->movementDeltaSince($cut->user_id, $previousCut, $cut->cut_date);
 
         $result = [];
         foreach ($cut->balances as $balance) {
@@ -234,17 +170,59 @@ class FinanceCutSuggestionService
             ? $previousCut->balances->keyBy('account_id')->map(fn ($balance) => (float) $balance->balance)
             : collect();
 
-        $movementQuery = Movement::query()
-            ->where('user_id', $user->id)
-            ->whereNotNull('account_id')
-            ->whereDate('happened_on', '<=', $cutDate->toDateString());
+        $delta = $this->movementDeltaSince($user->id, $previousCut, $cutDate);
 
-        if ($previousCut) {
-            $movementQuery->whereDate('happened_on', '>', $previousCut->cut_date->toDateString());
+        $total = 0.0;
+        foreach ($accounts as $account) {
+            $hasBaseline = $previousCut !== null && $baseline->has($account->id);
+            $base = $hasBaseline ? (float) $baseline[$account->id] : (float) ($account->opening_balance ?? 0);
+            $total += $base + (float) ($delta[$account->id] ?? 0);
+        }
+
+        return round($total, 2);
+    }
+
+    /**
+     * Cambio neto por cuenta desde un corte base hasta una fecha tope.
+     *
+     * Cuenta los movimientos POSTERIORES al corte base. La regla "humana": un
+     * movimiento del MISMO día del corte pero registrado DESPUÉS de haberlo hecho
+     * (created_at posterior a la hora del corte) SÍ cuenta — antes se "perdía" y
+     * dejaba descuadres fantasma cuando hacías el corte y luego pagabas el mismo
+     * día. Se excluyen los rendimientos automáticos (source auto:daily-cut) porque
+     * se generan a la hora del corte y ya están dentro de su saldo declarado; si
+     * se contaran de nuevo se duplicarían.
+     *
+     * @return array<int, float>
+     */
+    private function movementDeltaSince(int $userId, ?DailyCut $baselineCut, Carbon $upperBound): array
+    {
+        $query = Movement::query()
+            ->where('user_id', $userId)
+            ->whereNotNull('account_id')
+            ->whereDate('happened_on', '<=', $upperBound->toDateString());
+
+        if ($baselineCut !== null) {
+            $cutDateString = $baselineCut->cut_date->toDateString();
+            $cutCreatedAt = $baselineCut->created_at;
+
+            $query->where(function ($outer) use ($cutDateString, $cutCreatedAt) {
+                $outer->whereDate('happened_on', '>', $cutDateString);
+
+                if ($cutCreatedAt !== null) {
+                    $outer->orWhere(function ($sameDay) use ($cutDateString, $cutCreatedAt) {
+                        $sameDay->whereDate('happened_on', '=', $cutDateString)
+                            ->where('created_at', '>', $cutCreatedAt)
+                            ->where(function ($source) {
+                                $source->whereNull('source')->orWhere('source', '!=', 'auto:daily-cut');
+                            });
+                    });
+                }
+            });
         }
 
         $delta = [];
-        foreach ($movementQuery->get(['account_id', 'movement_type', 'amount']) as $movement) {
+        foreach ($query->get(['account_id', 'movement_type', 'amount']) as $movement) {
             $sign = match ($movement->movement_type) {
                 'income', 'yield' => 1,
                 'expense' => -1,
@@ -258,13 +236,6 @@ class FinanceCutSuggestionService
             $delta[$movement->account_id] = ($delta[$movement->account_id] ?? 0) + $sign * (float) $movement->amount;
         }
 
-        $total = 0.0;
-        foreach ($accounts as $account) {
-            $hasBaseline = $previousCut !== null && $baseline->has($account->id);
-            $base = $hasBaseline ? (float) $baseline[$account->id] : (float) ($account->opening_balance ?? 0);
-            $total += $base + (float) ($delta[$account->id] ?? 0);
-        }
-
-        return round($total, 2);
+        return $delta;
     }
 }
