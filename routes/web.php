@@ -131,6 +131,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::post('flujo-planeado/{payment}/vincular', [PlannedPaymentController::class, 'linkMovement'])->name('planned.link-movement');
         Route::post('flujo-planeado/{payment}/registrado', [PlannedPaymentController::class, 'markRegistered'])->name('planned.registered');
         Route::post('flujo-planeado/{payment}/no-pagado', [PlannedPaymentController::class, 'skip'])->name('planned.skip');
+        Route::post('flujo-planeado/{payment}/revertir', [PlannedPaymentController::class, 'revert'])->name('planned.revert');
         Route::delete('flujo-planeado/{payment}', [PlannedPaymentController::class, 'destroy'])->name('planned.destroy');
 
         Route::get('ingresos-esperados', [ExpectedIncomeController::class, 'index'])->name('expected-incomes.index');

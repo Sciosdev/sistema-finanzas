@@ -283,6 +283,26 @@
                         </div>
                     @endif
 
+                    @if (in_array($payment->status, ['paid', 'skipped'], true))
+                        <div class="border rounded p-3 mb-3">
+                            <h6 class="mb-1">Revertir a pendiente</h6>
+                            <div class="text-muted small mb-3">
+                                ¿Te equivocaste al marcarlo? Regresa el pago a pendiente.
+                                @if ($isCreditPaid)
+                                    Si el crédito se creó automáticamente desde este pago y no tiene abonos, también se elimina; si era un crédito que ya existía, solo se desvincula.
+                                @elseif ($payment->movement_id)
+                                    El movimiento de gasto generado se elimina; si vinculaste un movimiento real capturado por ti, solo se desvincula.
+                                @endif
+                            </div>
+                            <form method="POST" action="{{ route('finance.planned.revert', $payment) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-outline-warning w-100">
+                                    <i data-lucide="undo-2" class="me-1"></i>Revertir pago
+                                </button>
+                            </form>
+                        </div>
+                    @endif
+
                     <div class="row g-2">
                         @if (in_array($payment->status, ['pending', 'overdue'], true))
                             <div class="col-md-4">

@@ -610,6 +610,70 @@ class PlannedPaymentController extends Controller
         return back()->with('success', 'Pago marcado como ya registrado.');
     }
 
+    public function revert(Request $request, PlannedPayment $payment)
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+
+        if (! in_array($payment->status, ['paid', 'skipped'], true)) {
+            return back()->with('error', 'Este pago ya esta pendiente; no hay nada que revertir.');
+        }
+
+        $notes = [];
+
+        DB::transaction(function () use ($payment, &$notes) {
+            // Movimiento generado al marcar como pagado: se elimina. Si era un
+            // movimiento real vinculado (capturado aparte), solo se desvincula.
+            if ($payment->movement_id) {
+                $movement = $payment->movement;
+
+                if ($movement && $movement->source === 'planned_payment') {
+                    $movement->delete();
+                    $notes[] = 'se elimino el movimiento de gasto generado';
+                } else {
+                    $notes[] = 'se desvinculo el movimiento real (no se elimino)';
+                }
+            }
+
+            // Credito creado automaticamente desde este pago: se elimina junto
+            // con sus mensualidades, siempre que no tenga abonos ni lo use otro
+            // pago planeado. Un credito preexistente solo se desvincula.
+            if ($payment->credit_purchase_id) {
+                $credit = $payment->creditPurchase;
+
+                $wasGeneratedFromPlanned = $credit
+                    && str_starts_with((string) $credit->notes, 'Generado desde flujo planeado:');
+                $hasPayments = $credit
+                    && ($credit->installments()->where('paid_amount', '>', 0)->exists()
+                        || $credit->freePayments()->exists());
+                $usedByOtherPayment = $credit
+                    && PlannedPayment::where('credit_purchase_id', $credit->id)
+                        ->where('id', '!=', $payment->id)
+                        ->exists();
+
+                if ($credit && $wasGeneratedFromPlanned && ! $hasPayments && ! $usedByOtherPayment) {
+                    $credit->installments()->delete();
+                    $credit->delete();
+                    $notes[] = 'se elimino el credito "'.$credit->name.'" y sus mensualidades';
+                } elseif ($credit) {
+                    $notes[] = 'se desvinculo el credito "'.$credit->name.'" (revisalo en la seccion de creditos)';
+                }
+            }
+
+            $payment->update([
+                'status' => 'pending',
+                'paid_amount' => 0,
+                'paid_on' => null,
+                'movement_id' => null,
+                'credit_purchase_id' => null,
+                'is_credit' => false,
+            ]);
+        });
+
+        $message = 'Pago revertido a pendiente'.($notes !== [] ? '; '.implode(' y ', $notes) : '').'.';
+
+        return back()->with('success', $message);
+    }
+
     public function skip(Request $request, PlannedPayment $payment)
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
