@@ -8,6 +8,7 @@ use App\Models\Finance\SystemFailure;
 use App\Services\Finance\FinanceBackupService;
 use App\Services\Finance\FinanceBuildDeployService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
+use App\Services\Finance\FinanceDeploymentService;
 use App\Services\Finance\FinanceFailureReporter;
 use App\Services\Finance\FinanceMaintenanceService;
 use Illuminate\Http\Request;
@@ -22,8 +23,8 @@ class FinanceSecurityController extends Controller
         private readonly FinanceFailureReporter $failures,
         private readonly FinanceMaintenanceService $maintenance,
         private readonly FinanceBuildDeployService $builds,
-    ) {
-    }
+        private readonly FinanceDeploymentService $deployments,
+    ) {}
 
     public function index(Request $request)
     {
@@ -73,6 +74,8 @@ class FinanceSecurityController extends Controller
             'maintenance' => $this->maintenance->status(),
             'maintenanceResult' => session('maintenance_result'),
             'buildDeploy' => $this->builds->status(),
+            'deployment' => $this->deployments->status(),
+            'deploymentResult' => session('deployment_result'),
         ]);
     }
 
@@ -125,7 +128,7 @@ class FinanceSecurityController extends Controller
             return back()->with('error', $result['message'] ?? 'No se pudo crear el backup externo.');
         }
 
-        return back()->with('success', ($result['message'] ?? 'Backup externo creado.') . ' Archivo: ' . $result['name']);
+        return back()->with('success', ($result['message'] ?? 'Backup externo creado.').' Archivo: '.$result['name']);
     }
 
     public function downloadBackup(Request $request, string $type, string $filename)
@@ -133,7 +136,7 @@ class FinanceSecurityController extends Controller
         try {
             $path = $this->backups->downloadPath($type, $filename);
         } catch (\Throwable $exception) {
-            $this->failures->report($request->user(), 'backup', 'download', 'No se pudo descargar backup: ' . $exception->getMessage(), [
+            $this->failures->report($request->user(), 'backup', 'download', 'No se pudo descargar backup: '.$exception->getMessage(), [
                 'type' => $type,
                 'filename' => basename($filename),
             ]);
@@ -168,7 +171,7 @@ class FinanceSecurityController extends Controller
         }
 
         return back()
-            ->with('success', ($result['message'] ?? 'Backup creado.') . ' Archivo: ' . $result['name'])
+            ->with('success', ($result['message'] ?? 'Backup creado.').' Archivo: '.$result['name'])
             ->with('backup_download', [
                 'type' => $result['type'],
                 'name' => $result['name'],

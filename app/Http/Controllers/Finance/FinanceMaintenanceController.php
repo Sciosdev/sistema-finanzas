@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
 use App\Services\Finance\FinanceBackupService;
+use App\Services\Finance\FinanceDeploymentService;
 use App\Services\Finance\FinanceFailureReporter;
 use App\Services\Finance\FinanceMaintenanceService;
 use Illuminate\Http\Request;
@@ -21,8 +22,8 @@ class FinanceMaintenanceController extends Controller
         private readonly FinanceMaintenanceService $maintenance,
         private readonly FinanceFailureReporter $failures,
         private readonly FinanceBackupService $backups,
-    ) {
-    }
+        private readonly FinanceDeploymentService $deployments,
+    ) {}
 
     public function runMigrations(Request $request)
     {
@@ -43,7 +44,7 @@ class FinanceMaintenanceController extends Controller
 
             return redirect()
                 ->route('finance.security.index')
-                ->with('error', 'No se ejecutaron las migraciones porque falló el backup automático. ' . ($backup['message'] ?? ''));
+                ->with('error', 'No se ejecutaron las migraciones porque falló el backup automático. '.($backup['message'] ?? ''));
         }
 
         $result = $this->maintenance->runMigrations();
@@ -59,13 +60,40 @@ class FinanceMaintenanceController extends Controller
             ->with($result['ok'] ? 'success' : 'error', ($result['ok']
                 ? 'Migraciones ejecutadas correctamente. '
                 : 'No se pudieron ejecutar las migraciones (revisa el detalle). ')
-                . 'Se creó un backup automático: ' . $backup['name'])
+                .'Se creó un backup automático: '.$backup['name'])
             ->with('maintenance_result', $result)
             ->with('backup_download', [
                 'type' => $backup['type'],
                 'name' => $backup['name'],
                 'size' => $backup['size'] ?? null,
             ]);
+    }
+
+    public function deployFromRemote(Request $request)
+    {
+        $request->validate([
+            'confirm_deploy' => ['accepted'],
+        ], [
+            'confirm_deploy.accepted' => 'Confirma para crear el backup y actualizar producción.',
+        ]);
+
+        $result = $this->deployments->deploy(
+            source: 'web',
+            actorId: $request->user()?->id,
+            ip: $request->ip(),
+        );
+
+        if (! ($result['ok'] ?? false)) {
+            $this->failures->report($request->user(), 'despliegue', 'update-from-remote', (string) ($result['message'] ?? 'Falló el despliegue.'), [
+                'status' => (string) ($result['status'] ?? 'unknown'),
+                'after_commit' => (string) data_get($result, 'after.commit', ''),
+            ]);
+        }
+
+        return redirect()
+            ->route('finance.security.index')
+            ->with($result['ok'] ? 'success' : 'error', (string) $result['message'])
+            ->with('deployment_result', $result);
     }
 
     public function optimizeForProduction(Request $request)

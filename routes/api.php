@@ -1,6 +1,6 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\Finance\FinanceDeploymentApiController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -14,6 +14,13 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
-});
+Route::prefix('finance/deployment')
+    ->middleware('finance.deploy-token')
+    ->group(function () {
+        Route::get('status', [FinanceDeploymentApiController::class, 'status'])
+            ->middleware('throttle:30,1')
+            ->name('api.finance.deployment.status');
+        Route::post('deploy', [FinanceDeploymentApiController::class, 'deploy'])
+            ->middleware('throttle:3,1')
+            ->name('api.finance.deployment.deploy');
+    });

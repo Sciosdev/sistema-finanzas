@@ -80,6 +80,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
                 ->where(['type' => 'database|full|migration', 'filename' => '[^/]+'])
                 ->name('security.backups.download');
             Route::post('seguridad/fallas/{failure}/resolver', [FinanceSecurityController::class, 'resolveFailure'])->name('security.failures.resolve');
+            Route::post('seguridad/despliegue/actualizar', [FinanceMaintenanceController::class, 'deployFromRemote'])->name('maintenance.deploy');
             Route::post('seguridad/mantenimiento/migrar', [FinanceMaintenanceController::class, 'runMigrations'])->name('maintenance.run-migrations');
             Route::post('seguridad/mantenimiento/limpiar-cache', [FinanceMaintenanceController::class, 'clearOptimizationCache'])->name('maintenance.clear-cache');
             Route::post('seguridad/mantenimiento/optimizar', [FinanceMaintenanceController::class, 'optimizeForProduction'])->name('maintenance.optimize');

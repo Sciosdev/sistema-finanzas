@@ -139,6 +139,115 @@
         </div>
     </div>
     <div class="card-body">
+        <div class="border border-primary border-opacity-50 rounded p-3 mb-4">
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                <div>
+                    <h5 class="mb-1">
+                        <i data-lucide="git-pull-request-arrow" class="me-1"></i>Despliegue desde GitHub
+                    </h5>
+                    <p class="text-muted small mb-0">
+                        Ejecuta el equivalente a <strong>Update from Remote</strong> de cPanel, seguido de limpieza de caché y migraciones.
+                    </p>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <span class="badge {{ ($deployment['configured'] ?? false) ? 'badge-soft-success' : 'badge-soft-warning' }}">
+                        cPanel: {{ ($deployment['configured'] ?? false) ? 'configurado' : 'pendiente' }}
+                    </span>
+                    <span class="badge {{ ($deployment['api_configured'] ?? false) ? 'badge-soft-success' : 'badge-soft-secondary' }}">
+                        API agentes: {{ ($deployment['api_configured'] ?? false) ? 'activa' : 'inactiva' }}
+                    </span>
+                    <span class="badge badge-soft-secondary">Versión local: {{ $deployment['local_version'] ?? config('finance.version') }}</span>
+                </div>
+            </div>
+
+            <div class="alert alert-info">
+                <strong>Flujo protegido:</strong> crea un backup antes de tocar el código, usa únicamente la rama configurada en
+                <code>.env</code>, impide dos despliegues simultáneos y nunca acepta comandos o rutas desde el formulario o la API.
+            </div>
+
+            @if (! ($deployment['configured'] ?? false))
+                <div class="alert alert-warning mb-3">
+                    <strong>Falta la configuración única de cPanel.</strong>
+                    Agrega estas variables al <code>.env</code> de producción y limpia la caché:
+                    <code>{{ implode(', ', $deployment['missing'] ?? []) }}</code>.
+                    La guía completa está en <code>docs/api-despliegue.md</code>.
+                </div>
+            @else
+                <dl class="row small mb-3">
+                    <dt class="col-md-3">Repositorio</dt>
+                    <dd class="col-md-9 mb-1"><code>{{ $deployment['repository_root'] }}</code></dd>
+                    <dt class="col-md-3">Rama fija</dt>
+                    <dd class="col-md-9 mb-1"><code>{{ $deployment['branch'] }}</code></dd>
+                    <dt class="col-md-3">Estado en cPanel</dt>
+                    <dd class="col-md-9 mb-1">
+                        @if ($deployment['repository_found'] ?? false)
+                            <span class="text-success fw-semibold">Verificado</span>
+                        @else
+                            <span class="text-danger fw-semibold">No disponible</span>
+                        @endif
+                    </dd>
+                    @if (! empty(data_get($deployment, 'repository.commit')))
+                        <dt class="col-md-3">Commit instalado</dt>
+                        <dd class="col-md-9 mb-1">
+                            <code>{{ \Illuminate\Support\Str::limit(data_get($deployment, 'repository.commit'), 12, '') }}</code>
+                            {{ data_get($deployment, 'repository.message') }}
+                        </dd>
+                    @endif
+                </dl>
+
+                @if (! empty($deployment['error']))
+                    <div class="alert alert-danger">{{ $deployment['error'] }}</div>
+                @endif
+
+                <form method="POST" action="{{ route('finance.maintenance.deploy') }}"
+                      onsubmit="return confirm('Se creará un backup y se actualizará producción desde origin/{{ $deployment['branch'] }}. ¿Continuar?');">
+                    @csrf
+                    <div class="form-check mb-3">
+                        <input class="form-check-input" type="checkbox" value="1" name="confirm_deploy" id="confirm_deploy" required>
+                        <label class="form-check-label" for="confirm_deploy">
+                            Confirmo: crear backup, ejecutar Update from Remote, limpiar caché y aplicar migraciones
+                        </label>
+                    </div>
+                    <button type="submit" class="btn btn-primary" @disabled(! ($deployment['repository_found'] ?? false))>
+                        <i data-lucide="cloud-download" class="me-1"></i>Actualizar producción
+                    </button>
+                </form>
+            @endif
+
+            @if (! ($deployment['api_configured'] ?? false))
+                <p class="text-muted small mt-3 mb-0">
+                    Para habilitar la API de agentes falta <code>{{ implode(', ', $deployment['api_missing'] ?? []) }}</code>.
+                    El secreto nunca se muestra en esta pantalla.
+                </p>
+            @else
+                <p class="text-muted small mt-3 mb-0">
+                    API activa en <code>/api/finance/deployment/status</code> y <code>/api/finance/deployment/deploy</code>.
+                </p>
+            @endif
+
+            @if (! empty($deploymentResult))
+                <div class="mt-4">
+                    <h6 class="mb-2">Último resultado del despliegue</h6>
+                    <div class="alert {{ ($deploymentResult['ok'] ?? false) ? 'alert-success' : 'alert-danger' }}">
+                        <div class="fw-semibold">{{ $deploymentResult['message'] ?? 'Sin resultado.' }}</div>
+                        @if (! empty($deploymentResult['version']))
+                            <div class="small mt-1">Versión instalada: <strong>{{ $deploymentResult['version'] }}</strong></div>
+                        @endif
+                        @if (! empty($deploymentResult['steps']))
+                            <ul class="small mb-0 mt-2">
+                                @foreach ($deploymentResult['steps'] as $step)
+                                    <li>
+                                        <strong>{{ $step['ok'] ? 'OK' : 'Falló' }}</strong>
+                                        — <code>{{ $step['name'] }}</code>: {{ $step['detail'] }}
+                                    </li>
+                                @endforeach
+                            </ul>
+                        @endif
+                    </div>
+                </div>
+            @endif
+        </div>
+
         <div class="alert alert-info">
             <strong>Backup automático antes de migrar.</strong> Al ejecutar migraciones, el sistema crea primero un <em>Paquete de migración</em> (zip) de respaldo; si ese backup falla, <strong>no</strong> migra. Aun así, te recomendamos tener también un backup descargado a tu equipo.
         </div>
