@@ -19,6 +19,7 @@ class CreditPurchase extends Model
         'months',
         'first_due_month',
         'due_day',
+        'is_manual_schedule',
         'account_id',
         'category_id',
         'status',
@@ -31,6 +32,7 @@ class CreditPurchase extends Model
             'purchase_date' => 'date',
             'first_due_month' => 'date',
             'total_amount' => 'decimal:2',
+            'is_manual_schedule' => 'boolean',
         ];
     }
 

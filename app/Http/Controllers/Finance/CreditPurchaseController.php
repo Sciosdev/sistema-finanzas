@@ -28,8 +28,7 @@ class CreditPurchaseController extends Controller
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
         private readonly CreditFreePaymentService $freePayments,
         private readonly FinanceCutSuggestionService $cutSuggestions,
-    ) {
-    }
+    ) {}
 
     public function index(Request $request)
     {
@@ -127,12 +126,96 @@ class CreditPurchaseController extends Controller
         return back()->with('success', 'Crédito creado con mensualidades.');
     }
 
+    public function storeManual(Request $request)
+    {
+        $user = $request->user();
+        $this->catalogs->ensureForUser($user);
+
+        $data = $request->validate([
+            'manual.purchase_date' => ['required', 'date'],
+            'manual.name' => ['required', 'string', 'max:255'],
+            'manual.account_id' => ['required', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'manual.category_id' => ['nullable', 'integer', Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'manual.notes' => ['nullable', 'string'],
+            'manual.installments' => ['required', 'array', 'min:1', 'max:60'],
+            'manual.installments.*.due_date' => ['required', 'date'],
+            'manual.installments.*.amount' => ['required', 'numeric', 'min:0.01'],
+            'manual.installments.*.notes' => ['nullable', 'string'],
+        ], [
+            'manual.account_id.required' => 'Selecciona la cuenta o acreedor del crédito.',
+            'manual.installments.required' => 'Agrega por lo menos una mensualidad.',
+            'manual.installments.min' => 'Agrega por lo menos una mensualidad.',
+            'manual.installments.*.due_date.required' => 'Cada mensualidad necesita su fecha exacta de pago.',
+            'manual.installments.*.amount.required' => 'Cada mensualidad necesita un monto.',
+        ]);
+
+        $manual = $data['manual'];
+        $installments = collect($manual['installments'])
+            ->map(fn (array $installment) => [
+                'due_date' => Carbon::parse($installment['due_date'])->startOfDay(),
+                'amount' => round((float) $installment['amount'], 2),
+                'notes' => $installment['notes'] ?? null,
+            ])
+            ->sortBy(fn (array $installment) => $installment['due_date']->format('Y-m-d'))
+            ->values();
+
+        DB::transaction(function () use ($user, $manual, $installments) {
+            $firstDueDate = $installments->first()['due_date'];
+            $total = round($installments->sum('amount'), 2);
+
+            $credit = CreditPurchase::create([
+                'user_id' => $user->id,
+                'purchase_date' => $manual['purchase_date'],
+                'name' => $manual['name'],
+                'total_amount' => $total,
+                'months' => $installments->count(),
+                'first_due_month' => $firstDueDate->copy()->startOfMonth()->toDateString(),
+                'due_day' => null,
+                'is_manual_schedule' => true,
+                'account_id' => $manual['account_id'],
+                'category_id' => $manual['category_id'] ?? null,
+                'notes' => $manual['notes'] ?? null,
+            ]);
+
+            foreach ($installments as $index => $installment) {
+                CreditInstallment::create([
+                    'credit_purchase_id' => $credit->id,
+                    'user_id' => $user->id,
+                    'period_month' => $installment['due_date']->copy()->startOfMonth()->toDateString(),
+                    'due_date' => $installment['due_date']->toDateString(),
+                    'installment_number' => $index + 1,
+                    'amount' => $installment['amount'],
+                    'paid_amount' => 0,
+                    'status' => 'pending',
+                    'notes' => $installment['notes'],
+                ]);
+            }
+        });
+
+        return back()->with('success', 'Crédito manual creado con sus fechas y montos exactos.');
+    }
+
     public function update(Request $request, CreditPurchase $credit)
     {
         abort_unless($credit->user_id === $request->user()->id, 403);
 
         $user = $request->user();
         $this->catalogs->ensureForUser($user);
+
+        if ($credit->is_manual_schedule) {
+            $data = $this->manualCreditMetadataData($request, $user);
+
+            $credit->update([
+                'purchase_date' => $data['purchase_date'],
+                'name' => $data['name'],
+                'account_id' => $data['account_id'],
+                'category_id' => $data['category_id'] ?? null,
+                'notes' => $data['notes'] ?? null,
+            ]);
+
+            return back()->with('success', 'Datos generales actualizados; el calendario manual quedó intacto.');
+        }
+
         $data = $this->applyCardCycle($user, $this->creditData($request, $user));
         $amounts = $this->creditAmounts($data);
 
@@ -175,6 +258,10 @@ class CreditPurchaseController extends Controller
 
         DB::transaction(function () use ($credits, &$details) {
             foreach ($credits as $credit) {
+                if ($credit->is_manual_schedule) {
+                    continue;
+                }
+
                 $account = $credit->account;
                 if (! $account || ! $account->hasCreditCycle()) {
                     continue;
@@ -197,7 +284,7 @@ class CreditPurchaseController extends Controller
                 }
 
                 $from = ($credit->first_due_month ? $credit->first_due_month->format('Y-m') : 'sin fecha')
-                    . ($credit->due_day ? ' (día ' . (int) $credit->due_day . ')' : '');
+                    .($credit->due_day ? ' (día '.(int) $credit->due_day.')' : '');
 
                 $credit->update([
                     'first_due_month' => $firstMonth->toDateString(),
@@ -218,7 +305,7 @@ class CreditPurchaseController extends Controller
                     'name' => $credit->name,
                     'card' => $account->name,
                     'from' => $from,
-                    'to' => $firstMonth->format('Y-m') . ' (día ' . $dueDay . ')',
+                    'to' => $firstMonth->format('Y-m').' (día '.$dueDay.')',
                 ];
             }
         });
@@ -276,7 +363,7 @@ class CreditPurchaseController extends Controller
                 'happened_on' => $paidOn->toDateString(),
                 'movement_type' => 'expense',
                 'amount' => $remaining,
-                'description' => 'Crédito: ' . $credit->name . ' ' . $installment->installment_number . '/' . $credit->months,
+                'description' => 'Crédito: '.$credit->name.' '.$installment->installment_number.'/'.$credit->months,
                 'account_id' => $credit->account_id,
                 'category_id' => $credit->category_id,
                 'source' => 'credit_installment',
@@ -347,7 +434,7 @@ class CreditPurchaseController extends Controller
                         'happened_on' => $paidOn->toDateString(),
                         'movement_type' => 'expense',
                         'amount' => $remaining,
-                        'description' => 'Crédito: ' . $credit->name . ' ' . $installment->installment_number . '/' . $credit->months,
+                        'description' => 'Crédito: '.$credit->name.' '.$installment->installment_number.'/'.$credit->months,
                         'account_id' => $credit->account_id,
                         'category_id' => $credit->category_id,
                         'source' => 'credit_installment',
@@ -374,12 +461,12 @@ class CreditPurchaseController extends Controller
         $label = $data['creditor_name'] ?? 'el acreedor';
 
         if ($paidCount === 0) {
-            return back()->with('warning', 'No había mensualidades de ' . $label . ' por pagar en este mes.');
+            return back()->with('warning', 'No había mensualidades de '.$label.' por pagar en este mes.');
         }
 
         return back()->with(
             'success',
-            'Se pagaron ' . $paidCount . ' mensualidad(es) de ' . $label . ' de este mes por $' . number_format($paidTotal, 2) . '.'
+            'Se pagaron '.$paidCount.' mensualidad(es) de '.$label.' de este mes por $'.number_format($paidTotal, 2).'.'
         );
     }
 
@@ -430,7 +517,7 @@ class CreditPurchaseController extends Controller
                     'happened_on' => $paidOn->toDateString(),
                     'movement_type' => 'expense',
                     'amount' => $remaining,
-                    'description' => 'Crédito: ' . $credit->name . ' ' . $installment->installment_number . '/' . $credit->months,
+                    'description' => 'Crédito: '.$credit->name.' '.$installment->installment_number.'/'.$credit->months,
                     'account_id' => $credit->account_id,
                     'category_id' => $credit->category_id,
                     'source' => 'credit_installment',
@@ -457,7 +544,7 @@ class CreditPurchaseController extends Controller
             return back()->with('warning', 'No se pagó ninguna mensualidad (ya estaban pagadas).');
         }
 
-        return back()->with('success', 'Se pagaron ' . $paidCount . ' mensualidad(es) por $' . number_format($paidTotal, 2) . '.');
+        return back()->with('success', 'Se pagaron '.$paidCount.' mensualidad(es) por $'.number_format($paidTotal, 2).'.');
     }
 
     public function markInstallmentRegistered(Request $request, CreditInstallment $installment)
@@ -598,7 +685,7 @@ class CreditPurchaseController extends Controller
      * y de pago), calcula automáticamente el primer mes y día de pago reales a
      * partir de la fecha de compra. No cambia montos ni mensualidades.
      *
-     * @param array<string, mixed> $data
+     * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
     private function applyCardCycle($user, array $data): array
@@ -638,6 +725,17 @@ class CreditPurchaseController extends Controller
             'first_due_month' => ['nullable', 'date_format:Y-m'],
             'due_day' => ['nullable', 'integer', 'min:1', 'max:31'],
             'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'category_id' => ['nullable', 'integer', Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
+            'notes' => ['nullable', 'string'],
+        ]);
+    }
+
+    private function manualCreditMetadataData(Request $request, $user): array
+    {
+        return $request->validate([
+            'purchase_date' => ['required', 'date'],
+            'name' => ['required', 'string', 'max:255'],
+            'account_id' => ['required', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'category_id' => ['nullable', 'integer', Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'notes' => ['nullable', 'string'],
         ]);
@@ -880,7 +978,7 @@ class CreditPurchaseController extends Controller
 
                 return [
                     'name' => $creditorName,
-                    'key' => str('creditor-' . $creditorName)->slug()->toString() ?: 'sin-acreedor',
+                    'key' => str('creditor-'.$creditorName)->slug()->toString() ?: 'sin-acreedor',
                     'account_id' => $account?->id,
                     'style' => $style,
                     'pending_installments' => $pendingInstallments,

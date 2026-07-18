@@ -440,6 +440,11 @@
                     <span class="badge" style="background: {{ $creditorStyle['soft'] }}; color: {{ $creditorStyle['text'] }}; border: 1px solid {{ $creditorStyle['color'] }};">
                         Se debe a {{ $creditorName }}
                     </span>
+                    @if ($credit->is_manual_schedule)
+                        <span class="badge badge-soft-info">
+                            <i data-lucide="calendar-check" class="me-1"></i>Calendario manual
+                        </span>
+                    @endif
                 </div>
                 <p class="text-muted mb-0">
                     Total original {{ $money($credit->total_amount) }} - {{ $credit->months }} meses - {{ \App\Support\FinanceLabels::creditStatus($credit->status) }}
@@ -464,6 +469,51 @@
             </div>
         </div>
         <div class="card-body border-bottom">
+            @if ($credit->is_manual_schedule)
+            <form id="{{ $creditFormId }}" method="POST" action="{{ route('finance.credits.update', $credit) }}" class="row g-3 align-items-end">
+                @csrf
+                @method('PUT')
+                <div class="col-md-2">
+                    <label class="form-label">Fecha del crédito</label>
+                    <input type="date" name="purchase_date" class="form-control form-control-sm" value="{{ $credit->purchase_date->format('Y-m-d') }}" required>
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label">Concepto</label>
+                    <input type="text" name="name" class="form-control form-control-sm" value="{{ $credit->name }}" required>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Cuenta / acreedor</label>
+                    <select name="account_id" class="form-select form-select-sm" required>
+                        @foreach ($accounts as $account)
+                            <option value="{{ $account->id }}" @selected($credit->account_id === $account->id)>{{ $account->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Categoría</label>
+                    <select name="category_id" class="form-select form-select-sm">
+                        <option value="">-</option>
+                        @foreach ($categories as $category)
+                            <option value="{{ $category->id }}" @selected($credit->category_id === $category->id)>{{ $category->name }}</option>
+                        @endforeach
+                    </select>
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Notas</label>
+                    <input type="text" name="notes" class="form-control form-control-sm" value="{{ $credit->notes }}">
+                </div>
+                <div class="col-md-1 d-flex justify-content-end">
+                    <button type="submit" class="btn btn-sm btn-success" title="Guardar datos generales">
+                        <i data-lucide="save"></i>
+                    </button>
+                </div>
+                <div class="col-12">
+                    <div class="alert alert-info py-2 px-3 mb-0 small">
+                        Las fechas y montos se editan en cada mensualidad. Guardar aquí no regenera el calendario ni aplica el ciclo de la cuenta.
+                    </div>
+                </div>
+            </form>
+            @else
             <form id="{{ $creditFormId }}" method="POST" action="{{ route('finance.credits.update', $credit) }}" class="row g-3 align-items-end">
                 @csrf
                 @method('PUT')
@@ -537,6 +587,7 @@
                     </button>
                 </div>
             </form>
+            @endif
         </div>
         <div class="card-body border-bottom" id="free-payments-{{ $credit->id }}">
             <div class="row g-3">
@@ -741,7 +792,9 @@
             {{-- Vista móvil: una tarjeta por mensualidad (form propio por tarjeta). --}}
             <div class="d-md-none finance-mobile-list">
                 @foreach ($credit->installments as $installment)
-                    @php($installmentFormId = 'installment-form-m-' . $installment->id)
+                    @php
+                        $installmentFormId = 'installment-form-m-' . $installment->id;
+                    @endphp
                     <div class="finance-mobile-row px-3 py-3 border-bottom">
                         <form id="{{ $installmentFormId }}" method="POST" action="{{ route('finance.credits.installments.update', $installment) }}">
                             @csrf
@@ -813,6 +866,180 @@
         <div class="card-body text-center text-muted py-4">Sin créditos</div>
     </div>
 @endforelse
+
+@php
+    $manualInstallmentRows = old('manual.installments', [
+        ['due_date' => '', 'amount' => '', 'notes' => ''],
+    ]);
+    $manualFormHasErrors = $errors->has('manual.*');
+@endphp
+<div class="card mt-4" id="carga-manual-creditos">
+    <div class="card-header d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
+        <div>
+            <h4 class="card-title mb-1">Carga manual de crédito</h4>
+            <p class="text-muted small mb-0">Tú defines la cuenta, la fecha y el monto exacto de cada mensualidad.</p>
+        </div>
+        <button
+            type="button"
+            class="btn btn-outline-primary"
+            data-bs-toggle="collapse"
+            data-bs-target="#form-carga-manual-creditos"
+            aria-expanded="{{ $manualFormHasErrors ? 'true' : 'false' }}"
+            aria-controls="form-carga-manual-creditos"
+        >
+            <i data-lucide="calendar-plus" class="me-1"></i>Capturar crédito manual
+        </button>
+    </div>
+    <div id="form-carga-manual-creditos" class="collapse {{ $manualFormHasErrors ? 'show' : '' }}">
+        <div class="card-body">
+            <div class="alert alert-info">
+                <div class="fw-semibold mb-1">Este calendario queda protegido.</div>
+                <div class="small">No usa el día de corte ni el día de pago de la cuenta, y el botón de recalcular fechas no lo modifica.</div>
+            </div>
+
+            <form method="POST" action="{{ route('finance.credits.manual.store') }}" class="needs-validation" novalidate data-manual-credit-form>
+                @csrf
+                <div class="row g-3">
+                    <div class="col-md-2">
+                        <label class="form-label">Fecha del crédito</label>
+                        <input type="date" name="manual[purchase_date]" class="form-control" value="{{ old('manual.purchase_date', now()->toDateString()) }}" required>
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Concepto / qué fue</label>
+                        <input type="text" name="manual[name]" class="form-control" value="{{ old('manual.name') }}" placeholder="Disposición de efectivo NU, compra, préstamo..." required>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Cuenta / acreedor</label>
+                        <select name="manual[account_id]" class="form-select" required>
+                            <option value="">Selecciona una cuenta</option>
+                            @foreach ($accounts as $account)
+                                <option value="{{ $account->id }}" @selected((string) old('manual.account_id') === (string) $account->id)>{{ $account->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">Categoría</label>
+                        <select name="manual[category_id]" class="form-select">
+                            <option value="">-</option>
+                            @foreach ($categories as $category)
+                                <option value="{{ $category->id }}" @selected((string) old('manual.category_id') === (string) $category->id)>{{ $category->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="col-12">
+                        <label class="form-label">Notas / identificación</label>
+                        <input type="text" name="manual[notes]" class="form-control" value="{{ old('manual.notes') }}" placeholder="Folio, motivo, capital recibido, intereses u otra referencia">
+                    </div>
+                </div>
+
+                <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2 mt-4 mb-2">
+                    <div>
+                        <h5 class="mb-1">Mensualidades</h5>
+                        <p class="text-muted small mb-0">Captura la fecha límite y el monto tal como aparecen en la app o estado de cuenta.</p>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-outline-primary" data-manual-add-installment>
+                        <i data-lucide="plus" class="me-1"></i>Agregar mensualidad
+                    </button>
+                </div>
+
+                <div class="table-responsive">
+                    <table class="table table-sm align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th style="width: 52px;">#</th>
+                                <th style="min-width: 170px;">Fecha límite</th>
+                                <th style="min-width: 150px;">Monto</th>
+                                <th style="min-width: 240px;">Notas</th>
+                                <th style="width: 56px;"></th>
+                            </tr>
+                        </thead>
+                        <tbody data-manual-installments>
+                            @foreach ($manualInstallmentRows as $index => $row)
+                                <tr data-manual-installment-row data-index="{{ $index }}">
+                                    <td class="fw-semibold" data-manual-number>{{ $loop->iteration }}</td>
+                                    <td>
+                                        <input
+                                            type="date"
+                                            name="manual[installments][{{ $index }}][due_date]"
+                                            class="form-control form-control-sm"
+                                            value="{{ $row['due_date'] ?? '' }}"
+                                            required
+                                        >
+                                    </td>
+                                    <td>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text">$</span>
+                                            <input
+                                                type="number"
+                                                name="manual[installments][{{ $index }}][amount]"
+                                                class="form-control text-end"
+                                                step="0.01"
+                                                min="0.01"
+                                                value="{{ $row['amount'] ?? '' }}"
+                                                inputmode="decimal"
+                                                required
+                                                data-manual-amount
+                                            >
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <input
+                                            type="text"
+                                            name="manual[installments][{{ $index }}][notes]"
+                                            class="form-control form-control-sm"
+                                            value="{{ $row['notes'] ?? '' }}"
+                                            placeholder="Opcional"
+                                        >
+                                    </td>
+                                    <td class="text-end">
+                                        <button type="button" class="btn btn-sm btn-outline-danger" title="Quitar mensualidad" data-manual-remove-installment>
+                                            <i data-lucide="trash-2"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+
+                <template data-manual-installment-template>
+                    <tr data-manual-installment-row data-index="__INDEX__">
+                        <td class="fw-semibold" data-manual-number></td>
+                        <td>
+                            <input type="date" name="manual[installments][__INDEX__][due_date]" class="form-control form-control-sm" required>
+                        </td>
+                        <td>
+                            <div class="input-group input-group-sm">
+                                <span class="input-group-text">$</span>
+                                <input type="number" name="manual[installments][__INDEX__][amount]" class="form-control text-end" step="0.01" min="0.01" inputmode="decimal" required data-manual-amount>
+                            </div>
+                        </td>
+                        <td>
+                            <input type="text" name="manual[installments][__INDEX__][notes]" class="form-control form-control-sm" placeholder="Opcional">
+                        </td>
+                        <td class="text-end">
+                            <button type="button" class="btn btn-sm btn-outline-danger" title="Quitar mensualidad" aria-label="Quitar mensualidad" data-manual-remove-installment>
+                                <span aria-hidden="true">&times;</span>
+                            </button>
+                        </td>
+                    </tr>
+                </template>
+
+                <div class="d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-3 border-top pt-3 mt-3">
+                    <div>
+                        <span class="text-muted">Mensualidades:</span>
+                        <span class="fw-semibold me-3" data-manual-count>0</span>
+                        <span class="text-muted">Total:</span>
+                        <span class="fw-bold text-primary" data-manual-total>$0.00</span>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i data-lucide="save" class="me-1"></i>Crear crédito manual
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
 @endsection
 
 @section('scripts')
@@ -983,6 +1210,149 @@
 
             recalc();
         });
+    })();
+
+    // Carga manual: agrega/quita mensualidades, propone el mes siguiente y
+    // calcula el total sin aplicar el ciclo automático de ninguna cuenta.
+    (function () {
+        var form = document.querySelector('[data-manual-credit-form]');
+        if (!form) {
+            return;
+        }
+
+        var body = form.querySelector('[data-manual-installments]');
+        var template = form.querySelector('[data-manual-installment-template]');
+        var addButton = form.querySelector('[data-manual-add-installment]');
+        var countElement = form.querySelector('[data-manual-count]');
+        var totalElement = form.querySelector('[data-manual-total]');
+        var nextIndex = 0;
+
+        Array.prototype.slice.call(body.querySelectorAll('[data-manual-installment-row]')).forEach(function (row) {
+            nextIndex = Math.max(nextIndex, (parseInt(row.getAttribute('data-index'), 10) || 0) + 1);
+        });
+
+        function rows() {
+            return Array.prototype.slice.call(body.querySelectorAll('[data-manual-installment-row]'));
+        }
+
+        function nextMonthDate(value) {
+            var parts = String(value || '').split('-');
+            if (parts.length !== 3) {
+                return '';
+            }
+
+            var year = parseInt(parts[0], 10);
+            var month = parseInt(parts[1], 10) - 1;
+            var day = parseInt(parts[2], 10);
+            if (!year || Number.isNaN(month) || !day) {
+                return '';
+            }
+
+            var nextTotal = year * 12 + month + 1;
+            var nextYear = Math.floor(nextTotal / 12);
+            var nextMonth = nextTotal % 12;
+            var daysInMonth = new Date(nextYear, nextMonth + 1, 0).getDate();
+            var nextDay = Math.min(day, daysInMonth);
+
+            return String(nextYear).padStart(4, '0')
+                + '-' + String(nextMonth + 1).padStart(2, '0')
+                + '-' + String(nextDay).padStart(2, '0');
+        }
+
+        function recalculate() {
+            var currentRows = rows();
+            var total = 0;
+
+            currentRows.forEach(function (row, index) {
+                var number = row.querySelector('[data-manual-number]');
+                var amount = row.querySelector('[data-manual-amount]');
+
+                if (number) {
+                    number.textContent = index + 1;
+                }
+                total += parseFloat(amount && amount.value) || 0;
+            });
+
+            if (countElement) {
+                countElement.textContent = currentRows.length;
+            }
+            if (totalElement) {
+                totalElement.textContent = '$' + total.toLocaleString('es-MX', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+            }
+
+            currentRows.forEach(function (row) {
+                var removeButton = row.querySelector('[data-manual-remove-installment]');
+                if (removeButton) {
+                    removeButton.disabled = currentRows.length === 1;
+                }
+            });
+
+            if (addButton) {
+                addButton.disabled = currentRows.length >= 60;
+            }
+        }
+
+        function addInstallment() {
+            var currentRows = rows();
+            if (currentRows.length >= 60) {
+                return;
+            }
+
+            var previous = currentRows.length ? currentRows[currentRows.length - 1] : null;
+            var previousDate = previous ? previous.querySelector('input[type="date"]') : null;
+            var previousAmount = previous ? previous.querySelector('[data-manual-amount]') : null;
+            var html = template.innerHTML.split('__INDEX__').join(String(nextIndex));
+
+            body.insertAdjacentHTML('beforeend', html);
+
+            var newRow = body.querySelector('[data-manual-installment-row][data-index="' + nextIndex + '"]');
+            nextIndex++;
+
+            if (newRow) {
+                var newDate = newRow.querySelector('input[type="date"]');
+                var newAmount = newRow.querySelector('[data-manual-amount]');
+
+                if (newDate && previousDate) {
+                    newDate.value = nextMonthDate(previousDate.value);
+                }
+                if (newAmount && previousAmount) {
+                    newAmount.value = previousAmount.value;
+                }
+            }
+
+            recalculate();
+            if (window.lucide) {
+                window.lucide.createIcons();
+            }
+        }
+
+        if (addButton) {
+            addButton.addEventListener('click', addInstallment);
+        }
+
+        body.addEventListener('click', function (event) {
+            var removeButton = event.target.closest('[data-manual-remove-installment]');
+            if (!removeButton || rows().length === 1) {
+                return;
+            }
+
+            var row = removeButton.closest('[data-manual-installment-row]');
+            if (row) {
+                row.remove();
+                recalculate();
+            }
+        });
+
+        body.addEventListener('input', function (event) {
+            if (event.target && event.target.matches('[data-manual-amount]')) {
+                recalculate();
+            }
+        });
+
+        recalculate();
     })();
 
     // Cuando la tarjeta seleccionada ya tiene su ciclo (corte/pago) en Cuentas,
