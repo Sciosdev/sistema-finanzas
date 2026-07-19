@@ -246,3 +246,23 @@ it('ships a local client that stores the token with windows dpapi', function () 
         ->not->toContain('FINANCE_CPANEL_API_TOKEN')
         ->not->toContain('FINANCE_DEPLOY_API_TOKEN');
 });
+
+it('ships a complete operating manual for financial review agents', function () {
+    $manual = file_get_contents(base_path('docs/manual-asesor-financiero-agentes.md'));
+
+    expect($manual)
+        ->toContain('Reglas no negociables')
+        ->toContain('tools/finance-advisor.ps1')
+        ->toContain('Nunca pedir, mostrar, copiar ni guardar el token')
+        ->toContain('saldo seguro del día')
+        ->toContain('saldo proyectado del día')
+        ->toContain('Método obligatorio de análisis')
+        ->toContain('Formato recomendado de respuesta')
+        ->toContain('Límites del análisis')
+        ->toContain('Solución de problemas')
+        ->toContain('Rotación y revocación')
+        ->toContain('Checklist rápido')
+        ->toContain('Esta fue una consulta de solo lectura')
+        ->not->toContain('FINANCE_CPANEL_API_TOKEN=')
+        ->not->toContain('FINANCE_DEPLOY_API_TOKEN=');
+});

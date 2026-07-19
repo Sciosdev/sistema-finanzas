@@ -4,6 +4,8 @@
 > para seguir manteniendo esta app sin repetir la curva de aprendizaje.
 > El contexto de **negocio/reglas contables** está en
 > `docs/prompt-maestro-sistema-finanzas.md` (léelo también).
+> Para hacer revisiones o recomendaciones con datos de producción, leer
+> **completo** `docs/manual-asesor-financiero-agentes.md`.
 
 ## 1. Qué es
 
@@ -22,6 +24,9 @@ Corrector mensual.
 - **SIEMPRE subir la versión** en cada cambio desplegable (ver §5).
 - No adivinar en bugs sutiles: reproducir/verificar (esta app enseñó a punta de
   ir a producción). Preguntar solo decisiones reales del usuario.
+- Las revisiones financieras usan el cliente local de solo lectura
+  `tools/finance-advisor.ps1`; nunca pedir ni mostrar el token, guardar el JSON o
+  confundir ingresos esperados con dinero disponible.
 
 ## 3. Stack
 
@@ -66,7 +71,7 @@ Corrector mensual.
 - **Sube la versión en CUALQUIER cambio desplegable** antes del commit:
   PATCH = fix / menor · MINOR = feature nueva · MAJOR = rompe compatibilidad.
   Nunca bajar. Sirve para confirmar el deploy a simple vista.
-- **Versión actual: 1.5.4.**
+- **Versión actual: 2.14.1.**
 
 ## 6. Entorno local (Windows + Laragon)
 
@@ -115,9 +120,13 @@ Corrector mensual.
   DeleteSnapshot, SystemFailure. (`User` tiene `dashboard_layout` casteado a array.)
 - **Rutas:** `routes/web.php` (prefijo `finanzas`, nombres `finance.*`, middleware
   `auth`; owner-only con `finance.owner`).
+- **Asesor financiero:** `GET /api/finance/advisor/snapshot`, autenticado con
+  token exclusivo y propietario fijo. Contrato y procedimiento:
+  `docs/manual-asesor-financiero-agentes.md`.
 - **Docs:** `docs/prompt-maestro-sistema-finanzas.md` (negocio/reglas),
   `docs/deploy-hostgator.md`, `docs/FINANZAS_SISTEMA.md`,
-  `docs/GUIA_FINAL_SISTEMA_FINANZAS.md`, `CLAUDE.md`.
+  `docs/GUIA_FINAL_SISTEMA_FINANZAS.md`,
+  `docs/manual-asesor-financiero-agentes.md`, `CLAUDE.md`.
 
 ## 9. Lecciones / gotchas (bugs reales ya resueltos)
 
@@ -140,9 +149,8 @@ Corrector mensual.
 
 ## 10. Estado actual
 
-- **Versión 1.5.4**, rama `main` sincronizada con `origin`
+- **Versión 2.14.1**, rama `main` sincronizada con `origin`
   (`github.com/Sciosdev/sistema-finanzas`).
-- Trabajos recientes: fix de guardado de tamaños del Resumen; versionado visible
-  (menú + footer); filtro **Debo/Pagados** en Créditos combinable con acreedor;
-  filtro **Pendiente/Pagado** en Flujo planeado; fix de **conciliación** (Cortes y
-  Resumen ahora coinciden).
+- Trabajos recientes: asesor financiero de solo lectura para agentes, despliegue
+  remoto protegido desde la app, captura manual de créditos y mejoras de
+  conciliación/planeación.

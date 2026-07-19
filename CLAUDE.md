@@ -46,3 +46,22 @@ Nunca bajes el número (no regresar a una versión ya desplegada).
 php artisan test --filter=Finance
 ```
 Usan SQLite (`:memory:`); no requieren la base MySQL local.
+
+## Asesor financiero para agentes
+
+La app expone un snapshot privado de solo lectura para revisiones financieras.
+Antes de consultarlo o dar recomendaciones, leer completo:
+
+- `docs/manual-asesor-financiero-agentes.md` — procedimiento canónico para
+  agentes, semántica del JSON, seguridad, fórmulas y formato de respuesta.
+- `docs/api-asesor-financiero.md` — instalación, configuración y rotación.
+
+Reglas mínimas:
+
+- usar `tools/finance-advisor.ps1 -Action snapshot`;
+- nunca abrir `credential.json` ni pedir/mostrar el token;
+- no guardar o publicar el JSON;
+- distinguir ingresos reales de esperados;
+- reportar posibles duplicados o fechas dudosas;
+- explicar consejos con importes y fechas;
+- no realizar escrituras como parte de una revisión.

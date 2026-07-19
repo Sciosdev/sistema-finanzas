@@ -4,6 +4,11 @@ Esta integración permite que una sesión local de Codex consulte un snapshot
 financiero del propietario y explique riesgos, tendencias y límites de gasto.
 No permite crear, editar, pagar ni eliminar registros.
 
+Esta guía cubre la instalación y operación. Todo agente que vaya a interpretar
+los datos debe leer primero el manual canónico:
+
+- [`docs/manual-asesor-financiero-agentes.md`](manual-asesor-financiero-agentes.md)
+
 ## Contenido del snapshot
 
 `GET /api/finance/advisor/snapshot` devuelve:
@@ -73,6 +78,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\finance-advisor.ps1 
 El comando imprime únicamente el JSON financiero; nunca imprime el token.
 Una sesión local de Codex puede ejecutar el mismo comando para revisar las
 finanzas cuando el usuario lo solicite.
+
+El agente debe mantener el JSON en memoria, mostrar únicamente los importes
+necesarios y no guardarlo en el repositorio, archivos temporales o servicios
+externos. El protocolo detallado, fórmulas, señales y formato de respuesta están
+en `docs/manual-asesor-financiero-agentes.md`.
 
 ## Ejemplos de solicitudes a Codex
 
