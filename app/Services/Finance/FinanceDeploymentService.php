@@ -367,9 +367,20 @@ class FinanceDeploymentService
         }
 
         $payload = $response->json();
-        $result = is_array($payload) && is_array($payload['result'] ?? null)
-            ? $payload['result']
-            : null;
+        $result = null;
+
+        if (is_array($payload) && is_array($payload['result'] ?? null)) {
+            $result = $payload['result'];
+        } elseif (
+            is_array($payload)
+            && array_key_exists('status', $payload)
+            && (array_key_exists('data', $payload) || array_key_exists('errors', $payload))
+        ) {
+            // Algunos servidores cPanel aplican una transformación de salida
+            // (metadata.transformed=1) y entregan el resultado UAPI directamente
+            // en la raíz, sin el envoltorio `result`.
+            $result = $payload;
+        }
 
         if (! is_array($result)) {
             return [

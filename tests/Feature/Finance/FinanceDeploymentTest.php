@@ -98,6 +98,24 @@ function financeDeploymentCpanelResponse(mixed $data, bool $ok = true): array
     ];
 }
 
+/**
+ * Algunos servidores cPanel devuelven el resultado UAPI transformado
+ * directamente en la raíz, sin el envoltorio `result`.
+ *
+ * @return array<string, mixed>
+ */
+function financeDeploymentTransformedCpanelResponse(mixed $data, bool $ok = true): array
+{
+    return [
+        'metadata' => ['transformed' => 1],
+        'messages' => null,
+        'status' => $ok ? 1 : 0,
+        'warnings' => null,
+        'errors' => $ok ? null : ['Falló la operación.'],
+        'data' => $data,
+    ];
+}
+
 function bindFinanceDeploymentDependencies(): void
 {
     app()->instance(FinanceBackupService::class, new class extends FinanceBackupService
@@ -300,6 +318,21 @@ it('returns api status without exposing either secret', function () {
 
     expect($response->getContent())->not->toContain('CPANEL_TOKEN')
         ->not->toContain('AGENT_TOKEN');
+});
+
+it('accepts a transformed cpanel uapi response without a result wrapper', function () {
+    configureFinanceDeployment();
+    Http::fakeSequence()->push(financeDeploymentTransformedCpanelResponse([
+        financeDeploymentRepository(str_repeat('c', 40), 'Versión instalada'),
+    ]));
+
+    $status = app(FinanceDeploymentService::class)->status(true);
+
+    expect($status['repository_found'])->toBeTrue()
+        ->and($status['error'])->toBeNull()
+        ->and($status['repository']['repository_root'])->toBe('/home/financeuser/finanzas')
+        ->and($status['repository']['branch'])->toBe('main')
+        ->and($status['repository']['commit'])->toBe(str_repeat('c', 40));
 });
 
 it('requires confirmation and a valid idempotency key in the deployment api', function () {
