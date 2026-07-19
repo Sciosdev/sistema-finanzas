@@ -252,6 +252,50 @@
             <strong>Backup automático antes de migrar.</strong> Al ejecutar migraciones, el sistema crea primero un <em>Paquete de migración</em> (zip) de respaldo; si ese backup falla, <strong>no</strong> migra. Aun así, te recomendamos tener también un backup descargado a tu equipo.
         </div>
 
+        <div class="border border-info border-opacity-50 rounded p-3 mb-4">
+            <div class="d-flex flex-wrap align-items-start justify-content-between gap-2 mb-3">
+                <div>
+                    <h5 class="mb-1">
+                        <i data-lucide="scan-search" class="me-1"></i>Asesor financiero local
+                    </h5>
+                    <p class="text-muted small mb-0">
+                        Entrega a Codex un snapshot del propietario exclusivamente de lectura.
+                    </p>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                    <span class="badge {{ ($advisor['configured'] ?? false) ? 'badge-soft-success' : 'badge-soft-warning' }}">
+                        API lectura: {{ ($advisor['configured'] ?? false) ? 'activa' : 'pendiente' }}
+                    </span>
+                    <span class="badge {{ ($advisor['include_descriptions'] ?? false) ? 'badge-soft-info' : 'badge-soft-secondary' }}">
+                        Descripciones: {{ ($advisor['include_descriptions'] ?? false) ? 'incluidas' : 'ocultas' }}
+                    </span>
+                </div>
+            </div>
+
+            <div class="alert alert-info mb-3">
+                No acepta escrituras ni selección de usuario. Consulta saldos, pagos, créditos, tendencias y movimientos
+                únicamente del correo definido en <code>FINANCE_OWNER_EMAIL</code>.
+            </div>
+
+            @if (! ($advisor['configured'] ?? false))
+                <p class="mb-0">
+                    Falta <code>{{ implode(', ', $advisor['missing'] ?? []) }}</code>. Configúralo en el <code>.env</code>
+                    y limpia la caché. Guía: <code>docs/api-asesor-financiero.md</code>.
+                </p>
+            @else
+                <dl class="row small mb-0">
+                    <dt class="col-md-3">Endpoint</dt>
+                    <dd class="col-md-9 mb-1"><code>{{ $advisor['endpoint'] }}</code></dd>
+                    <dt class="col-md-3">Ventana histórica</dt>
+                    <dd class="col-md-9 mb-1">{{ $advisor['history_days'] }} días</dd>
+                    <dt class="col-md-3">Proyección</dt>
+                    <dd class="col-md-9 mb-1">{{ $advisor['horizon_days'] }} días</dd>
+                    <dt class="col-md-3">Movimientos recientes</dt>
+                    <dd class="col-md-9 mb-0">Máximo {{ $advisor['transaction_limit'] }}</dd>
+                </dl>
+            @endif
+        </div>
+
         @if (($maintenance['pending_count'] ?? 0) > 0)
             <div class="alert alert-warning">
                 <strong>Hay {{ $maintenance['pending_count'] }} migración(es) pendiente(s).</strong> Revísalas y ejecútalas con el botón de abajo (se crea un backup automático antes).

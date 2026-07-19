@@ -4,7 +4,7 @@ return [
     // Versión visible de la app (semver). Fuente única: se muestra en el menú
     // lateral y en el footer. SÚBELA en cada cambio que se despliegue para
     // confirmar a simple vista que el deploy llegó. Ver CLAUDE.md.
-    'version' => '2.13.1',
+    'version' => '2.14.0',
 
     'external_backup_path' => env('FINANCE_EXTERNAL_BACKUP_PATH'),
 
@@ -27,5 +27,17 @@ return [
 
         'connect_timeout' => (int) env('FINANCE_DEPLOY_CONNECT_TIMEOUT', 10),
         'timeout' => (int) env('FINANCE_DEPLOY_TIMEOUT', 120),
+    ],
+
+    'advisor' => [
+        // Token exclusivo para GET /api/finance/advisor/snapshot.
+        'api_token' => env('FINANCE_ADVISOR_API_TOKEN'),
+        'history_days' => (int) env('FINANCE_ADVISOR_HISTORY_DAYS', 90),
+        'horizon_days' => (int) env('FINANCE_ADVISOR_HORIZON_DAYS', 45),
+        'transaction_limit' => (int) env('FINANCE_ADVISOR_TRANSACTION_LIMIT', 60),
+        'include_descriptions' => filter_var(
+            env('FINANCE_ADVISOR_INCLUDE_DESCRIPTIONS', true),
+            FILTER_VALIDATE_BOOL
+        ),
     ],
 ];

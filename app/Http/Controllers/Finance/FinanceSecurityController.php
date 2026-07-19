@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Finance;
 use App\Http\Controllers\Controller;
 use App\Models\Finance\DeleteSnapshot;
 use App\Models\Finance\SystemFailure;
+use App\Services\Finance\FinanceAdvisorSnapshotService;
 use App\Services\Finance\FinanceBackupService;
 use App\Services\Finance\FinanceBuildDeployService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
@@ -24,6 +25,7 @@ class FinanceSecurityController extends Controller
         private readonly FinanceMaintenanceService $maintenance,
         private readonly FinanceBuildDeployService $builds,
         private readonly FinanceDeploymentService $deployments,
+        private readonly FinanceAdvisorSnapshotService $advisor,
     ) {}
 
     public function index(Request $request)
@@ -76,6 +78,7 @@ class FinanceSecurityController extends Controller
             'buildDeploy' => $this->builds->status(),
             'deployment' => $this->deployments->status(),
             'deploymentResult' => session('deployment_result'),
+            'advisor' => $this->advisor->status(),
         ]);
     }
 

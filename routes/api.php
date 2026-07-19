@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Finance\FinanceAdvisorApiController;
 use App\Http\Controllers\Finance\FinanceDeploymentApiController;
 use Illuminate\Support\Facades\Route;
 
@@ -23,4 +24,12 @@ Route::prefix('finance/deployment')
         Route::post('deploy', [FinanceDeploymentApiController::class, 'deploy'])
             ->middleware('throttle:3,1')
             ->name('api.finance.deployment.deploy');
+    });
+
+Route::prefix('finance/advisor')
+    ->middleware('finance.advisor-token')
+    ->group(function () {
+        Route::get('snapshot', [FinanceAdvisorApiController::class, 'snapshot'])
+            ->middleware('throttle:12,1')
+            ->name('api.finance.advisor.snapshot');
     });

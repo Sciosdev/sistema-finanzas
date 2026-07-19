@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureFinanceAdvisorApiToken;
 use App\Http\Middleware\EnsureFinanceDeployApiToken;
 use App\Http\Middleware\EnsureFinanceOwner;
 use Illuminate\Foundation\Application;
@@ -17,6 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'finance.owner' => EnsureFinanceOwner::class,
             'finance.deploy-token' => EnsureFinanceDeployApiToken::class,
+            'finance.advisor-token' => EnsureFinanceAdvisorApiToken::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {
