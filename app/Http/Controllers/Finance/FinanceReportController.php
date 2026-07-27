@@ -8,6 +8,7 @@ use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\ExpectedIncome;
 use App\Models\Finance\Movement;
 use App\Models\Finance\RentalContract;
+use App\Services\Finance\CreditEffectiveScheduleService;
 use App\Services\Finance\CreditFreePaymentService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceCsvExportService;
@@ -26,6 +27,7 @@ class FinanceReportController extends Controller
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceCsvExportService $csvExports,
         private readonly CreditFreePaymentService $freePayments,
+        private readonly CreditEffectiveScheduleService $creditSchedule,
     ) {
     }
 
@@ -249,7 +251,7 @@ class FinanceReportController extends Controller
      */
     private function creditChartData(User $user, Carbon $monthStart): array
     {
-        $credits = CreditPurchase::with(['account', 'installments'])
+        $credits = CreditPurchase::with(['account', 'installments', 'freePayments'])
             ->where('user_id', $user->id)
             ->get();
 
@@ -307,16 +309,11 @@ class FinanceReportController extends Controller
         $byCard = collect($byCard)->values();
 
         $monthNames = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
-        $pendingInstallments = $credits
-            ->flatMap(fn (CreditPurchase $credit) => $credit->installments)
-            ->filter(fn ($installment) => in_array($installment->status, ['pending', 'overdue'], true));
 
         $upcomingRows = collect();
         for ($offset = 0; $offset < 6; $offset++) {
             $month = $monthStart->copy()->startOfMonth()->addMonths($offset);
-            $sum = round($pendingInstallments
-                ->filter(fn ($installment) => $installment->period_month && $installment->period_month->isSameMonth($month))
-                ->sum(fn ($installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2);
+            $sum = round($credits->sum(fn (CreditPurchase $credit) => $this->creditSchedule->effectiveTotalForMonth($credit, $month)), 2);
 
             $upcomingRows->push([
                 'name' => $monthNames[$month->month - 1] . ' ' . $month->format('y'),

@@ -12,6 +12,10 @@ use RuntimeException;
 
 class CreditFreePaymentService
 {
+    public function __construct(
+        private readonly CreditEffectiveScheduleService $schedule,
+    ) {}
+
     public function createFreePayment(
         CreditPurchase $credit,
         Carbon $paidOn,
@@ -28,6 +32,11 @@ class CreditFreePaymentService
             if ($amount <= 0) {
                 throw new RuntimeException('El monto del abono libre debe ser mayor a cero.');
             }
+
+            // El tope se calcula DENTRO de la transacción y con el crédito ya
+            // bloqueado, para que dos abonos simultáneos no se pasen del saldo.
+            $this->schedule->flush($credit->id);
+            $this->assertWithinPayableRoom($credit, $paidOn, $amount);
 
             if ($movement) {
                 if ((int) $movement->user_id !== (int) $credit->user_id || $movement->movement_type !== 'expense') {
@@ -61,10 +70,36 @@ class CreditFreePaymentService
                 'notes' => $notes,
             ]);
 
+            $this->schedule->flush($credit->id);
             $this->syncCreditStatus($credit);
 
             return $payment;
         });
+    }
+
+    /**
+     * Un abono libre solo puede adelantar la SIGUIENTE mensualidad, nunca más.
+     *
+     * Es la misma regla de una tarjeta: hasta que no pagas la mensualidad que
+     * sigue no puedes adelantar las de más adelante. Se valida dentro de la
+     * transacción para que un abono rechazado no deje ni el abono ni el egreso.
+     */
+    private function assertWithinPayableRoom(CreditPurchase $credit, Carbon $paidOn, float $amount): void
+    {
+        $max = $this->schedule->maxFreePayment($credit, $paidOn);
+
+        if ($max <= 0) {
+            throw new RuntimeException(
+                'Este crédito ya no tiene mensualidades por pagar, así que no admite abonos libres.'
+            );
+        }
+
+        if ($amount - $max > 0.005) {
+            throw new RuntimeException(
+                'El abono libre no puede ser mayor a $'.number_format($max, 2).', que es lo que falta de la '
+                .'siguiente mensualidad. No se pueden adelantar mensualidades posteriores sin pagar antes esa.'
+            );
+        }
     }
 
     public function deleteFreePayment(CreditFreePayment $payment): void
@@ -79,6 +114,7 @@ class CreditFreePaymentService
                 $movement->delete();
             }
 
+            $this->schedule->flush($credit->id);
             $this->syncCreditStatus($credit);
         });
     }
@@ -129,6 +165,7 @@ class CreditFreePaymentService
             'first_due_month' => $installments->first()->period_month->copy()->startOfMonth()->toDateString(),
         ]);
 
+        $this->schedule->flush($credit->id);
         $this->syncCreditStatus($credit);
     }
 

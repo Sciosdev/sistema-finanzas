@@ -431,6 +431,18 @@
         $creditCardItem = $creditorSummary ? collect($creditorSummary['credits'])->firstWhere('id', $credit->id) : null;
         $creditCurrentDue = (float) ($creditCardItem['current_due'] ?? 0);
         $creditorKey = $creditorSummary['key'] ?? 'sin-acreedor';
+        // Calendario efectivo: mensualidades contratadas menos los abonos libres
+        // ya repartidos. El calendario original no se toca.
+        $schedule = $creditSchedules[$credit->id] ?? ['free_applied' => [], 'effective' => [], 'next_installment_id' => null, 'max_free_payment' => 0.0];
+        $freeApplied = $schedule['free_applied'];
+        $effectiveDue = $schedule['effective'];
+        $maxFreePayment = (float) $schedule['max_free_payment'];
+        $nextInstallment = $schedule['next_installment_id']
+            ? $credit->installments->firstWhere('id', $schedule['next_installment_id'])
+            : null;
+        $nextOriginal = $nextInstallment ? (float) $nextInstallment->amount : 0.0;
+        $nextFreeApplied = $nextInstallment ? (float) ($freeApplied[$nextInstallment->id] ?? 0) : 0.0;
+        $nextEffective = $nextInstallment ? (float) ($effectiveDue[$nextInstallment->id] ?? 0) : 0.0;
     @endphp
     <div class="card finance-credit-card" id="credit-{{ $credit->id }}" style="border-left: 4px solid {{ $creditorStyle['color'] }};" data-creditor-key="{{ $creditorKey }}" data-current-due="{{ $creditCurrentDue }}" data-balance="{{ $creditPending }}">
         <div class="card-header d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
@@ -452,6 +464,16 @@
                         <span class="ms-1">| {{ $credit->notes }}</span>
                     @endif
                 </p>
+                @if ($nextInstallment)
+                    <p class="mb-0 mt-1 small">
+                        <span class="text-muted">Siguiente mensualidad ({{ $nextInstallment->period_month?->format('Y-m') }}):</span>
+                        <span class="ms-1">original {{ $money($nextOriginal) }}</span>
+                        @if ($nextFreeApplied > 0)
+                            <span class="ms-1 text-info">- abonos libres {{ $money($nextFreeApplied) }}</span>
+                        @endif
+                        <span class="ms-1 fw-semibold text-warning">= pendiente efectivo {{ $money($nextEffective) }}</span>
+                    </p>
+                @endif
             </div>
             <div class="d-flex align-items-center flex-wrap gap-2">
                 <span class="badge badge-soft-success">Pagado total {{ $money($creditPaid) }}</span>
@@ -601,7 +623,7 @@
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Monto</label>
-                            <input type="number" name="amount" class="form-control form-control-sm text-end" step="0.01" min="0.01" max="{{ max(0.01, $creditPending) }}" placeholder="220.00" required>
+                            <input type="number" name="amount" class="form-control form-control-sm text-end" step="0.01" min="0.01" max="{{ max(0.01, $maxFreePayment) }}" placeholder="{{ number_format($maxFreePayment, 2, '.', '') }}" @disabled($maxFreePayment <= 0) required>
                         </div>
                         <div class="col-md-4">
                             <label class="form-label">Cuenta</label>
@@ -625,9 +647,17 @@
                             <label class="form-label">Notas</label>
                             <input type="text" name="notes" class="form-control form-control-sm" placeholder="Pago suelto, anticipo, transferencia...">
                         </div>
-                        <div class="col-12 d-flex justify-content-between align-items-center">
-                            <small class="text-muted">No marca mensualidades como pagadas; solo reduce el saldo real del crédito.</small>
-                            <button type="submit" class="btn btn-sm btn-primary">
+                        <div class="col-12 d-flex justify-content-between align-items-center gap-3">
+                            <small class="text-muted">
+                                No marca mensualidades como pagadas ni cambia el calendario original: se descuenta de la
+                                siguiente mensualidad, así que también baja lo que debes pagar este mes y el siguiente.
+                                @if ($maxFreePayment > 0)
+                                    <span class="d-block">Máximo {{ $money($maxFreePayment) }} (lo que falta de la siguiente mensualidad; no se pueden adelantar las posteriores).</span>
+                                @else
+                                    <span class="d-block text-warning">Este crédito ya no tiene mensualidades por pagar.</span>
+                                @endif
+                            </small>
+                            <button type="submit" class="btn btn-sm btn-primary" @disabled($maxFreePayment <= 0)>
                                 <i data-lucide="plus" class="me-1"></i>Registrar abono libre
                             </button>
                         </div>
@@ -722,6 +752,7 @@
                             <th>Mes</th>
                             <th>Vence</th>
                             <th class="text-end">Monto</th>
+                            <th class="text-end">Pendiente</th>
                             <th>Estado</th>
                             <th>Pagado</th>
                             <th>Notas</th>
@@ -732,6 +763,8 @@
                         @foreach ($credit->installments as $installment)
                             @php
                                 $installmentFormId = 'installment-form-' . $installment->id;
+                                $rowFreeApplied = (float) ($freeApplied[$installment->id] ?? 0);
+                                $rowEffective = (float) ($effectiveDue[$installment->id] ?? 0);
                             @endphp
                             <tr>
                                 <td>{{ $installment->installment_number }}</td>
@@ -747,6 +780,12 @@
                                 </td>
                                 <td style="min-width: 130px;">
                                     <input form="{{ $installmentFormId }}" type="number" name="amount" class="form-control form-control-sm text-end" step="0.01" min="0.01" value="{{ $installment->amount }}" required>
+                                </td>
+                                <td class="text-end" style="min-width: 120px;">
+                                    <span class="fw-semibold">{{ $money($rowEffective) }}</span>
+                                    @if ($rowFreeApplied > 0)
+                                        <small class="d-block text-info">-{{ $money($rowFreeApplied) }} abono libre</small>
+                                    @endif
                                 </td>
                                 <td style="min-width: 130px;">
                                     <select form="{{ $installmentFormId }}" name="status" class="form-select form-select-sm">
@@ -794,6 +833,8 @@
                 @foreach ($credit->installments as $installment)
                     @php
                         $installmentFormId = 'installment-form-m-' . $installment->id;
+                        $rowFreeApplied = (float) ($freeApplied[$installment->id] ?? 0);
+                        $rowEffective = (float) ($effectiveDue[$installment->id] ?? 0);
                     @endphp
                     <div class="finance-mobile-row px-3 py-3 border-bottom">
                         <form id="{{ $installmentFormId }}" method="POST" action="{{ route('finance.credits.installments.update', $installment) }}">
@@ -805,6 +846,12 @@
                             <span class="badge {{ $installment->status === 'paid' ? 'badge-soft-success' : 'badge-soft-secondary' }}">
                                 {{ $installment->status === 'paid' ? 'Pagado' : 'Pendiente' }}
                             </span>
+                        </div>
+                        <div class="small text-muted mb-2">
+                            Pendiente efectivo <span class="fw-semibold text-warning">{{ $money($rowEffective) }}</span>
+                            @if ($rowFreeApplied > 0)
+                                <span class="text-info">(ya abonaste {{ $money($rowFreeApplied) }})</span>
+                            @endif
                         </div>
                         <div class="row g-2">
                             <div class="col-6">

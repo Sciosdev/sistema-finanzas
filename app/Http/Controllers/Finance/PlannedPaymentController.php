@@ -9,6 +9,7 @@ use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
+use App\Services\Finance\CreditEffectiveScheduleService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceSummaryService;
@@ -26,6 +27,7 @@ class PlannedPaymentController extends Controller
         private readonly FinanceCatalogService $catalogs,
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
+        private readonly CreditEffectiveScheduleService $creditSchedule,
     ) {}
 
     public function index(Request $request)
@@ -42,7 +44,7 @@ class PlannedPaymentController extends Controller
             ->orderBy('name')
             ->get();
 
-        $creditInstallments = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.category'])
+        $creditInstallments = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.category', 'creditPurchase.installments', 'creditPurchase.freePayments'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->orderByRaw('due_date is null, due_date asc')
@@ -80,6 +82,11 @@ class PlannedPaymentController extends Controller
             'payments' => $payments,
             'creditInstallments' => $creditInstallments,
             'creditInstallmentSummaries' => $this->creditInstallmentSummaries($creditInstallments),
+            // Pendiente efectivo por mensualidad (ya descontados los abonos
+            // libres), para no mostrar la mensualidad original inflada.
+            'creditInstallmentDue' => $creditInstallments->mapWithKeys(fn (CreditInstallment $installment) => [
+                $installment->id => $this->creditSchedule->effectivePending($installment),
+            ]),
             'paymentTotals' => $paymentTotals,
             'monthValue' => $start->format('Y-m'),
             'accounts' => $accounts,
@@ -97,7 +104,7 @@ class PlannedPaymentController extends Controller
             ->filter(fn (CreditInstallment $installment) => $installment->status !== 'paid')
             ->map(fn (CreditInstallment $installment) => [
                 'installment' => $installment,
-                'amount_due' => round(max(0, (float) $installment->amount - (float) $installment->paid_amount), 2),
+                'amount_due' => $this->creditSchedule->effectivePending($installment),
             ])
             ->filter(fn (array $row) => $row['amount_due'] > 0)
             ->groupBy(fn (array $row) => $row['installment']->creditPurchase?->account_id ?: 'none')

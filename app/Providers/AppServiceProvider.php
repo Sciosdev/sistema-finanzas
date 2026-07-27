@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\User;
+use App\Services\Finance\CreditEffectiveScheduleService;
 use Carbon\Carbon;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Gate;
@@ -15,7 +16,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Singleton a propósito: el reparto virtual de abonos libres se memoiza
+        // por crédito dentro del request. Con instancias sueltas cada pantalla
+        // recalcularía (y recargaría) lo mismo decenas de veces.
+        $this->app->singleton(CreditEffectiveScheduleService::class);
     }
 
     /**

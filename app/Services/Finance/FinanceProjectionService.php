@@ -32,7 +32,8 @@ class FinanceProjectionService
 
     public function __construct(
         private readonly FinanceCutSuggestionService $cutSuggestions,
-        private readonly FinanceRentalContractIncomeService $rentalIncomes
+        private readonly FinanceRentalContractIncomeService $rentalIncomes,
+        private readonly CreditEffectiveScheduleService $creditSchedule
     ) {
     }
 
@@ -502,7 +503,7 @@ class FinanceProjectionService
      */
     private function assignInstallments(User $user, array &$buckets, Carbon $start, Carbon $end, string $dayOneKey): void
     {
-        $installments = CreditInstallment::with('creditPurchase.account')
+        $installments = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.installments', 'creditPurchase.freePayments'])
             ->where('user_id', $user->id)
             ->whereIn('status', ['pending', 'overdue'])
             ->orderBy('due_date')
@@ -510,7 +511,7 @@ class FinanceProjectionService
             ->get();
 
         foreach ($installments as $installment) {
-            $residual = $this->money(max(0, (float) $installment->amount - (float) $installment->paid_amount));
+            $residual = $this->creditSchedule->effectivePending($installment);
 
             if ($residual <= 0) {
                 continue;

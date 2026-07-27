@@ -9,6 +9,7 @@ use App\Models\Finance\CreditFreePayment;
 use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
+use App\Services\Finance\CreditEffectiveScheduleService;
 use App\Services\Finance\CreditFreePaymentService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceCutSuggestionService;
@@ -28,6 +29,7 @@ class CreditPurchaseController extends Controller
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
         private readonly CreditFreePaymentService $freePayments,
         private readonly FinanceCutSuggestionService $cutSuggestions,
+        private readonly CreditEffectiveScheduleService $schedule,
     ) {}
 
     public function index(Request $request)
@@ -70,6 +72,18 @@ class CreditPurchaseController extends Controller
             2
         );
 
+        // Calendario efectivo por crédito: cuánto abono libre le tocó a cada
+        // mensualidad, cuánto queda realmente por pagar de cada una y cuál es la
+        // siguiente que se puede abonar (que es también el tope del abono).
+        $creditSchedules = $credits->mapWithKeys(fn (CreditPurchase $credit) => [
+            $credit->id => [
+                'free_applied' => $this->schedule->allocationFor($credit),
+                'effective' => $this->schedule->effectivePendingFor($credit),
+                'next_installment_id' => $this->schedule->nextPayableInstallment($credit)?->id,
+                'max_free_payment' => $this->schedule->maxFreePayment($credit),
+            ],
+        ]);
+
         $summary = $this->creditSummary($credits, $creditTotals, $currentMonth, $nextMonth);
         $summaryWithoutOnix = $this->creditSummary(
             $credits->reject(fn (CreditPurchase $credit) => $this->isOnixCredit($credit))->values(),
@@ -81,6 +95,7 @@ class CreditPurchaseController extends Controller
         return view('finance.credits.index', [
             'credits' => $credits,
             'creditTotals' => $creditTotals,
+            'creditSchedules' => $creditSchedules,
             'creditorSummaries' => $creditorSummaries,
             'creditLineSummary' => $creditLineSummary,
             'summary' => $summary,
@@ -353,7 +368,10 @@ class CreditPurchaseController extends Controller
 
         $paidOn = isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today();
         $credit = $installment->creditPurchase()->firstOrFail();
-        $remaining = max(0, (float) $installment->amount - (float) $installment->paid_amount);
+        // Solo se cobra lo que falta DE VERDAD: si un abono libre ya cubrió parte
+        // de esta mensualidad, ese dinero ya salió de la cuenta y no se vuelve a
+        // descontar.
+        $remaining = $this->effectiveRemaining($credit, $installment);
 
         $movement = null;
 
@@ -372,11 +390,12 @@ class CreditPurchaseController extends Controller
 
         $installment->update([
             'status' => 'paid',
-            'paid_amount' => $installment->amount,
+            'paid_amount' => $this->settledPaidAmount($installment, $remaining),
             'paid_on' => $paidOn->toDateString(),
             'movement_id' => $movement?->id ?? $installment->movement_id,
         ]);
 
+        $this->schedule->flush($credit->id);
         $this->refreshCreditStatus($credit);
 
         return back()->with('success', 'Mensualidad marcada como pagada.');
@@ -415,6 +434,7 @@ class CreditPurchaseController extends Controller
         DB::transaction(function () use ($credits, $currentMonth, $paidOn, &$paidCount, &$paidTotal) {
             foreach ($credits as $credit) {
                 $touched = false;
+                $this->schedule->flush($credit->id);
 
                 foreach ($credit->installments as $installment) {
                     if ($installment->status === 'paid'
@@ -423,7 +443,7 @@ class CreditPurchaseController extends Controller
                         continue;
                     }
 
-                    $remaining = round(max(0, (float) $installment->amount - (float) $installment->paid_amount), 2);
+                    $remaining = $this->effectiveRemaining($credit, $installment);
 
                     if ($remaining <= 0) {
                         continue;
@@ -442,7 +462,7 @@ class CreditPurchaseController extends Controller
 
                     $installment->update([
                         'status' => 'paid',
-                        'paid_amount' => $installment->amount,
+                        'paid_amount' => $this->settledPaidAmount($installment, $remaining),
                         'paid_on' => $paidOn->toDateString(),
                         'movement_id' => $movement->id,
                     ]);
@@ -453,6 +473,7 @@ class CreditPurchaseController extends Controller
                 }
 
                 if ($touched) {
+                    $this->schedule->flush($credit->id);
                     $this->refreshCreditStatus($credit);
                 }
             }
@@ -506,7 +527,7 @@ class CreditPurchaseController extends Controller
                     continue;
                 }
 
-                $remaining = round(max(0, (float) $installment->amount - (float) $installment->paid_amount), 2);
+                $remaining = $this->effectiveRemaining($credit, $installment);
 
                 if ($remaining <= 0) {
                     continue;
@@ -525,7 +546,7 @@ class CreditPurchaseController extends Controller
 
                 $installment->update([
                     'status' => 'paid',
-                    'paid_amount' => $installment->amount,
+                    'paid_amount' => $this->settledPaidAmount($installment, $remaining),
                     'paid_on' => $paidOn->toDateString(),
                     'movement_id' => $movement->id,
                 ]);
@@ -536,6 +557,7 @@ class CreditPurchaseController extends Controller
             }
 
             foreach ($affected as $credit) {
+                $this->schedule->flush($credit->id);
                 $this->refreshCreditStatus($credit);
             }
         });
@@ -560,10 +582,11 @@ class CreditPurchaseController extends Controller
 
         $installment->update([
             'status' => 'paid',
-            'paid_amount' => $installment->amount,
+            'paid_amount' => $this->settledPaidAmount($installment, $this->effectiveRemaining($credit, $installment)),
             'paid_on' => $paidOn->toDateString(),
         ]);
 
+        $this->schedule->flush($credit->id);
         $this->refreshCreditStatus($credit);
 
         return back()->with('success', 'Mensualidad marcada como ya registrada.');
@@ -584,18 +607,23 @@ class CreditPurchaseController extends Controller
 
         $amount = round((float) $data['amount'], 2);
         $isPaid = $data['status'] === 'paid';
+        $credit = $installment->creditPurchase()->firstOrFail();
+        // Al marcarla pagada a mano, el dinero registrado es el importe menos lo
+        // que ya cubrió un abono libre: si no, el crédito quedaría sobrepagado.
+        $freeApplied = $this->schedule->allocationFor($credit)[$installment->id] ?? 0.0;
 
         $installment->update([
             'period_month' => Carbon::createFromFormat('Y-m', $data['period_month'])->startOfMonth()->toDateString(),
             'due_date' => $data['due_date'] ?? null,
             'amount' => $amount,
             'status' => $data['status'],
-            'paid_amount' => $isPaid ? $amount : 0,
+            'paid_amount' => $isPaid ? round(max(0, $amount - $freeApplied), 2) : 0,
             'paid_on' => $isPaid ? ($data['paid_on'] ?? today()->toDateString()) : null,
             'notes' => $data['notes'] ?? null,
         ]);
 
-        $this->refreshCreditFromInstallments($installment->creditPurchase()->firstOrFail());
+        $this->schedule->flush($credit->id);
+        $this->refreshCreditFromInstallments($credit);
 
         return back()->with('success', 'Mensualidad actualizada.');
     }
@@ -871,6 +899,31 @@ class CreditPurchaseController extends Controller
         $this->freePayments->syncCreditStatus($credit);
     }
 
+    /**
+     * Lo que falta pagar EN DINERO de una mensualidad: lo contratado, menos lo
+     * ya pagado, menos los abonos libres que le tocaron. Es el importe del
+     * egreso que se va a generar.
+     */
+    private function effectiveRemaining(CreditPurchase $credit, CreditInstallment $installment): float
+    {
+        return $this->schedule->effectivePendingFor($credit)[$installment->id]
+            ?? round(max(0, (float) $installment->amount - (float) $installment->paid_amount), 2);
+    }
+
+    /**
+     * `paid_amount` guarda siempre el dinero real que salió de la cuenta por esa
+     * mensualidad. El hueco que queda (`amount - paid_amount`) es exactamente la
+     * parte que cubrió un abono libre; dejarlo ahí es lo que evita que el
+     * reparto virtual se recorra a la mensualidad siguiente y regale un mes.
+     */
+    private function settledPaidAmount(CreditInstallment $installment, float $paidNow): float
+    {
+        return round(min(
+            (float) $installment->amount,
+            (float) $installment->paid_amount + $paidNow
+        ), 2);
+    }
+
     private function creditSummary($credits, $creditTotals, Carbon $currentMonth, Carbon $nextMonth): array
     {
         $installments = $credits->flatMap->installments;
@@ -893,12 +946,8 @@ class CreditPurchaseController extends Controller
                 2
             ),
             'pending' => round($filteredTotals->sum('balance_due'), 2),
-            'current_month' => round($installments
-                ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($currentMonth))
-                ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2),
-            'next_month' => round($installments
-                ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($nextMonth))
-                ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2),
+            'current_month' => round($credits->sum(fn (CreditPurchase $credit) => $this->schedule->effectiveTotalForMonth($credit, $currentMonth)), 2),
+            'next_month' => round($credits->sum(fn (CreditPurchase $credit) => $this->schedule->effectiveTotalForMonth($credit, $nextMonth)), 2),
             'active_count' => $credits->where('status', '!=', 'paid')->count(),
         ];
     }
@@ -918,12 +967,8 @@ class CreditPurchaseController extends Controller
                 $items = $group
                     ->map(function (CreditPurchase $credit) use ($creditTotals, $style, $creditorName, $currentMonth, $nextMonth) {
                         $totals = $creditTotals[$credit->id] ?? $this->freePayments->totals($credit);
-                        $currentDue = round($credit->installments
-                            ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($currentMonth))
-                            ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2);
-                        $nextDue = round($credit->installments
-                            ->filter(fn (CreditInstallment $installment) => $installment->period_month->isSameMonth($nextMonth))
-                            ->sum(fn (CreditInstallment $installment) => max(0, (float) $installment->amount - (float) $installment->paid_amount)), 2);
+                        $currentDue = $this->schedule->effectiveTotalForMonth($credit, $currentMonth);
+                        $nextDue = $this->schedule->effectiveTotalForMonth($credit, $nextMonth);
                         $installmentPaidThisMonth = $credit->installments
                             ->filter(fn (CreditInstallment $installment) => $installment->paid_on?->isSameMonth($currentMonth))
                             ->sum(fn (CreditInstallment $installment) => (float) $installment->paid_amount);
@@ -958,20 +1003,24 @@ class CreditPurchaseController extends Controller
                 // Mensualidades pendientes del acreedor DE ESTE MES (de todos sus
                 // créditos), para el pago por selección manual con suma en vivo.
                 $pendingInstallments = $group
-                    ->flatMap(fn (CreditPurchase $credit) => $credit->installments
-                        ->filter(fn (CreditInstallment $installment) => $installment->status !== 'paid'
-                            && $installment->period_month
-                            && $installment->period_month->isSameMonth($currentMonth)
-                            && ((float) $installment->amount - (float) $installment->paid_amount) > 0.005)
-                        ->map(fn (CreditInstallment $installment) => [
-                            'id' => $installment->id,
-                            'credit_name' => $credit->name,
-                            'installment_number' => $installment->installment_number,
-                            'months' => $credit->months,
-                            'amount' => round(max(0, (float) $installment->amount - (float) $installment->paid_amount), 2),
-                            'due_date' => $installment->due_date?->toDateString(),
-                            'period_label' => $installment->period_month?->format('Y-m'),
-                        ]))
+                    ->flatMap(function (CreditPurchase $credit) use ($currentMonth) {
+                        $effective = $this->schedule->effectivePendingFor($credit);
+
+                        return $credit->installments
+                            ->filter(fn (CreditInstallment $installment) => $installment->status !== 'paid'
+                                && $installment->period_month
+                                && $installment->period_month->isSameMonth($currentMonth)
+                                && ($effective[$installment->id] ?? 0) > 0.005)
+                            ->map(fn (CreditInstallment $installment) => [
+                                'id' => $installment->id,
+                                'credit_name' => $credit->name,
+                                'installment_number' => $installment->installment_number,
+                                'months' => $credit->months,
+                                'amount' => round($effective[$installment->id] ?? 0, 2),
+                                'due_date' => $installment->due_date?->toDateString(),
+                                'period_label' => $installment->period_month?->format('Y-m'),
+                            ]);
+                    })
                     ->sortBy(fn (array $installment) => $installment['due_date'] ?? '9999-99-99')
                     ->values()
                     ->all();

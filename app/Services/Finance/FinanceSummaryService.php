@@ -15,6 +15,10 @@ use Illuminate\Support\Str;
 
 class FinanceSummaryService
 {
+    public function __construct(
+        private readonly CreditEffectiveScheduleService $creditSchedule,
+    ) {}
+
     public function monthSummary(User $user, ?string $month = null): array
     {
         [$start, $end] = $this->monthRange($month);
@@ -152,7 +156,7 @@ class FinanceSummaryService
             ->map(fn (PlannedPayment $payment) => $this->plannedObligation($payment))
             ->toBase();
 
-        $credits = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.category', 'creditPurchase.freePayments'])
+        $credits = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.category', 'creditPurchase.freePayments', 'creditPurchase.installments'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->get()
@@ -416,7 +420,10 @@ class FinanceSummaryService
         $paidAmount = (float) $installment->paid_amount;
         $isSkipped = $installment->status === 'skipped';
         $isPaid = $installment->status === 'paid';
-        $amountDue = $isSkipped || $isPaid ? 0.0 : max(0, $amount - $paidAmount);
+        // Lo que realmente falta: lo contratado menos lo pagado en dinero menos
+        // los abonos libres que le tocaron a esta mensualidad.
+        $freeApplied = $credit ? ($this->creditSchedule->allocationFor($credit)[$installment->id] ?? 0.0) : 0.0;
+        $amountDue = $isSkipped || $isPaid ? 0.0 : $this->money(max(0, $amount - $paidAmount - $freeApplied));
         $isPending = in_array($installment->status, ['pending', 'overdue'], true) && $amountDue > 0;
         $isOverdue = $isPending && (
             $installment->status === 'overdue'
@@ -425,10 +432,12 @@ class FinanceSummaryService
         $status = $isOverdue ? 'overdue' : $installment->status;
         $months = $credit?->months ?? '-';
         $creditFreePaid = $credit ? (float) $credit->freePayments->sum('amount_applied') : 0.0;
-        $creditInstallmentPaid = $credit ? (float) $credit->installments()->sum('paid_amount') : $paidAmount;
+        $creditInstallmentPaid = $credit
+            ? (float) $credit->installments->sum(fn (CreditInstallment $row) => (float) $row->paid_amount)
+            : $paidAmount;
         $creditTotalPaid = $this->money($creditInstallmentPaid + $creditFreePaid);
         $creditBalanceDue = $credit
-            ? $this->money(max(0, (float) $credit->total_amount - $creditTotalPaid))
+            ? $this->creditSchedule->balanceDue($credit)
             : $amountDue;
 
         return [
@@ -447,6 +456,7 @@ class FinanceSummaryService
             'stored_status' => $installment->status,
             'amount' => $this->money($amount),
             'paid_amount' => $this->money($paidAmount),
+            'free_applied' => $this->money($freeApplied),
             'amount_due' => $this->money($amountDue),
             'credit_total_amount' => $this->money((float) ($credit?->total_amount ?? $amount)),
             'credit_installment_paid' => $this->money($creditInstallmentPaid),

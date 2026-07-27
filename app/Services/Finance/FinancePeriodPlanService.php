@@ -37,7 +37,8 @@ class FinancePeriodPlanService
 
     public function __construct(
         private readonly FinanceProjectionService $projectionService,
-        private readonly FinanceRentalContractIncomeService $rentalIncomes
+        private readonly FinanceRentalContractIncomeService $rentalIncomes,
+        private readonly CreditEffectiveScheduleService $creditSchedule
     ) {}
 
     public function build(User $user): array
@@ -292,12 +293,12 @@ class FinancePeriodPlanService
         $monthStart = $today->copy()->startOfMonth();
         $monthEnd = $today->copy()->endOfMonth();
 
-        return CreditInstallment::with('creditPurchase.account')
+        return CreditInstallment::with(['creditPurchase.account', 'creditPurchase.installments', 'creditPurchase.freePayments'])
             ->where('user_id', $user->id)
             ->whereIn('status', ['pending', 'overdue'])
             ->get()
             ->filter(function (CreditInstallment $installment) use ($monthStart, $monthEnd) {
-                if (((float) $installment->amount - (float) $installment->paid_amount) <= 0) {
+                if ($this->creditSchedule->effectivePending($installment) <= 0) {
                     return false;
                 }
 
@@ -314,7 +315,7 @@ class FinancePeriodPlanService
             ->map(function (Collection $items) {
                 $first = $items->first();
                 $account = $first->creditPurchase?->account;
-                $total = $this->money($items->sum(fn (CreditInstallment $i) => max(0, (float) $i->amount - (float) $i->paid_amount)));
+                $total = $this->money($items->sum(fn (CreditInstallment $i) => $this->creditSchedule->effectivePending($i)));
                 $nextDue = $items
                     ->map(fn (CreditInstallment $i) => $i->due_date?->copy()->startOfDay())
                     ->filter()

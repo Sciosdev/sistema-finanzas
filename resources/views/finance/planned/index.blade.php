@@ -791,7 +791,13 @@
                             <td>{{ $credit?->name ?? '-' }}</td>
                             <td>{{ $installment->installment_number }} / {{ $credit?->months ?? '-' }}</td>
                             <td>{{ $credit?->category?->name ?? '-' }}</td>
-                            <td class="text-end">{{ $money($installment->amount) }}</td>
+                            <td class="text-end">
+                                {{ $money($installment->amount) }}
+                                @php $installmentDue = (float) ($creditInstallmentDue[$installment->id] ?? 0); @endphp
+                                @if ($installment->status !== 'paid' && $installmentDue < (float) $installment->amount - 0.005)
+                                    <small class="d-block text-info">Falta {{ $money($installmentDue) }} (abonos libres aplicados)</small>
+                                @endif
+                            </td>
                             <td>
                                 <span class="badge {{ \App\Support\FinanceLabels::dueBadgeClass($installment->due_date, $displayStatus) }}">
                                     {{ \App\Support\FinanceLabels::dueLabel($installment->due_date, $displayStatus) }}
@@ -860,6 +866,10 @@
                             <div class="col-md-4">
                                 <span class="text-muted small d-block">Monto</span>
                                 <span class="fw-semibold">{{ $money($installment->amount) }}</span>
+                                @php $installmentDue = (float) ($creditInstallmentDue[$installment->id] ?? 0); @endphp
+                                @if ($installment->status !== 'paid' && $installmentDue < (float) $installment->amount - 0.005)
+                                    <small class="d-block text-info">Falta {{ $money($installmentDue) }}</small>
+                                @endif
                             </div>
                             <div class="col-md-4">
                                 <span class="text-muted small d-block">Vencimiento</span>

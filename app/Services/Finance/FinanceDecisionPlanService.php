@@ -55,7 +55,8 @@ class FinanceDecisionPlanService
         private readonly FinanceProjectionService $projectionService,
         private readonly FinancePaymentRecommendationService $recommendationService,
         private readonly FinanceSurvivalBudgetService $survivalBudgetService,
-        private readonly FinanceRentalContractIncomeService $rentalIncomes
+        private readonly FinanceRentalContractIncomeService $rentalIncomes,
+        private readonly CreditEffectiveScheduleService $creditSchedule
     ) {}
 
     public function build(User $user, int $horizonDays = 30): array
@@ -979,7 +980,7 @@ class FinanceDecisionPlanService
 
     private function installmentResidual(CreditInstallment $installment): float
     {
-        return $this->money(max(0, (float) $installment->amount - (float) $installment->paid_amount));
+        return $this->money($this->creditSchedule->effectivePending($installment));
     }
 
     private function installmentEffectiveDate(CreditInstallment $installment): ?Carbon

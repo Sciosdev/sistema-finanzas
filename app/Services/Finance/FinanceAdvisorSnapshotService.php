@@ -46,6 +46,7 @@ class FinanceAdvisorSnapshotService
         private readonly FinanceDecisionPlanService $decisions,
         private readonly FinanceWeeklyEnvelopeService $weeklyEnvelopes,
         private readonly FinanceSummaryService $summaries,
+        private readonly CreditEffectiveScheduleService $creditSchedule,
     ) {}
 
     /**
@@ -427,7 +428,7 @@ class FinanceAdvisorSnapshotService
                         $installment->status,
                         ['paid', 'skipped'],
                         true
-                    ) && $this->installmentResidual($installment) > 0)
+                    ) && $this->installmentResidual($installment, $credit) > 0)
                     ->sortBy(function (CreditInstallment $installment) {
                         $date = $installment->due_date ?? $installment->period_month;
 
@@ -435,11 +436,11 @@ class FinanceAdvisorSnapshotService
                     })
                     ->values();
                 $next = $pending->first();
-                $overdue = $pending->sum(function (CreditInstallment $installment) use ($today) {
+                $overdue = $pending->sum(function (CreditInstallment $installment) use ($today, $credit) {
                     $due = $installment->due_date ?? $installment->period_month;
 
                     return $installment->status === 'overdue' || ($due && $due->lt($today))
-                        ? $this->installmentResidual($installment)
+                        ? $this->installmentResidual($installment, $credit)
                         : 0;
                 });
 
@@ -458,7 +459,7 @@ class FinanceAdvisorSnapshotService
                     'overdue_amount' => $this->money((float) $overdue),
                     'next_due_date' => ($next?->due_date ?? $next?->period_month)?->toDateString(),
                     'next_due_amount' => $next
-                        ? $this->installmentResidual($next)
+                        ? $this->installmentResidual($next, $credit)
                         : 0.0,
                 ];
             })
@@ -665,8 +666,23 @@ class FinanceAdvisorSnapshotService
         return round((($current - $baseline) / $baseline) * 100, 1);
     }
 
-    private function installmentResidual(CreditInstallment $installment): float
+    /**
+     * Lo que falta pagar de una mensualidad ya descontados los abonos libres
+     * que le tocaron. El asesor debe ver el importe efectivo, no la mensualidad
+     * original inflada.
+     */
+    private function installmentResidual(CreditInstallment $installment, ?CreditPurchase $credit = null): float
     {
+        $credit ??= $installment->creditPurchase;
+
+        if ($credit) {
+            $effective = $this->creditSchedule->effectivePendingFor($credit)[$installment->id] ?? null;
+
+            if ($effective !== null) {
+                return $this->money($effective);
+            }
+        }
+
         return $this->money(max(0, (float) $installment->amount - (float) $installment->paid_amount));
     }
 

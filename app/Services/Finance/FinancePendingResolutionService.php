@@ -21,6 +21,10 @@ use Illuminate\Support\Carbon;
  */
 class FinancePendingResolutionService
 {
+    public function __construct(
+        private readonly CreditEffectiveScheduleService $creditSchedule,
+    ) {}
+
     /**
      * @return array{groups: array<int, array<string, mixed>>, summary: array{total: int, groups: array<string, int>}}
      */
@@ -93,10 +97,10 @@ class FinancePendingResolutionService
                 ->whereNotNull('due_date')->whereDate('due_date', '<', $date)->count(),
             'expected_incomes_partial' => ExpectedIncome::where('user_id', $user->id)
                 ->where('is_rent', false)->where('status', 'partial')->count(),
-            'credit_installments_overdue' => CreditInstallment::where('user_id', $user->id)
-                ->whereIn('status', ['pending', 'overdue'])
-                ->whereNotNull('due_date')->whereDate('due_date', '<', $date)
-                ->whereColumn('amount', '>', 'paid_amount')->count(),
+            // No se puede contar en SQL: una mensualidad puede estar cubierta por
+            // abonos libres, que viven en otra tabla y se reparten en memoria.
+            // Se reutiliza el mismo filtro de run() para no divergir del total.
+            'credit_installments_overdue' => count($this->creditInstallmentsOverdue($user, $today)),
             'credit_free_payments_unlinked' => CreditFreePayment::where('user_id', $user->id)
                 ->whereNull('movement_id')->count(),
             'cuts_with_difference' => DailyCut::where('user_id', $user->id)
@@ -314,14 +318,14 @@ class FinancePendingResolutionService
             ->whereIn('status', ['pending', 'overdue'])
             ->whereNotNull('due_date')
             ->whereDate('due_date', '<', $today->toDateString())
-            ->with('creditPurchase')
+            ->with(['creditPurchase.installments', 'creditPurchase.freePayments'])
             ->orderBy('due_date')
             ->get()
-            ->filter(fn (CreditInstallment $installment) => ((float) $installment->amount - (float) $installment->paid_amount) > 0.0)
+            ->filter(fn (CreditInstallment $installment) => $this->creditSchedule->effectivePending($installment) > 0.0)
             ->map(fn (CreditInstallment $installment) => $this->item(
                 tipo: 'Mensualidad vencida',
                 descripcion: trim(($installment->creditPurchase?->name ?? 'Crédito') . ' · mensualidad ' . $installment->installment_number),
-                monto: (float) $installment->amount - (float) $installment->paid_amount,
+                monto: $this->creditSchedule->effectivePending($installment),
                 fecha: $installment->due_date,
                 estado: 'Vencida sin pagar',
                 accion: 'Ir a créditos',
