@@ -1,9 +1,9 @@
 # Sistema de Finanzas
 
 App Laravel de finanzas personales. Se despliega en **HostGator** (hosting
-compartido, **sin SSH/terminal**) mediante **Git Version Control de cPanel**
-(`git pull` desde GitHub) y acciones de mantenimiento dentro de la propia app
-(Seguridad → Mantenimiento).
+compartido, **sin SSH/terminal**). El despliegue se dispara **desde la propia
+app**: Seguridad → **Despliegue desde GitHub**, que hace backup, `git pull`,
+limpieza de caché y migraciones en un solo paso.
 
 ## Versionado — IMPORTANTE para agentes
 
@@ -28,17 +28,24 @@ Nunca bajes el número (no regresar a una versión ya desplegada).
 
 ## Despliegue (recordatorio)
 
-1. `git push` a `main` (GitHub).
-2. En cPanel → Git Version Control → "Update from Remote" (jala el commit al servidor).
-3. En la app → Seguridad → Mantenimiento → **"Limpiar caché"** (`optimize:clear`).
-   Esto es **obligatorio** para que se refresquen vistas compiladas Y la config
-   (la versión vive en config, así que sin limpiar caché no se actualiza).
-4. Confirmar que el número de versión en pantalla coincide con `config/finance.php`.
+1. `git push` a `main` (GitHub). La rama está fija en el `.env` del servidor; no
+   se despliega desde otra.
+2. En la app → Seguridad → **Despliegue desde GitHub** → marcar la casilla de
+   confirmación → **"Actualizar producción"**. Ese botón hace, en orden:
+   backup → *Update from Remote* → `optimize:clear` → `migrate --force`.
+   Si el backup falla, **no toca el código**.
+3. En esa misma pantalla, confirmar que "Commit instalado" y "Versión local"
+   coinciden con lo que acabas de subir.
+
+**No hace falta entrar a cPanel ni limpiar caché aparte**: ese botón ya lo hace.
+cPanel → Git Version Control queda solo como respaldo manual si la pantalla
+falla; en ese caso sí hay que limpiar caché después en Seguridad →
+Mantenimiento, o la versión y las vistas compiladas no se refrescan.
 
 > Solo cambios de assets del tema (`public/build/`, vía `npm run build`) o de
 > dependencias (`vendor/`, vía `composer install`) requieren reconstruir/subir
 > esos artefactos. Cambios en `.php`/`.blade.php`/`config` solo necesitan el
-> pull + limpiar caché.
+> despliegue normal.
 
 ## Pruebas
 
