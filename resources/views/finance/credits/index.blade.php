@@ -807,8 +807,10 @@
                                         @if ($installment->status !== 'paid')
                                             <form method="POST" action="{{ route('finance.credits.installments.paid', $installment) }}">
                                                 @csrf
-                                                <input type="hidden" name="paid_on" value="{{ $installment->due_date?->format('Y-m-d') ?? now()->toDateString() }}">
-                                                <button type="submit" class="btn btn-sm btn-primary" title="Pagado y crear movimiento">
+                                                {{-- El egreso se fecha el dia que el usuario declara haber pagado
+                                                     (columna "Pagado" de la fila). Si la deja vacia, hoy. --}}
+                                                <input type="hidden" name="paid_on" data-paid-on-from="{{ $installmentFormId }}" value="{{ now()->toDateString() }}">
+                                                <button type="submit" class="btn btn-sm btn-primary" title="Pagado y crear movimiento (usa la fecha de la columna Pagado)">
                                                     <i data-lucide="check"></i>
                                                 </button>
                                             </form>
@@ -889,8 +891,9 @@
                             @if ($installment->status !== 'paid')
                                 <form method="POST" action="{{ route('finance.credits.installments.paid', $installment) }}">
                                     @csrf
-                                    <input type="hidden" name="paid_on" value="{{ $installment->due_date?->format('Y-m-d') ?? now()->toDateString() }}">
-                                    <button type="submit" class="btn btn-sm btn-primary" title="Pagado y crear movimiento">
+                                    {{-- Misma regla que la tabla: manda la fecha de "Pagado el". --}}
+                                    <input type="hidden" name="paid_on" data-paid-on-from="{{ $installmentFormId }}" value="{{ now()->toDateString() }}">
+                                    <button type="submit" class="btn btn-sm btn-primary" title="Pagado y crear movimiento (usa la fecha de Pagado el)">
                                         <i data-lucide="check"></i>
                                     </button>
                                 </form>
@@ -1490,6 +1493,31 @@
                 purchase.addEventListener('change', function () { update(form); });
             }
             update(form);
+        });
+    })();
+
+    // "Pagado y crear movimiento": el egreso se fecha el dia que el usuario dice
+    // que pago, no el dia que la tarjeta lo cobra. La fecha vive en el campo
+    // "Pagado" de la misma fila (pertenece al form de guardar), asi que la
+    // copiamos al enviar. Si esta vacia se queda la de hoy, que ya viene puesta.
+    (function () {
+        var hiddens = Array.prototype.slice.call(document.querySelectorAll('[data-paid-on-from]'));
+
+        hiddens.forEach(function (hidden) {
+            var form = hidden.closest('form');
+            if (!form) {
+                return;
+            }
+
+            form.addEventListener('submit', function () {
+                var typed = document.querySelector(
+                    'input[name="paid_on"][form="' + hidden.getAttribute('data-paid-on-from') + '"]'
+                );
+
+                if (typed && typed.value) {
+                    hidden.value = typed.value;
+                }
+            });
         });
     })();
 </script>
