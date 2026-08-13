@@ -115,13 +115,16 @@ it('ships mobile css that stacks the dashboard one per row', function () {
 
     expect($css)->toContain('.finance-dashboard-grid .dashboard-widget')
         ->and($css)->toContain('.dashboard-widget-size-panel')
+        ->and($css)->toContain('.finance-monthly-income-chart-scroll')
+        ->and($css)->toContain('overflow-x: auto')
         ->and($css)->toContain('.finance-bottom-nav');
 
     // El Resumen sigue cargando bien en móvil.
     $this->actingAs(mobileUser())
         ->get(route('finance.dashboard'))
         ->assertOk()
-        ->assertSee('finance-dashboard-grid', false);
+        ->assertSee('finance-dashboard-grid', false)
+        ->assertSee('finance-monthly-income-chart-scroll', false);
 });
 
 it('moves the theme toggle into the user menu and hides the top buttons on mobile', function () {

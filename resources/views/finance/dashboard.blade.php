@@ -1288,19 +1288,21 @@
                 <h4 class="card-title mb-0">Ingresos por mes</h4>
             </div>
             <div class="card-body">
-                <div class="d-flex align-items-end gap-2" style="height: 190px;">
-                    @foreach ($monthlyChart['values'] as $index => $value)
-                        @php
-                            $height = max(6, ((float) $value / $monthlyChart['max']) * 140);
-                        @endphp
-                        <div class="flex-fill text-center">
-                            <div class="d-flex align-items-end justify-content-center" style="height: 148px;">
-                                <div class="rounded-top bg-success" style="width: 100%; max-width: 42px; height: {{ round($height, 2) }}px;"></div>
+                <div class="finance-monthly-income-chart-scroll" role="region" aria-label="Ingresos por mes; desliza horizontalmente para ver todos los meses" tabindex="0">
+                    <div class="d-flex align-items-end gap-2 finance-monthly-income-chart" style="height: 190px;">
+                        @foreach ($monthlyChart['values'] as $index => $value)
+                            @php
+                                $height = max(6, ((float) $value / $monthlyChart['max']) * 140);
+                            @endphp
+                            <div class="flex-fill text-center">
+                                <div class="d-flex align-items-end justify-content-center" style="height: 148px;">
+                                    <div class="rounded-top bg-success" style="width: 100%; max-width: 42px; height: {{ round($height, 2) }}px;"></div>
+                                </div>
+                                <small class="d-block text-muted mt-2">{{ $monthlyChart['labels'][$index] }}</small>
+                                <small class="d-block fw-semibold">{{ $money($value) }}</small>
                             </div>
-                            <small class="d-block text-muted mt-2">{{ $monthlyChart['labels'][$index] }}</small>
-                            <small class="d-block fw-semibold">{{ $money($value) }}</small>
-                        </div>
-                    @endforeach
+                        @endforeach
+                    </div>
                 </div>
             </div>
         </div>

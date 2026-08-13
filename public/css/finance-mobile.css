@@ -155,12 +155,28 @@
        Diseño (no tiene sentido en teléfono; el reordenar y ocultar sí sirven). */
     .finance-dashboard-grid .dashboard-widget {
         flex: 0 0 100% !important;
+        min-width: 0;
         width: 100% !important;
         max-width: 100% !important;
     }
 
     .finance-dashboard-grid .dashboard-widget-size-panel {
         display: none !important;
+    }
+
+    /* La gráfica mensual tiene hasta ocho importes que no caben legibles en
+       una sola fila. Su desplazamiento debe quedarse dentro de la tarjeta para
+       que nunca ensanche ni desplace horizontalmente toda la página. */
+    .finance-monthly-income-chart-scroll {
+        max-width: 100%;
+        overflow-x: auto;
+        overscroll-behavior-x: contain;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: thin;
+    }
+
+    .finance-monthly-income-chart {
+        min-width: max-content;
     }
 
     /* Hero del Resumen: pastillas a ancho completo para que no se aprieten. */
