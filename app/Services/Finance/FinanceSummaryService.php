@@ -9,6 +9,7 @@ use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
 use App\Models\Finance\RentalContract;
 use App\Models\User;
+use App\Support\FinanceMonth;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
@@ -290,7 +291,7 @@ class FinanceSummaryService
     public function monthRange(?string $month = null): array
     {
         $date = $month
-            ? Carbon::createFromFormat('Y-m', $month)->startOfMonth()
+            ? FinanceMonth::parse($month)
             : now()->startOfMonth();
 
         return [$date->copy()->startOfMonth(), $date->copy()->endOfMonth()];

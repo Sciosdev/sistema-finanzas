@@ -14,6 +14,7 @@ use App\Services\Finance\CreditFreePaymentService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceCutSuggestionService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
+use App\Support\FinanceMonth;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -122,7 +123,7 @@ class CreditPurchaseController extends Controller
             'name' => $data['name'],
             'total_amount' => $amounts['total'],
             'months' => $data['months'],
-            'first_due_month' => Carbon::createFromFormat('Y-m', $data['first_due_month'])->startOfMonth()->toDateString(),
+            'first_due_month' => FinanceMonth::parse($data['first_due_month'])->toDateString(),
             'due_day' => $data['due_day'] ?? null,
             'account_id' => $data['account_id'] ?? null,
             'category_id' => $data['category_id'] ?? null,
@@ -133,7 +134,7 @@ class CreditPurchaseController extends Controller
             $credit,
             $amounts['total'],
             (int) $data['months'],
-            Carbon::createFromFormat('Y-m', $data['first_due_month'])->startOfMonth(),
+            FinanceMonth::parse($data['first_due_month']),
             $data['due_day'] ?? null,
             $amounts['monthly']
         );
@@ -239,7 +240,7 @@ class CreditPurchaseController extends Controller
             'name' => $data['name'],
             'total_amount' => $amounts['total'],
             'months' => $data['months'],
-            'first_due_month' => Carbon::createFromFormat('Y-m', $data['first_due_month'])->startOfMonth()->toDateString(),
+            'first_due_month' => FinanceMonth::parse($data['first_due_month'])->toDateString(),
             'due_day' => $data['due_day'] ?? null,
             'account_id' => $data['account_id'] ?? null,
             'category_id' => $data['category_id'] ?? null,
@@ -251,7 +252,7 @@ class CreditPurchaseController extends Controller
             $credit,
             $amounts['total'],
             (int) $data['months'],
-            Carbon::createFromFormat('Y-m', $data['first_due_month'])->startOfMonth(),
+            FinanceMonth::parse($data['first_due_month']),
             $data['due_day'] ?? null,
             $amounts['monthly']
         );
@@ -613,7 +614,7 @@ class CreditPurchaseController extends Controller
         $freeApplied = $this->schedule->allocationFor($credit)[$installment->id] ?? 0.0;
 
         $installment->update([
-            'period_month' => Carbon::createFromFormat('Y-m', $data['period_month'])->startOfMonth()->toDateString(),
+            'period_month' => FinanceMonth::parse($data['period_month'])->toDateString(),
             'due_date' => $data['due_date'] ?? null,
             'amount' => $amount,
             'status' => $data['status'],

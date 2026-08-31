@@ -44,7 +44,7 @@ function makeCreditWithInstallments(
 
     $account = Account::where('user_id', $user->id)->where('name', 'MPW')->firstOrFail();
     $category = Category::where('user_id', $user->id)->where('name', 'Crédito / tarjeta')->firstOrFail();
-    $first = Carbon::createFromFormat('Y-m', $firstPeriod)->startOfMonth();
+    $first = Carbon::createFromFormat('!Y-m', $firstPeriod)->startOfMonth();
 
     $credit = CreditPurchase::create([
         'user_id' => $user->id,

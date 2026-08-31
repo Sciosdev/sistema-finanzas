@@ -13,6 +13,7 @@ use App\Services\Finance\CreditEffectiveScheduleService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceSummaryService;
+use App\Support\FinanceMonth;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -162,7 +163,7 @@ class PlannedPaymentController extends Controller
 
         PlannedPayment::create(array_merge($data, $automaticCharge, [
             'user_id' => $user->id,
-            'period_month' => Carbon::createFromFormat('Y-m', $data['period_month'])->startOfMonth()->toDateString(),
+            'period_month' => FinanceMonth::parse($data['period_month'])->toDateString(),
             'status' => 'pending',
             'is_san_juan' => $flags['is_san_juan'],
         ]));
@@ -223,8 +224,8 @@ class PlannedPaymentController extends Controller
             'target_month' => ['required', 'date_format:Y-m', 'different:source_month'],
         ]);
 
-        $sourceMonth = Carbon::createFromFormat('Y-m', $data['source_month'])->startOfMonth();
-        $targetMonth = Carbon::createFromFormat('Y-m', $data['target_month'])->startOfMonth();
+        $sourceMonth = FinanceMonth::parse($data['source_month']);
+        $targetMonth = FinanceMonth::parse($data['target_month']);
         $copied = 0;
         $skipped = 0;
 

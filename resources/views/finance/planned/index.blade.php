@@ -3,7 +3,7 @@
 @section('content')
 @php
     $money = fn ($value) => '$' . number_format((float) $value, 2);
-    $nextMonthValue = \Carbon\Carbon::createFromFormat('Y-m', $monthValue)->addMonth()->format('Y-m');
+    $nextMonthValue = \App\Support\FinanceMonth::parse($monthValue)->addMonth()->format('Y-m');
     $editPaymentId = (int) request('edit');
     $expenseMovements = $expenseMovements ?? collect();
     $creditInstallmentSummaries = $creditInstallmentSummaries ?? collect();

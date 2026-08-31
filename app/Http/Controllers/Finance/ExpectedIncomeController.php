@@ -13,6 +13,7 @@ use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceSummaryService;
 use App\Services\Finance\ExpectedIncomePaymentService;
+use App\Support\FinanceMonth;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Http\Request;
@@ -121,7 +122,7 @@ class ExpectedIncomeController extends Controller
 
         ExpectedIncome::create(array_merge($data, [
             'user_id' => $user->id,
-            'period_month' => Carbon::createFromFormat('Y-m', $data['period_month'])->startOfMonth()->toDateString(),
+            'period_month' => FinanceMonth::parse($data['period_month'])->toDateString(),
             'status' => 'pending',
             'is_rent' => $flags['is_rent'],
         ]));
@@ -191,7 +192,7 @@ class ExpectedIncomeController extends Controller
         }
 
         $income->update(array_merge($data, [
-            'period_month' => Carbon::createFromFormat('Y-m', $data['period_month'])->startOfMonth()->toDateString(),
+            'period_month' => FinanceMonth::parse($data['period_month'])->toDateString(),
             'amount' => $amount,
             'received_amount' => $receivedAmount,
             'status' => $status,
@@ -213,8 +214,8 @@ class ExpectedIncomeController extends Controller
             'target_month' => ['required', 'date_format:Y-m', 'different:source_month'],
         ]);
 
-        $sourceMonth = Carbon::createFromFormat('Y-m', $data['source_month'])->startOfMonth();
-        $targetMonth = Carbon::createFromFormat('Y-m', $data['target_month'])->startOfMonth();
+        $sourceMonth = FinanceMonth::parse($data['source_month']);
+        $targetMonth = FinanceMonth::parse($data['target_month']);
         $copied = 0;
         $skipped = 0;
 

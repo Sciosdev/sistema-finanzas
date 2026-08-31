@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Finance;
 
 use App\Http\Controllers\Controller;
 use App\Services\Finance\FinanceMonthlyReviewService;
+use App\Support\FinanceMonth;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 
@@ -88,7 +89,7 @@ class MonthlyReviewController extends Controller
     private function monthFromRequest(Request $request): Carbon
     {
         try {
-            return Carbon::createFromFormat('Y-m', $request->query('month', now()->format('Y-m')))->startOfMonth();
+            return FinanceMonth::parse($request->query('month', now()->format('Y-m')));
         } catch (\Throwable) {
             return now()->startOfMonth();
         }

@@ -4,7 +4,7 @@
 @php
     $money = fn ($value) => '$' . number_format((float) $value, 2);
     $defaultIncomeAccount = $accounts->firstWhere('name', 'NU') ?? $accounts->first();
-    $nextMonthValue = \Carbon\Carbon::createFromFormat('Y-m', $monthValue)->addMonth()->format('Y-m');
+    $nextMonthValue = \App\Support\FinanceMonth::parse($monthValue)->addMonth()->format('Y-m');
     $editIncomeId = $editIncomeId ?? (int) request('edit');
     $incomeMovements = $incomeMovements ?? collect();
     $movementCandidatesForIncome = function (array $income) use ($incomeMovements) {

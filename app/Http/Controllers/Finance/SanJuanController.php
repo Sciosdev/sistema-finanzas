@@ -13,6 +13,7 @@ use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceSummaryService;
 use App\Services\Finance\ExpectedIncomePaymentService;
+use App\Support\FinanceMonth;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
@@ -326,7 +327,7 @@ class SanJuanController extends Controller
             'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
         ]);
 
-        $periodMonth = Carbon::createFromFormat('Y-m', $data['month'])->startOfMonth();
+        $periodMonth = FinanceMonth::parse($data['month']);
         $receivedOn = isset($data['received_on']) ? Carbon::parse($data['received_on']) : today();
         $amount = round((float) ($data['amount'] ?? $contract->expected_amount), 2);
         $importKey = "rental-contract:{$contract->id}:{$periodMonth->format('Y-m')}";
