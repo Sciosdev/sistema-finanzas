@@ -112,6 +112,73 @@ it('keeps an automatically created credit in sync when the planned amount is cor
         ->assertSee('$65.83');
 });
 
+it('keeps the amount already paid when a paid credit total is corrected upward', function () {
+    $user = plannedCreditUser();
+    $card = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $payment = makePlannedPayment($user, [
+        'name' => 'Minecraft Realms - Realms',
+        'amount' => 65.38,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.credit-new', $payment), [
+            'account_id' => $card->id,
+            'months' => 1,
+        ]);
+
+    $credit = $payment->fresh()->creditPurchase()->firstOrFail();
+    $installment = $credit->installments()->firstOrFail();
+    $movement = Movement::create([
+        'user_id' => $user->id,
+        'happened_on' => '2026-06-15',
+        'movement_type' => 'expense',
+        'amount' => 65.38,
+        'description' => 'Crédito: Minecraft Realms - Realms 1/1',
+        'account_id' => $card->id,
+        'category_id' => $payment->category_id,
+        'source' => 'credit_installment',
+    ]);
+    $installment->update([
+        'status' => 'paid',
+        'paid_amount' => 65.38,
+        'paid_on' => '2026-06-15',
+        'movement_id' => $movement->id,
+    ]);
+    $credit->update(['status' => 'paid']);
+
+    $this->actingAs($user)
+        ->put(route('finance.credits.update', $credit), [
+            'purchase_date' => '2026-06-15',
+            'name' => 'Minecraft Realms - Realms',
+            'amount_mode' => 'total',
+            'total_amount' => 65.83,
+            'months' => 1,
+            'first_due_month' => '2026-06',
+            'due_day' => 27,
+            'account_id' => $card->id,
+            'category_id' => $payment->category_id,
+            'notes' => 'Generado desde flujo planeado: Minecraft Realms - Realms',
+        ])
+        ->assertRedirect()
+        ->assertSessionHasNoErrors();
+
+    $credit->refresh();
+    $installment->refresh();
+
+    expect((float) $credit->total_amount)->toBe(65.83)
+        ->and($credit->status)->toBe('partially_paid')
+        ->and((float) $installment->amount)->toBe(65.83)
+        ->and((float) $installment->paid_amount)->toBe(65.38)
+        ->and($installment->status)->toBe('pending')
+        ->and($installment->movement_id)->toBe($movement->id)
+        ->and((float) $movement->fresh()->amount)->toBe(65.38);
+
+    $this->actingAs($user)
+        ->get(route('finance.credits.index'))
+        ->assertOk()
+        ->assertSee('$0.45');
+});
+
 it('does not change a pre-existing credit linked to a planned payment', function () {
     $user = plannedCreditUser();
     $card = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();

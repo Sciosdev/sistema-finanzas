@@ -241,6 +241,11 @@ it('undoes deactivation for a category that is in use', function () {
 
     expect(Category::findOrFail($category->id)->is_active)->toBeFalse();
 
+    $category->update([
+        'name' => 'Categoria usada renombrada',
+        'color' => '#abcdef',
+    ]);
+
     $this->actingAs($user)
         ->post(route('finance.security.undo-delete', $undo['token']))
         ->assertSessionHas('success', 'Categoría restaurada.');
@@ -248,7 +253,8 @@ it('undoes deactivation for a category that is in use', function () {
     $category->refresh();
 
     expect($category->is_active)->toBeTrue();
-    expect($category->color)->toBe('#123456');
+    expect($category->name)->toBe('Categoria usada renombrada');
+    expect($category->color)->toBe('#abcdef');
 
     Carbon::setTestNow();
 });

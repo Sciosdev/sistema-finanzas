@@ -15,6 +15,7 @@ use App\Services\Finance\FinanceMaintenanceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\File;
+use Throwable;
 
 class FinanceSecurityController extends Controller
 {
@@ -63,9 +64,10 @@ class FinanceSecurityController extends Controller
             'exports' => $this->listExportFiles(),
             'externalBackupPath' => config('finance.external_backup_path'),
             'snapshots' => DeleteSnapshot::where('user_id', $user->id)
+                ->where('created_at', '>=', now()->subDays(FinanceDeletionSnapshotService::RECOVERY_WINDOW_DAYS))
                 ->orderByDesc('created_at')
-                ->limit(20)
                 ->get(),
+            'snapshotRecoveryDays' => FinanceDeletionSnapshotService::RECOVERY_WINDOW_DAYS,
             'failures' => $failureQuery->limit(50)->get(),
             'filters' => $filters,
             'failureModules' => SystemFailure::where('user_id', $user->id)
@@ -89,6 +91,30 @@ class FinanceSecurityController extends Controller
         if (! ($result['ok'] ?? false)) {
             $this->failures->report($request->user(), 'deshacer', 'restore', $result['message'] ?? 'No se pudo deshacer el borrado.', [
                 'token_prefix' => substr($token, 0, 8),
+            ]);
+        }
+
+        return back()->with($result['ok'] ? 'success' : 'error', $result['message']);
+    }
+
+    public function restoreSnapshot(Request $request, int $snapshot)
+    {
+        try {
+            $result = $this->deleteSnapshots->restoreFromRecovery($request->user(), $snapshot);
+        } catch (Throwable $exception) {
+            $message = 'No se pudo recuperar el registro porque alguno de sus datos relacionados ya no está disponible.';
+
+            $this->failures->report($request->user(), 'papelera', 'restore', $message, [
+                'snapshot_id' => $snapshot,
+                'exception' => class_basename($exception),
+            ]);
+
+            return back()->with('error', $message);
+        }
+
+        if (! ($result['ok'] ?? false)) {
+            $this->failures->report($request->user(), 'papelera', 'restore', $result['message'] ?? 'No se pudo recuperar el registro.', [
+                'snapshot_id' => $snapshot,
             ]);
         }
 
@@ -138,7 +164,7 @@ class FinanceSecurityController extends Controller
     {
         try {
             $path = $this->backups->downloadPath($type, $filename);
-        } catch (\Throwable $exception) {
+        } catch (Throwable $exception) {
             $this->failures->report($request->user(), 'backup', 'download', 'No se pudo descargar backup: '.$exception->getMessage(), [
                 'type' => $type,
                 'filename' => basename($filename),

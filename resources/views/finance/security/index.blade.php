@@ -17,16 +17,73 @@
     };
 
     $dateTime = fn ($value) => $value ? $value->format('Y-m-d H:i') : '-';
-    $snapshotStatus = function ($snapshot) {
+    $snapshotRecoveryDays = (int) ($snapshotRecoveryDays ?? 30);
+    $snapshotRecoveryUntil = fn ($snapshot) => $snapshot->created_at
+        ? $snapshot->created_at->copy()->addDays($snapshotRecoveryDays)
+        : null;
+    $snapshotStatus = function ($snapshot) use ($snapshotRecoveryUntil) {
         if ($snapshot->restored_at) {
-            return ['label' => 'Restaurado', 'class' => 'badge-soft-success'];
+            return ['label' => 'Restaurado', 'class' => 'badge-soft-success', 'recoverable' => false];
         }
 
-        if ($snapshot->expires_at->lt(now())) {
-            return ['label' => 'Expirado', 'class' => 'badge-soft-danger'];
+        if (! $snapshot->expires_at->lt(now())) {
+            return ['label' => 'Deshacer rápido', 'class' => 'badge-soft-warning', 'recoverable' => true];
         }
 
-        return ['label' => 'Disponible', 'class' => 'badge-soft-warning'];
+        $recoveryUntil = $snapshotRecoveryUntil($snapshot);
+        if ($recoveryUntil && ! $recoveryUntil->lt(now())) {
+            return ['label' => 'Recuperable', 'class' => 'badge-soft-primary', 'recoverable' => true];
+        }
+
+        return ['label' => 'Fuera de plazo', 'class' => 'badge-soft-danger', 'recoverable' => false];
+    };
+    $snapshotType = fn ($type) => match ($type) {
+        'movement' => 'Movimiento',
+        'planned_payment' => 'Pago planeado',
+        'expected_income' => 'Ingreso esperado',
+        'category' => 'Categoría',
+        'rental_contract' => 'Renta',
+        'credit_purchase' => 'Crédito',
+        'credit_installment' => 'Mensualidad',
+        'credit_free_payment' => 'Abono libre',
+        default => $type,
+    };
+    $snapshotLabel = function ($snapshot) {
+        $payload = $snapshot->payload ?? [];
+        $relations = $snapshot->relations_payload ?? [];
+
+        if ($snapshot->entity_type === 'credit_installment') {
+            $creditName = $relations['credit']['name'] ?? null;
+            $number = $payload['installment_number'] ?? null;
+            $period = ! empty($payload['period_month']) ? substr((string) $payload['period_month'], 0, 7) : null;
+
+            return collect([
+                $creditName,
+                'Mensualidad' . ($number ? ' ' . $number : ''),
+                $period,
+            ])->filter()->implode(' · ');
+        }
+
+        if ($snapshot->entity_type === 'credit_free_payment') {
+            $creditName = $relations['credit']['name'] ?? null;
+            $movementDescription = $relations['movement']['description'] ?? null;
+            $paidOn = $payload['paid_on'] ?? null;
+
+            return $creditName
+                ? 'Abono libre · ' . $creditName
+                : ($movementDescription ?? ('Abono libre' . ($paidOn ? ' del ' . $paidOn : '')));
+        }
+
+        return $payload['name']
+            ?? $payload['description']
+            ?? $payload['title']
+            ?? ('Registro #' . $snapshot->entity_id);
+    };
+    $snapshotAmount = function ($snapshot) {
+        $payload = $snapshot->payload ?? [];
+        $amount = $payload['total_amount'] ?? $payload['amount'] ?? $payload['amount_applied'] ?? null;
+
+        return is_numeric($amount) ? '$' . number_format((float) $amount, 2) : null;
     };
     $failureStatus = fn ($status) => $status === 'resolved'
         ? ['label' => 'Resuelta', 'class' => 'badge-soft-success']
@@ -639,36 +696,56 @@
         </div>
     </div>
 
-    <div class="col-xl-5">
+    <div class="col-12">
         <div class="card h-100">
             <div class="card-header">
-                <h4 class="card-title mb-0">Snapshots recientes</h4>
+                <h4 class="card-title mb-1">Papelera de borrados</h4>
+                <p class="text-muted small mb-0">Puedes restaurar registros durante {{ $snapshotRecoveryDays }} días. El deshacer inmediato sigue disponible por 2 minutos; las categorías desactivadas se reactivan sin perder cambios posteriores.</p>
             </div>
             <div class="card-body p-0">
                 <div class="table-responsive">
                     <table class="table table-hover mb-0">
                         <thead>
                             <tr>
-                                <th>Módulo</th>
+                                <th>Tipo</th>
                                 <th>Registro</th>
+                                <th>Eliminado</th>
                                 <th>Estado</th>
-                                <th>Expira</th>
+                                <th>Recuperable hasta</th>
+                                <th class="text-end">Acción</th>
                             </tr>
                         </thead>
                         <tbody>
                             @forelse ($snapshots as $snapshot)
                                 @php
                                     $status = $snapshotStatus($snapshot);
+                                    $recoveryUntil = $snapshotRecoveryUntil($snapshot);
                                 @endphp
                                 <tr>
-                                    <td>{{ $snapshot->entity_type }}</td>
-                                    <td>#{{ $snapshot->entity_id }}</td>
+                                    <td>{{ $snapshotType($snapshot->entity_type) }}</td>
+                                    <td>
+                                        <div class="fw-semibold">{{ $snapshotLabel($snapshot) }}</div>
+                                        <div class="text-muted small">#{{ $snapshot->entity_id }}@if ($snapshotAmount($snapshot)) · {{ $snapshotAmount($snapshot) }}@endif</div>
+                                    </td>
+                                    <td>{{ $dateTime($snapshot->created_at) }}</td>
                                     <td><span class="badge {{ $status['class'] }}">{{ $status['label'] }}</span></td>
-                                    <td>{{ $dateTime($snapshot->expires_at) }}</td>
+                                    <td>{{ $dateTime($recoveryUntil) }}</td>
+                                    <td class="text-end">
+                                        @if ($status['recoverable'])
+                                            <form method="POST" action="{{ route('finance.security.snapshots.restore', $snapshot->id) }}" onsubmit="return confirm('Se restaurará este registro y sus relaciones guardadas. ¿Continuar?');">
+                                                @csrf
+                                                <button type="submit" class="btn btn-sm btn-outline-primary">
+                                                    <i data-lucide="history" class="me-1"></i>Restaurar
+                                                </button>
+                                            </form>
+                                        @else
+                                            <span class="text-muted">—</span>
+                                        @endif
+                                    </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="4" class="text-center text-muted py-4">Sin snapshots recientes</td>
+                                    <td colspan="6" class="text-center text-muted py-4">Sin borrados recientes</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -678,7 +755,7 @@
         </div>
     </div>
 
-    <div class="col-xl-7">
+    <div class="col-12">
         <div class="card h-100">
             <div class="card-header">
                 <h4 class="card-title mb-0">Fallas financieras</h4>

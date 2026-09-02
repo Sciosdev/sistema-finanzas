@@ -20,7 +20,8 @@ afterEach(function () {
 
 function failingFinanceBackupServiceForSecurity(string $message): FinanceBackupService
 {
-    return new class($message) extends FinanceBackupService {
+    return new class($message) extends FinanceBackupService
+    {
         public function __construct(private readonly string $failureMessage)
         {
             parent::__construct();
@@ -78,9 +79,9 @@ it('shows the security screen with backups exports snapshots and failures', func
     File::ensureDirectoryExists($databaseDirectory);
     File::ensureDirectoryExists($fullDirectory);
     File::ensureDirectoryExists($exportDirectory);
-    File::put($databaseDirectory . DIRECTORY_SEPARATOR . 'manual.sql', '-- backup');
-    File::put($fullDirectory . DIRECTORY_SEPARATOR . 'manual.zip', 'zip');
-    File::put($exportDirectory . DIRECTORY_SEPARATOR . 'movimientos.xlsx', 'excel');
+    File::put($databaseDirectory.DIRECTORY_SEPARATOR.'manual.sql', '-- backup');
+    File::put($fullDirectory.DIRECTORY_SEPARATOR.'manual.zip', 'zip');
+    File::put($exportDirectory.DIRECTORY_SEPARATOR.'movimientos.xlsx', 'excel');
 
     createSecuritySnapshot($user, 'movement', '2026-06-22 12:01:00');
     createSecuritySnapshot($user, 'planned_payment', '2026-06-22 11:59:00', '2026-06-22 12:00:00');
@@ -103,10 +104,66 @@ it('shows the security screen with backups exports snapshots and failures', func
         ->assertSee('manual.sql')
         ->assertSee('manual.zip')
         ->assertSee('movimientos.xlsx')
-        ->assertSee('Disponible')
+        ->assertSee('Papelera de borrados')
+        ->assertSee('Deshacer rápido')
         ->assertSee('Restaurado')
-        ->assertSee('Expirado')
+        ->assertSee('Recuperable')
+        ->assertSee('30 días')
         ->assertSee('mysqldump no esta disponible');
+});
+
+it('does not allow an owner to restore another users snapshot from the trash', function () {
+    $owner = User::factory()->create();
+    $otherUser = User::factory()->create();
+    config()->set('finance.owner_email', $owner->email);
+
+    $snapshot = createSecuritySnapshot($otherUser, 'movement', now()->addMinute()->toDateTimeString());
+
+    $this->actingAs($owner)
+        ->post(route('finance.security.snapshots.restore', $snapshot))
+        ->assertRedirect()
+        ->assertSessionHas('error', 'No se encontró el registro borrado en la papelera.');
+
+    expect($snapshot->fresh()->restored_at)->toBeNull();
+});
+
+it('fails safely when a trash snapshot can no longer satisfy its relationships', function () {
+    $owner = User::factory()->create();
+    config()->set('finance.owner_email', $owner->email);
+
+    $snapshot = DeleteSnapshot::create([
+        'user_id' => $owner->id,
+        'token' => str()->random(40),
+        'entity_type' => 'movement',
+        'table_name' => 'finance_movements',
+        'entity_id' => 987654,
+        'payload' => [
+            'id' => 987654,
+            'user_id' => $owner->id,
+            'happened_on' => '2026-06-22',
+            'movement_type' => 'expense',
+            'amount' => 10,
+            'description' => 'Movimiento con cuenta inexistente',
+            'account_id' => 987654,
+            'created_at' => now()->toDateTimeString(),
+            'updated_at' => now()->toDateTimeString(),
+        ],
+        'relations_payload' => null,
+        'expires_at' => now()->subMinute(),
+    ]);
+
+    $this->actingAs($owner)
+        ->post(route('finance.security.snapshots.restore', $snapshot))
+        ->assertRedirect()
+        ->assertSessionHas('error', 'No se pudo recuperar el registro porque alguno de sus datos relacionados ya no está disponible.');
+
+    expect($snapshot->fresh()->restored_at)->toBeNull();
+    $this->assertDatabaseHas('finance_system_failures', [
+        'user_id' => $owner->id,
+        'module' => 'papelera',
+        'action' => 'restore',
+        'status' => 'open',
+    ]);
 });
 
 it('redirects guests away from the security screen', function () {
@@ -158,7 +215,7 @@ it('records external backup failures', function () {
     config()->set('finance.owner_email', $user->email);
     $localDirectory = storage_path('app/private/finance-backups/database');
     File::ensureDirectoryExists($localDirectory);
-    File::put($localDirectory . DIRECTORY_SEPARATOR . 'manual.sql', '-- backup');
+    File::put($localDirectory.DIRECTORY_SEPARATOR.'manual.sql', '-- backup');
     config()->set('finance.external_backup_path', storage_path('app/private/missing-external-path'));
 
     $this->actingAs($user)

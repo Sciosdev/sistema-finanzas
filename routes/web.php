@@ -72,6 +72,9 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
             Route::get('usuarios', [FinanceUserController::class, 'index'])->name('users.index');
             Route::post('usuarios', [FinanceUserController::class, 'store'])->name('users.store');
             Route::post('seguridad/deshacer/{token}', [FinanceSecurityController::class, 'undoDelete'])->name('security.undo-delete');
+            Route::post('seguridad/papelera/{snapshot}/restaurar', [FinanceSecurityController::class, 'restoreSnapshot'])
+                ->whereNumber('snapshot')
+                ->name('security.snapshots.restore');
             Route::post('seguridad/backups/database', [FinanceSecurityController::class, 'createDatabaseBackup'])->name('security.backups.database');
             Route::post('seguridad/backups/full', [FinanceSecurityController::class, 'createFullBackup'])->name('security.backups.full');
             Route::post('seguridad/backups/migration', [FinanceSecurityController::class, 'createMigrationPackage'])->name('security.backups.migration');

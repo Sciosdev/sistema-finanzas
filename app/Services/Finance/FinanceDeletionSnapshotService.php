@@ -10,8 +10,8 @@ use App\Models\Finance\DeleteSnapshot;
 use App\Models\Finance\ExpectedIncome;
 use App\Models\Finance\ExpectedIncomePayment;
 use App\Models\Finance\Movement;
-use App\Models\Finance\PlannedPayment;
 use App\Models\Finance\Person;
+use App\Models\Finance\PlannedPayment;
 use App\Models\Finance\RentalContract;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
@@ -22,6 +22,8 @@ use InvalidArgumentException;
 class FinanceDeletionSnapshotService
 {
     private const RESTORE_WINDOW_MINUTES = 2;
+
+    public const RECOVERY_WINDOW_DAYS = 30;
 
     /**
      * @var array<string, class-string<Model>>
@@ -90,22 +92,60 @@ class FinanceDeletionSnapshotService
                 ];
             }
 
-            $modelClass = $this->modelClassFor($snapshot->entity_type);
-
-            $result = $this->restoreSnapshot($user, $snapshot, $modelClass);
-
-            if (! $result['ok']) {
-                return $result;
-            }
-
-            $snapshot->update(['restored_at' => now()]);
-
-            return $result;
+            return $this->restoreLockedSnapshot($user, $snapshot);
         });
     }
 
+    public function restoreFromRecovery(User $user, int $snapshotId): array
+    {
+        return DB::transaction(function () use ($user, $snapshotId) {
+            $snapshot = DeleteSnapshot::where('user_id', $user->id)
+                ->whereKey($snapshotId)
+                ->lockForUpdate()
+                ->first();
+
+            if (! $snapshot) {
+                return [
+                    'ok' => false,
+                    'message' => 'No se encontró el registro borrado en la papelera.',
+                ];
+            }
+
+            if ($snapshot->restored_at) {
+                return [
+                    'ok' => false,
+                    'message' => 'Ese borrado ya fue restaurado.',
+                ];
+            }
+
+            if (! $snapshot->created_at || $snapshot->created_at->copy()->addDays(self::RECOVERY_WINDOW_DAYS)->lt(now())) {
+                return [
+                    'ok' => false,
+                    'message' => 'El periodo de recuperación de 30 días ya expiró.',
+                ];
+            }
+
+            return $this->restoreLockedSnapshot($user, $snapshot);
+        });
+    }
+
+    private function restoreLockedSnapshot(User $user, DeleteSnapshot $snapshot): array
+    {
+        $modelClass = $this->modelClassFor($snapshot->entity_type);
+
+        $result = $this->restoreSnapshot($user, $snapshot, $modelClass);
+
+        if (! $result['ok']) {
+            return $result;
+        }
+
+        $snapshot->update(['restored_at' => now()]);
+
+        return $result;
+    }
+
     /**
-     * @param class-string<Model> $modelClass
+     * @param  class-string<Model>  $modelClass
      */
     private function restoreSnapshot(User $user, DeleteSnapshot $snapshot, string $modelClass): array
     {
@@ -121,7 +161,7 @@ class FinanceDeletionSnapshotService
     }
 
     /**
-     * @param class-string<Model> $modelClass
+     * @param  class-string<Model>  $modelClass
      */
     private function restoreGeneric(User $user, DeleteSnapshot $snapshot, string $modelClass): array
     {
@@ -206,6 +246,21 @@ class FinanceDeletionSnapshotService
     private function restoreCategory(User $user, DeleteSnapshot $snapshot): array
     {
         $payload = $snapshot->payload;
+        $existing = Category::query()
+            ->where('user_id', $user->id)
+            ->whereKey($snapshot->entity_id)
+            ->first();
+
+        if ($existing) {
+            $existing->update([
+                'is_active' => (bool) ($payload['is_active'] ?? true),
+            ]);
+
+            return [
+                'ok' => true,
+                'message' => $this->restoredMessage($snapshot->entity_type),
+            ];
+        }
 
         if (Category::query()
             ->where('user_id', $user->id)
@@ -216,23 +271,6 @@ class FinanceDeletionSnapshotService
             return [
                 'ok' => false,
                 'message' => 'No se pudo restaurar porque ya existe otra categoría con el mismo nombre y tipo.',
-            ];
-        }
-
-        $existing = Category::query()
-            ->where('user_id', $user->id)
-            ->whereKey($snapshot->entity_id)
-            ->first();
-
-        if ($existing) {
-            DB::table($snapshot->table_name)
-                ->where('id', $snapshot->entity_id)
-                ->where('user_id', $user->id)
-                ->update(collect($payload)->except('id')->all());
-
-            return [
-                'ok' => true,
-                'message' => $this->restoredMessage($snapshot->entity_type),
             ];
         }
 
@@ -370,6 +408,7 @@ class FinanceDeletionSnapshotService
             ? CreditPurchase::query()
                 ->where('user_id', $user->id)
                 ->whereKey($creditId)
+                ->lockForUpdate()
                 ->first()
             : null;
 
@@ -413,6 +452,7 @@ class FinanceDeletionSnapshotService
             ? CreditPurchase::query()
                 ->where('user_id', $user->id)
                 ->whereKey($creditId)
+                ->lockForUpdate()
                 ->first()
             : null;
 
@@ -528,6 +568,7 @@ class FinanceDeletionSnapshotService
                 'credit' => $credit?->only([
                     'id',
                     'user_id',
+                    'name',
                     'total_amount',
                     'months',
                     'first_due_month',
@@ -537,11 +578,15 @@ class FinanceDeletionSnapshotService
         }
 
         if ($entityType === 'credit_free_payment' && $model instanceof CreditFreePayment) {
+            $credit = CreditPurchase::where('user_id', $user->id)
+                ->whereKey($model->credit_purchase_id)
+                ->first();
             $movement = $model->movement_id
                 ? Movement::where('user_id', $user->id)->whereKey($model->movement_id)->first()
                 : null;
 
             return [
+                'credit' => $credit?->only(['id', 'name']),
                 'movement' => $movement && $movement->source === 'credit_free_payment'
                     ? $movement->getAttributes()
                     : null,

@@ -613,18 +613,32 @@ class CreditPurchaseController extends Controller
         // que ya cubrió un abono libre: si no, el crédito quedaría sobrepagado.
         $freeApplied = $this->schedule->allocationFor($credit)[$installment->id] ?? 0.0;
 
-        $installment->update([
-            'period_month' => FinanceMonth::parse($data['period_month'])->toDateString(),
-            'due_date' => $data['due_date'] ?? null,
-            'amount' => $amount,
-            'status' => $data['status'],
-            'paid_amount' => $isPaid ? round(max(0, $amount - $freeApplied), 2) : 0,
-            'paid_on' => $isPaid ? ($data['paid_on'] ?? today()->toDateString()) : null,
-            'notes' => $data['notes'] ?? null,
-        ]);
+        DB::transaction(function () use ($installment, $credit, $data, $amount, $isPaid, $freeApplied) {
+            if (! $isPaid && $installment->movement_id) {
+                $movement = Movement::where('user_id', $installment->user_id)
+                    ->whereKey($installment->movement_id)
+                    ->lockForUpdate()
+                    ->first();
 
-        $this->schedule->flush($credit->id);
-        $this->refreshCreditFromInstallments($credit);
+                if ($movement?->source === 'credit_installment') {
+                    $movement->delete();
+                }
+            }
+
+            $installment->update([
+                'period_month' => FinanceMonth::parse($data['period_month'])->toDateString(),
+                'due_date' => $data['due_date'] ?? null,
+                'amount' => $amount,
+                'status' => $data['status'],
+                'paid_amount' => $isPaid ? round(max(0, $amount - $freeApplied), 2) : 0,
+                'paid_on' => $isPaid ? ($data['paid_on'] ?? today()->toDateString()) : null,
+                'movement_id' => $isPaid ? $installment->movement_id : null,
+                'notes' => $data['notes'] ?? null,
+            ]);
+
+            $this->schedule->flush($credit->id);
+            $this->refreshCreditFromInstallments($credit);
+        });
 
         return back()->with('success', 'Mensualidad actualizada.');
     }
@@ -819,10 +833,12 @@ class CreditPurchaseController extends Controller
             $paidAmount = $installment
                 ? min((float) $installment->paid_amount, $amount)
                 : 0;
-
-            if ($installment?->status === 'paid') {
-                $paidAmount = $amount;
-            }
+            // Corregir el total contratado no equivale a pagar la diferencia.
+            // Si una cuota pagada aumenta, conserva el dinero real registrado y
+            // reábrela por el residual en vez de inflar paid_amount en silencio.
+            $status = $installment?->status === 'paid' && $paidAmount + 0.004 >= $amount
+                ? 'paid'
+                : 'pending';
 
             CreditInstallment::updateOrCreate(
                 [
@@ -836,7 +852,7 @@ class CreditPurchaseController extends Controller
                     'amount' => $amount,
                     'paid_amount' => $paidAmount,
                     'paid_on' => $installment?->paid_on,
-                    'status' => $installment?->status === 'paid' ? 'paid' : 'pending',
+                    'status' => $status,
                     'movement_id' => $installment?->movement_id,
                     'notes' => $installment?->notes,
                 ]

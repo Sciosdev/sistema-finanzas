@@ -186,6 +186,146 @@ it('does not restore a full credit purchase after the two minute window expires'
     Carbon::setTestNow();
 });
 
+it('recovers a paid credit purchase from the trash after the quick undo expires', function () {
+    Carbon::setTestNow('2026-09-02 10:00:00');
+
+    $user = createFinanceUserForCreditPurchaseDeleteSnapshots();
+    $credit = CreditPurchase::create([
+        'user_id' => $user->id,
+        'purchase_date' => '2026-08-31',
+        'name' => 'Minecraft Realms - Realms',
+        'total_amount' => 65.83,
+        'months' => 1,
+        'first_due_month' => '2026-09-01',
+        'due_day' => 27,
+        'status' => 'paid',
+        'notes' => 'Generado desde flujo planeado',
+    ]);
+    $movement = Movement::create([
+        'user_id' => $user->id,
+        'happened_on' => '2026-09-01',
+        'movement_type' => 'expense',
+        'amount' => 65.83,
+        'description' => 'Crédito: Minecraft Realms - Realms 1/1',
+        'source' => 'credit_installment',
+    ]);
+    $installment = CreditInstallment::create([
+        'credit_purchase_id' => $credit->id,
+        'user_id' => $user->id,
+        'period_month' => '2026-09-01',
+        'due_date' => '2026-09-27',
+        'installment_number' => 1,
+        'amount' => 65.83,
+        'paid_amount' => 65.83,
+        'paid_on' => '2026-09-01',
+        'status' => 'paid',
+        'movement_id' => $movement->id,
+    ]);
+
+    $this->actingAs($user)
+        ->delete(route('finance.credits.destroy', $credit))
+        ->assertSessionHas('success', 'Crédito eliminado.');
+
+    $snapshot = DeleteSnapshot::where('entity_type', 'credit_purchase')
+        ->where('entity_id', $credit->id)
+        ->firstOrFail();
+
+    Carbon::setTestNow('2026-09-02 10:03:00');
+
+    $this->actingAs($user)
+        ->get(route('finance.security.index'))
+        ->assertOk()
+        ->assertSee('Minecraft Realms - Realms')
+        ->assertSee('$65.83')
+        ->assertSee('Recuperable')
+        ->assertSee(route('finance.security.snapshots.restore', $snapshot));
+
+    $this->actingAs($user)
+        ->post(route('finance.security.snapshots.restore', $snapshot))
+        ->assertRedirect()
+        ->assertSessionHas('success', 'Crédito restaurado.');
+
+    $restoredCredit = CreditPurchase::findOrFail($credit->id);
+    $restoredInstallment = CreditInstallment::findOrFail($installment->id);
+
+    expect($restoredCredit->name)->toBe('Minecraft Realms - Realms');
+    expect($restoredCredit->status)->toBe('paid');
+    expect((float) $restoredCredit->total_amount)->toBe(65.83);
+    expect($restoredInstallment->status)->toBe('paid');
+    expect((float) $restoredInstallment->paid_amount)->toBe(65.83);
+    expect($restoredInstallment->movement_id)->toBe($movement->id);
+    expect(Movement::whereKey($movement->id)->count())->toBe(1);
+    expect($snapshot->fresh()->restored_at)->not->toBeNull();
+
+    Carbon::setTestNow();
+});
+
+it('does not recover a credit purchase from the trash after thirty days', function () {
+    Carbon::setTestNow('2026-06-22 10:00:00');
+
+    $user = createFinanceUserForCreditPurchaseDeleteSnapshots();
+    $credit = createCreditPurchaseWithInstallmentsForSnapshot($user);
+
+    $this->actingAs($user)
+        ->delete(route('finance.credits.destroy', $credit))
+        ->assertSessionHas('success', 'Crédito eliminado.');
+
+    $snapshot = DeleteSnapshot::where('entity_type', 'credit_purchase')
+        ->where('entity_id', $credit->id)
+        ->firstOrFail();
+
+    Carbon::setTestNow('2026-07-23 10:00:00');
+
+    $this->actingAs($user)
+        ->post(route('finance.security.snapshots.restore', $snapshot))
+        ->assertRedirect()
+        ->assertSessionHas('error', 'El periodo de recuperación de 30 días ya expiró.');
+
+    expect(CreditPurchase::whereKey($credit->id)->exists())->toBeFalse();
+    expect($snapshot->fresh()->restored_at)->toBeNull();
+
+    Carbon::setTestNow();
+});
+
+it('removes the generated movement when a paid installment is reopened', function () {
+    Carbon::setTestNow('2026-06-22 10:00:00');
+
+    $user = createFinanceUserForCreditPurchaseDeleteSnapshots();
+    $credit = createCreditPurchaseWithInstallmentsForSnapshot($user);
+    $installment = $credit->installments()->where('installment_number', 1)->firstOrFail();
+    $movement = Movement::create([
+        'user_id' => $user->id,
+        'happened_on' => '2026-07-27',
+        'movement_type' => 'expense',
+        'amount' => 379.70,
+        'description' => 'Crédito: Amazon 1/3',
+        'source' => 'credit_installment',
+    ]);
+    $installment->update(['movement_id' => $movement->id]);
+
+    $this->actingAs($user)
+        ->put(route('finance.credits.installments.update', $installment), [
+            'period_month' => '2026-07',
+            'due_date' => '2026-07-27',
+            'amount' => 379.70,
+            'status' => 'pending',
+            'paid_on' => null,
+            'notes' => 'Primera mensualidad reabierta',
+        ])
+        ->assertRedirect()
+        ->assertSessionHas('success', 'Mensualidad actualizada.');
+
+    $installment->refresh();
+
+    expect($installment->status)->toBe('pending');
+    expect((float) $installment->paid_amount)->toBe(0.0);
+    expect($installment->paid_on)->toBeNull();
+    expect($installment->movement_id)->toBeNull();
+    expect(Movement::whereKey($movement->id)->exists())->toBeFalse();
+
+    Carbon::setTestNow();
+});
+
 it('prevents restoring the same full credit purchase token twice', function () {
     Carbon::setTestNow('2026-06-22 10:00:00');
 
