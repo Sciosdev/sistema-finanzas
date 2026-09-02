@@ -203,15 +203,27 @@ class PlannedPaymentController extends Controller
             $paidAmount = $amount;
         }
 
-        $payment->update(array_merge($data, $automaticCharge, [
-            'amount' => $amount,
-            'paid_amount' => $paidAmount,
-            'is_san_juan' => $flags['is_san_juan'] || (bool) $payment->is_san_juan,
-        ]));
+        $creditSync = DB::transaction(function () use ($payment, $data, $automaticCharge, $amount, $paidAmount, $flags) {
+            $payment->update(array_merge($data, $automaticCharge, [
+                'amount' => $amount,
+                'paid_amount' => $paidAmount,
+                'is_san_juan' => $flags['is_san_juan'] || (bool) $payment->is_san_juan,
+            ]));
 
-        return redirect()
+            return $this->syncGeneratedCreditFromPlannedPayment($payment);
+        });
+
+        $response = redirect()
             ->route('finance.planned.index', ['month' => $payment->period_month->format('Y-m')])
             ->with('success', 'Pago planeado actualizado.');
+
+        if ($creditSync === 'synced') {
+            $response->with('success', 'Pago planeado y crédito vinculado actualizados.');
+        } elseif ($creditSync === 'has_payments') {
+            $response->with('warning', 'El pago planeado cambió, pero el crédito vinculado ya tiene abonos. Ajusta también su total desde Créditos para no alterar pagos registrados.');
+        }
+
+        return $response;
     }
 
     public function copyMonth(Request $request)
@@ -515,6 +527,101 @@ class PlannedPaymentController extends Controller
                 'status' => 'pending',
             ]);
         }
+    }
+
+    /**
+     * Los créditos creados con "Pagar con crédito nuevo" pertenecen al pago
+     * planeado que los originó. Si después se corrige el monto, conserva ambos
+     * registros y sus mensualidades en sincronía mientras todavía no haya
+     * abonos reales que debamos respetar.
+     */
+    private function syncGeneratedCreditFromPlannedPayment(PlannedPayment $payment): string
+    {
+        if (! $payment->is_credit || ! $payment->credit_purchase_id) {
+            return 'not_applicable';
+        }
+
+        $credit = CreditPurchase::where('user_id', $payment->user_id)
+            ->whereKey($payment->credit_purchase_id)
+            ->lockForUpdate()
+            ->first();
+
+        if (! $credit || ! str_starts_with((string) $credit->notes, 'Generado desde flujo planeado:')) {
+            return 'not_applicable';
+        }
+
+        $usedByOtherPayment = PlannedPayment::where('credit_purchase_id', $credit->id)
+            ->where('id', '!=', $payment->id)
+            ->exists();
+
+        if ($usedByOtherPayment) {
+            return 'not_applicable';
+        }
+
+        $amount = round((float) $payment->amount, 2);
+        $amountChanged = abs((float) $credit->total_amount - $amount) > 0.004;
+        $hasPayments = $credit->installments()->where('paid_amount', '>', 0)->exists()
+            || $credit->freePayments()->exists();
+
+        if ($amountChanged && $hasPayments) {
+            return 'has_payments';
+        }
+
+        $credit->update([
+            'name' => $payment->name,
+            'total_amount' => $amount,
+            'account_id' => $payment->account_id,
+            'category_id' => $payment->category_id,
+            'notes' => 'Generado desde flujo planeado: '.$payment->name,
+        ]);
+
+        if ($amountChanged) {
+            $this->syncGeneratedCreditInstallments($credit, $amount);
+        }
+
+        return 'synced';
+    }
+
+    private function syncGeneratedCreditInstallments(CreditPurchase $credit, float $total): void
+    {
+        $months = max(1, (int) $credit->months);
+        $firstMonth = $credit->first_due_month?->copy()->startOfMonth()
+            ?? Carbon::parse($credit->purchase_date)->startOfMonth();
+        $dueDay = $credit->due_day ? (int) $credit->due_day : null;
+        $base = round($total / $months, 2);
+        $created = 0.0;
+
+        for ($index = 1; $index <= $months; $index++) {
+            $period = $firstMonth->copy()->addMonths($index - 1);
+            $amount = $index === $months ? round($total - $created, 2) : $base;
+            $created += $amount;
+            $dueDate = $dueDay
+                ? $period->copy()->day(min($dueDay, $period->daysInMonth))->toDateString()
+                : null;
+
+            CreditInstallment::updateOrCreate(
+                [
+                    'credit_purchase_id' => $credit->id,
+                    'installment_number' => $index,
+                ],
+                [
+                    'user_id' => $credit->user_id,
+                    'period_month' => $period->toDateString(),
+                    'due_date' => $dueDate,
+                    'amount' => $amount,
+                    'paid_amount' => 0,
+                    'paid_on' => null,
+                    'status' => 'pending',
+                    'movement_id' => null,
+                ]
+            );
+        }
+
+        $credit->installments()
+            ->where('installment_number', '>', $months)
+            ->delete();
+
+        $this->creditSchedule->flush($credit->id);
     }
 
     private function automaticChargeData(array $data): array

@@ -71,6 +71,116 @@ it('pays a planned payment by creating a new credit in one action', function () 
         ->and($payment->movement_id)->toBeNull();
 });
 
+it('keeps an automatically created credit in sync when the planned amount is corrected', function () {
+    $user = plannedCreditUser();
+    $card = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $payment = makePlannedPayment($user, [
+        'name' => 'Minecraft Realms - Realms',
+        'amount' => 65.38,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.credit-new', $payment), [
+            'account_id' => $card->id,
+            'months' => 1,
+        ]);
+
+    $this->actingAs($user)
+        ->put(route('finance.planned.update', $payment), [
+            'due_date' => '2026-06-27',
+            'name' => 'Minecraft Realms - Realms',
+            'amount' => 65.83,
+            'account_id' => $card->id,
+            'category_id' => $payment->category_id,
+        ])
+        ->assertRedirect(route('finance.planned.index', ['month' => '2026-06']))
+        ->assertSessionHas('success');
+
+    $payment->refresh();
+    $credit = $payment->creditPurchase()->firstOrFail();
+
+    expect((float) $payment->amount)->toBe(65.83)
+        ->and((float) $payment->paid_amount)->toBe(65.83)
+        ->and((float) $credit->total_amount)->toBe(65.83)
+        ->and((float) $credit->installments()->sum('amount'))->toBe(65.83)
+        ->and((float) $credit->installments()->firstOrFail()->amount)->toBe(65.83);
+
+    $this->actingAs($user)
+        ->get(route('finance.credits.index'))
+        ->assertOk()
+        ->assertSee('Total se le debe')
+        ->assertSee('$65.83');
+});
+
+it('does not change a pre-existing credit linked to a planned payment', function () {
+    $user = plannedCreditUser();
+    $card = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $payment = makePlannedPayment($user, ['amount' => 65.38]);
+    $credit = CreditPurchase::create([
+        'user_id' => $user->id,
+        'purchase_date' => '2026-06-15',
+        'name' => 'Crédito capturado aparte',
+        'total_amount' => 500,
+        'months' => 1,
+        'first_due_month' => '2026-07-01',
+        'due_day' => 27,
+        'account_id' => $card->id,
+        'status' => 'active',
+        'notes' => 'Registro manual',
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.credit-paid', $payment), [
+            'account_id' => $card->id,
+            'credit_purchase_id' => $credit->id,
+        ]);
+
+    $this->actingAs($user)
+        ->put(route('finance.planned.update', $payment), [
+            'due_date' => '2026-06-27',
+            'name' => 'Youtube Premium corregido',
+            'amount' => 65.83,
+            'account_id' => $card->id,
+            'category_id' => $payment->category_id,
+        ])
+        ->assertSessionHasNoErrors();
+
+    expect((float) $payment->fresh()->amount)->toBe(65.83)
+        ->and($credit->fresh()->name)->toBe('Crédito capturado aparte')
+        ->and((float) $credit->fresh()->total_amount)->toBe(500.0);
+});
+
+it('preserves payments already applied to an automatically created credit', function () {
+    $user = plannedCreditUser();
+    $card = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $payment = makePlannedPayment($user, ['amount' => 65.38]);
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.credit-new', $payment), [
+            'account_id' => $card->id,
+            'months' => 1,
+        ]);
+
+    $credit = $payment->fresh()->creditPurchase()->firstOrFail();
+    $installment = $credit->installments()->firstOrFail();
+    $installment->update(['paid_amount' => 10, 'status' => 'partially_paid']);
+
+    $this->actingAs($user)
+        ->put(route('finance.planned.update', $payment), [
+            'due_date' => '2026-06-27',
+            'name' => 'Youtube Premium',
+            'amount' => 65.83,
+            'account_id' => $card->id,
+            'category_id' => $payment->category_id,
+        ])
+        ->assertSessionHas('warning');
+
+    expect((float) $payment->fresh()->amount)->toBe(65.83)
+        ->and((float) $credit->fresh()->total_amount)->toBe(65.38)
+        ->and((float) $installment->fresh()->amount)->toBe(65.38)
+        ->and((float) $installment->fresh()->paid_amount)->toBe(10.0);
+});
+
 it('uses the card credit cycle for the new credit due dates when configured', function () {
     $user = plannedCreditUser();
     $card = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
