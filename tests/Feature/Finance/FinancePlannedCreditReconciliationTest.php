@@ -222,13 +222,15 @@ it('lets Credits unify future planned copies after an earlier month was reconcil
         'paid_amount' => 0,
         'status' => 'pending',
         'account_id' => $planned->account_id,
+        'is_credit' => true,
     ]);
 
     $this->actingAs($user)
         ->post(route('finance.credits.sync-planned-series', $credit))
         ->assertSessionHas('success');
     expect($future->fresh()->credit_installment_id)->toBe($next->id)
-        ->and($future->fresh()->status)->toBe('pending');
+        ->and($future->fresh()->status)->toBe('pending')
+        ->and($future->fresh()->is_credit)->toBeFalse();
 
     $this->actingAs($user)
         ->post(route('finance.credits.sync-planned-series', $credit))
@@ -274,6 +276,25 @@ it('unifies a new copied payment with the known credit series automatically', fu
     $copy = PlannedPayment::where('user_id', $user->id)
         ->whereDate('period_month', '2026-10-01')->sole();
     expect($copy->credit_installment_id)->toBe($next->id)
+        ->and(Movement::where('user_id', $user->id)->count())->toBe(0);
+});
+
+it('can link an imported credit-category payment before it is paid', function () {
+    [$user, , $installment, $planned] = reconciliationFixture();
+    $planned->update(['is_credit' => true]);
+
+    $this->actingAs($user)
+        ->get(route('finance.planned.index', ['month' => '2026-09']))
+        ->assertOk()
+        ->assertSee('Conciliar con una mensualidad');
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.link-installment', $planned), ['credit_installment_id' => $installment->id])
+        ->assertSessionHas('success');
+
+    expect($planned->fresh()->credit_installment_id)->toBe($installment->id)
+        ->and($planned->fresh()->is_credit)->toBeFalse()
+        ->and($installment->fresh()->status)->toBe('pending')
         ->and(Movement::where('user_id', $user->id)->count())->toBe(0);
 });
 

@@ -90,7 +90,6 @@ class CreditPlannedSeriesService
                     ->whereNull('credit_installment_id')
                     ->whereNull('credit_purchase_id')
                     ->whereNull('movement_id')
-                    ->where('is_credit', false)
                     ->whereIn('status', ['pending', 'overdue'])
                     ->where('paid_amount', 0)
                     ->lockForUpdate()
@@ -100,7 +99,10 @@ class CreditPlannedSeriesService
                     continue;
                 }
 
-                $matches->first()->update(['credit_installment_id' => $installment->id]);
+                $matches->first()->update([
+                    'credit_installment_id' => $installment->id,
+                    'is_credit' => false,
+                ]);
                 $linked++;
             }
 

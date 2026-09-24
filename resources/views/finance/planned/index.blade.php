@@ -115,7 +115,8 @@
         $canLinkMovement = $payment->status !== 'paid' || (! $payment->movement_id && ! $payment->is_credit);
         $canUseCreditPayment = $payment->status !== 'paid' || (! $payment->movement_id && ! $payment->is_credit);
         $linkedInstallment = $payment->creditInstallment;
-        $installmentCandidates = $payment->credit_installment_id || $payment->is_credit || $payment->credit_purchase_id
+        $installmentCandidates = $payment->credit_installment_id || $payment->credit_purchase_id
+            || ($payment->is_credit && $payment->status === 'paid')
             ? collect()
             : $creditInstallments->filter(function ($installment) use ($payment, $linkedInstallmentIds, $creditInstallmentDue) {
                 if (in_array($installment->id, $linkedInstallmentIds, true)

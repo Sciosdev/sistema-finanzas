@@ -771,7 +771,8 @@ class PlannedPaymentController extends Controller
                 return 'already_linked';
             }
 
-            if ($payment->credit_installment_id || $payment->is_credit || $payment->credit_purchase_id
+            if ($payment->credit_installment_id || $payment->credit_purchase_id
+                || ($payment->is_credit && $payment->status === 'paid')
                 || ! $payment->period_month?->isSameMonth($installment->period_month)
                 || PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
                 return 'invalid';
@@ -794,7 +795,7 @@ class PlannedPaymentController extends Controller
                     return 'invalid';
                 }
 
-                $payment->update(['credit_installment_id' => $installment->id]);
+                $payment->update(['credit_installment_id' => $installment->id, 'is_credit' => false]);
 
                 return 'linked_pending';
             }
