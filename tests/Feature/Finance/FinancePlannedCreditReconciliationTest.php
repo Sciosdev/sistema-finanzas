@@ -7,6 +7,7 @@ use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
 use App\Models\User;
 use App\Services\Finance\FinanceCatalogService;
+use App\Services\Finance\FinanceProjectionService;
 use App\Services\Finance\FinanceSummaryService;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -97,7 +98,8 @@ it('reconciles an existing planned expense with a pending installment without an
     $this->actingAs($user)
         ->get(route('finance.planned.index', ['month' => '2026-09']))
         ->assertOk()
-        ->assertSee('Misma mensualidad; se cuenta una vez');
+        ->assertDontSee('planned-payment-actions-'.$planned->id)
+        ->assertSee('Equipo familiar');
 
     $this->actingAs($user)
         ->post(route('finance.credits.installments.paid', $installment))
@@ -112,6 +114,167 @@ it('reconciles an existing planned expense with a pending installment without an
         ->and($installment->fresh()->status)->toBe('pending')
         ->and($installment->fresh()->movement_id)->toBeNull()
         ->and(Movement::whereKey($movement->id)->exists())->toBeTrue();
+});
+
+it('links future copies once and pays a linked installment from Credits with one expense', function () {
+    [$user, $credit, $installment, $planned, $creditAccount] = reconciliationFixture();
+    $cashAccount = Account::where('user_id', $user->id)->where('name', 'BBVA')->firstOrFail();
+    $nextInstallment = $credit->installments()->whereDate('period_month', '2026-10-01')->firstOrFail();
+    $futurePlanned = PlannedPayment::create([
+        'user_id' => $user->id,
+        'period_month' => '2026-10-01',
+        'due_date' => '2026-10-20',
+        'name' => $planned->name,
+        'amount' => $planned->amount,
+        'paid_amount' => 0,
+        'status' => 'pending',
+        'account_id' => $planned->account_id,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.link-installment', $planned), ['credit_installment_id' => $installment->id])
+        ->assertSessionHas('success');
+
+    expect($planned->fresh()->status)->toBe('pending')
+        ->and($futurePlanned->fresh()->credit_installment_id)->toBe($nextInstallment->id)
+        ->and(Movement::where('user_id', $user->id)->count())->toBe(0);
+
+    $september = app(FinanceSummaryService::class)->monthSummary($user, '2026-09')['obligation_totals'];
+    $october = app(FinanceSummaryService::class)->monthSummary($user, '2026-10')['obligation_totals'];
+    expect($september['pending'])->toBe(4800.0)
+        ->and($october['pending'])->toBe(4800.0);
+
+    $octoberObligation = app(FinanceSummaryService::class)
+        ->monthObligations($user, Carbon::parse('2026-10-01'), Carbon::parse('2026-10-31'))
+        ->firstWhere('source', 'credit');
+    expect($octoberObligation['due_date']->toDateString())->toBe('2026-10-20');
+
+    $projection = app(FinanceProjectionService::class)->projectUntil($user, Carbon::parse('2026-10-31'));
+    expect($projection['summary']['total_installments'])->toBe(9600.0)
+        ->and($projection['summary']['total_payments'])->toBe(0.0)
+        ->and(collect($projection['days'])->firstWhere('date', '2026-10-20')['installments'])->toHaveCount(1);
+
+    $this->actingAs($user)
+        ->get(route('finance.planned.index', ['month' => '2026-10']))
+        ->assertOk()
+        ->assertDontSee('planned-payment-actions-'.$futurePlanned->id)
+        ->assertSee('Equipo familiar');
+
+    $this->actingAs($user)
+        ->post(route('finance.credits.installments.paid', $installment), [
+            'paid_on' => '2026-09-20',
+            'payment_account_id' => $cashAccount->id,
+        ])
+        ->assertSessionHas('success');
+
+    $movement = Movement::where('user_id', $user->id)->sole();
+    expect($movement->account_id)->toBe($cashAccount->id)
+        ->and($movement->source)->toBe('credit_installment')
+        ->and($planned->fresh()->status)->toBe('paid')
+        ->and($installment->fresh()->status)->toBe('paid')
+        ->and($planned->fresh()->movement_id)->toBe($movement->id)
+        ->and($installment->fresh()->movement_id)->toBe($movement->id)
+        ->and($credit->fresh()->status)->toBe('partially_paid');
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.copy'), ['source_month' => '2026-10', 'target_month' => '2026-11'])
+        ->assertRedirect(route('finance.planned.index', ['month' => '2026-11']));
+    expect(PlannedPayment::where('user_id', $user->id)->count())->toBe(2);
+});
+
+it('keeps bulk creditor payments in sync with a linked planned payment', function () {
+    [$user, , $installment, $planned, $creditAccount] = reconciliationFixture();
+    $cashAccount = Account::where('user_id', $user->id)->where('name', 'BBVA')->firstOrFail();
+    $this->actingAs($user)
+        ->post(route('finance.planned.link-installment', $planned), ['credit_installment_id' => $installment->id])
+        ->assertSessionHas('success');
+
+    $this->actingAs($user)
+        ->post(route('finance.credits.creditors.pay-month'), [
+            'account_id' => $creditAccount->id,
+            'creditor_name' => $creditAccount->name,
+            'paid_on' => '2026-09-20',
+            'payment_account_id' => $cashAccount->id,
+        ])
+        ->assertSessionHas('success');
+
+    $movement = Movement::where('user_id', $user->id)->sole();
+    expect($movement->account_id)->toBe($cashAccount->id)
+        ->and($planned->fresh()->status)->toBe('paid')
+        ->and($planned->fresh()->movement_id)->toBe($movement->id)
+        ->and($installment->fresh()->movement_id)->toBe($movement->id);
+});
+
+it('lets Credits unify future planned copies after an earlier month was reconciled', function () {
+    [$user, $credit, $installment, $planned] = reconciliationFixture();
+    $this->actingAs($user)->post(route('finance.planned.paid', $planned));
+    $this->actingAs($user)
+        ->post(route('finance.planned.link-installment', $planned), ['credit_installment_id' => $installment->id])
+        ->assertSessionHas('success');
+
+    $next = $credit->installments()->whereDate('period_month', '2026-10-01')->firstOrFail();
+    $future = PlannedPayment::create([
+        'user_id' => $user->id,
+        'period_month' => '2026-10-01',
+        'due_date' => '2026-10-20',
+        'name' => $planned->name,
+        'amount' => $planned->amount,
+        'paid_amount' => 0,
+        'status' => 'pending',
+        'account_id' => $planned->account_id,
+    ]);
+
+    $this->actingAs($user)
+        ->post(route('finance.credits.sync-planned-series', $credit))
+        ->assertSessionHas('success');
+    expect($future->fresh()->credit_installment_id)->toBe($next->id)
+        ->and($future->fresh()->status)->toBe('pending');
+
+    $this->actingAs($user)
+        ->post(route('finance.credits.sync-planned-series', $credit))
+        ->assertSessionHas('success');
+    expect(PlannedPayment::where('user_id', $user->id)->count())->toBe(2);
+});
+
+it('syncs a selected credit payment and its planned copy without a second movement', function () {
+    [$user, , $installment, $planned] = reconciliationFixture();
+    $this->actingAs($user)
+        ->post(route('finance.planned.link-installment', $planned), ['credit_installment_id' => $installment->id])
+        ->assertSessionHas('success');
+
+    $this->actingAs($user)
+        ->post(route('finance.credits.installments.pay-selected'), [
+            'installment_ids' => [$installment->id],
+            'paid_on' => '2026-09-20',
+        ])
+        ->assertSessionHas('success');
+
+    expect(Movement::where('user_id', $user->id)->count())->toBe(1)
+        ->and($planned->fresh()->status)->toBe('paid')
+        ->and($installment->fresh()->movement_id)->toBe($planned->fresh()->movement_id);
+});
+
+it('unifies a new copied payment with the known credit series automatically', function () {
+    [$user, $credit, $installment, $planned] = reconciliationFixture();
+    $this->actingAs($user)
+        ->post(route('finance.planned.link-installment', $planned), ['credit_installment_id' => $installment->id])
+        ->assertSessionHas('success');
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.store'), [
+            'period_month' => '2026-10',
+            'due_date' => '2026-10-20',
+            'name' => $planned->name,
+            'amount' => $planned->amount,
+            'account_id' => $planned->account_id,
+        ])
+        ->assertSessionHas('success', 'La cuota ya aparece en Créditos; quedó unificada y se paga desde ahí.');
+
+    $next = $credit->installments()->whereDate('period_month', '2026-10-01')->firstOrFail();
+    $copy = PlannedPayment::where('user_id', $user->id)
+        ->whereDate('period_month', '2026-10-01')->sole();
+    expect($copy->credit_installment_id)->toBe($next->id)
+        ->and(Movement::where('user_id', $user->id)->count())->toBe(0);
 });
 
 it('reconciles a credit installment already paid with a pending planned payment', function () {

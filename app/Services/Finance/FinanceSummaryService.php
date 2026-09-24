@@ -158,7 +158,7 @@ class FinanceSummaryService
             ->map(fn (PlannedPayment $payment) => $this->plannedObligation($payment))
             ->toBase();
 
-        $credits = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.category', 'creditPurchase.freePayments', 'creditPurchase.installments'])
+        $credits = CreditInstallment::with(['plannedPayment', 'creditPurchase.account', 'creditPurchase.category', 'creditPurchase.freePayments', 'creditPurchase.installments'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->get()
@@ -355,6 +355,7 @@ class FinanceSummaryService
     {
         return PlannedPayment::with(['category', 'person'])
             ->where('user_id', $user->id)
+            ->whereNull('credit_installment_id')
             ->where('status', 'pending')
             ->whereDate('due_date', '<', today()->toDateString())
             ->orderBy('due_date')
@@ -418,6 +419,10 @@ class FinanceSummaryService
     private function creditObligation(CreditInstallment $installment): array
     {
         $credit = $installment->creditPurchase;
+        $plannedDue = $installment->plannedPayment?->due_date;
+        $dueDate = $plannedDue && $installment->due_date
+            ? ($plannedDue->lt($installment->due_date) ? $plannedDue : $installment->due_date)
+            : ($plannedDue ?? $installment->due_date);
         $amount = (float) $installment->amount;
         $paidAmount = (float) $installment->paid_amount;
         $isSkipped = $installment->status === 'skipped';
@@ -429,7 +434,7 @@ class FinanceSummaryService
         $isPending = in_array($installment->status, ['pending', 'overdue'], true) && $amountDue > 0;
         $isOverdue = $isPending && (
             $installment->status === 'overdue'
-            || ($installment->due_date && $installment->due_date->copy()->startOfDay()->lt(today()->startOfDay()))
+            || ($dueDate && $dueDate->copy()->startOfDay()->lt(today()->startOfDay()))
         );
         $status = $isOverdue ? 'overdue' : $installment->status;
         $months = $credit?->months ?? '-';
@@ -445,9 +450,10 @@ class FinanceSummaryService
         return [
             'source' => 'credit',
             'id' => $installment->id,
-            'due_date' => $installment->due_date,
+            'due_date' => $dueDate,
             'name' => 'Crédito: ' . ($credit?->name ?? 'Sin nombre'),
-            'detail' => 'Mensualidad ' . $installment->installment_number . ' / ' . $months,
+            'detail' => 'Mensualidad ' . $installment->installment_number . ' / ' . $months
+                .($plannedDue ? ' · pago previsto '. $plannedDue->format('Y-m-d') : ''),
             'credit_name' => $credit?->name ?? 'Sin nombre',
             'installment_number' => $installment->installment_number,
             'installment_total' => $months,

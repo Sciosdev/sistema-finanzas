@@ -12,6 +12,7 @@ use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
 use App\Services\Finance\CreditEffectiveScheduleService;
 use App\Services\Finance\CreditFreePaymentService;
+use App\Services\Finance\CreditPlannedSeriesService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceCutSuggestionService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
@@ -32,6 +33,7 @@ class CreditPurchaseController extends Controller
         private readonly CreditFreePaymentService $freePayments,
         private readonly FinanceCutSuggestionService $cutSuggestions,
         private readonly CreditEffectiveScheduleService $schedule,
+        private readonly CreditPlannedSeriesService $plannedSeries,
     ) {}
 
     public function index(Request $request)
@@ -43,7 +45,7 @@ class CreditPurchaseController extends Controller
             'account',
             'category',
             'freePayments.movement',
-            'installments' => fn ($query) => $query->orderBy('installment_number'),
+            'installments' => fn ($query) => $query->with(['movement', 'plannedPayment'])->orderBy('installment_number'),
         ])
             ->where('user_id', $user->id)
             ->orderByDesc('purchase_date')
@@ -55,6 +57,14 @@ class CreditPurchaseController extends Controller
         $currentMonth = now()->startOfMonth();
         $nextMonth = $currentMonth->copy()->addMonth();
         $creditorSummaries = $this->creditorSummaries($credits, $creditTotals, $currentMonth, $nextMonth);
+        $paymentAccountDefaults = $credits->mapWithKeys(function (CreditPurchase $credit) {
+            $lastPaid = $credit->installments
+                ->filter(fn (CreditInstallment $installment) => $installment->status === 'paid' && $installment->movement?->account_id)
+                ->sortByDesc(fn (CreditInstallment $installment) => $installment->paid_on?->timestamp ?? 0)
+                ->first();
+
+            return [$credit->id => $lastPaid?->movement?->account_id ?? $credit->account_id];
+        });
         $creditorsWithLimit = collect($creditorSummaries)->filter(fn ($creditor) => ! is_null($creditor['credit_limit'] ?? null));
         $creditLineSummary = [
             'has_limits' => $creditorsWithLimit->isNotEmpty(),
@@ -99,6 +109,7 @@ class CreditPurchaseController extends Controller
             'creditTotals' => $creditTotals,
             'creditSchedules' => $creditSchedules,
             'creditorSummaries' => $creditorSummaries,
+            'paymentAccountDefaults' => $paymentAccountDefaults,
             'creditLineSummary' => $creditLineSummary,
             'summary' => $summary,
             'summaryWithoutOnix' => $summaryWithoutOnix,
@@ -372,47 +383,49 @@ class CreditPurchaseController extends Controller
     {
         abort_unless($installment->user_id === $request->user()->id, 403);
 
-        if (PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
-            return back()->with('error', 'Esta mensualidad ya está vinculada con un pago planeado.');
+        if ($installment->status === 'paid') {
+            return back()->with('error', 'Esta mensualidad ya estaba pagada.');
         }
 
         $data = $request->validate([
             'paid_on' => ['nullable', 'date'],
+            'payment_account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $request->user()->id))],
         ]);
 
         $paidOn = isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today();
-        $credit = $installment->creditPurchase()->firstOrFail();
-        // Solo se cobra lo que falta DE VERDAD: si un abono libre ya cubrió parte
-        // de esta mensualidad, ese dinero ya salió de la cuenta y no se vuelve a
-        // descontar.
-        $remaining = $this->effectiveRemaining($credit, $installment);
+        DB::transaction(function () use ($installment, $paidOn, $data) {
+            $installment = CreditInstallment::whereKey($installment->id)->lockForUpdate()->firstOrFail();
+            if ($installment->status === 'paid') {
+                throw ValidationException::withMessages(['paid_on' => 'Esta mensualidad ya estaba pagada.']);
+            }
 
-        $movement = null;
-
-        if ($remaining > 0) {
-            $movement = Movement::create([
-                'user_id' => $installment->user_id,
-                'happened_on' => $paidOn->toDateString(),
-                'movement_type' => 'expense',
-                'amount' => $remaining,
-                'description' => 'Crédito: '.$credit->name.' '.$installment->installment_number.'/'.$credit->months,
-                'account_id' => $credit->account_id,
-                'category_id' => $credit->category_id,
-                'source' => 'credit_installment',
-            ]);
-        }
-
-        $installment->update([
-            'status' => 'paid',
-            'paid_amount' => $this->settledPaidAmount($installment, $remaining),
-            'paid_on' => $paidOn->toDateString(),
-            'movement_id' => $movement?->id ?? $installment->movement_id,
-        ]);
-
-        $this->schedule->flush($credit->id);
-        $this->refreshCreditStatus($credit);
+            $this->payInstallment($installment, $paidOn, $data['payment_account_id'] ?? null);
+            $credit = $installment->creditPurchase;
+            $this->schedule->flush($credit->id);
+            $this->refreshCreditStatus($credit);
+        });
 
         return back()->with('success', 'Mensualidad marcada como pagada.');
+    }
+
+    public function syncPlannedSeries(Request $request, CreditPurchase $credit)
+    {
+        abort_unless($credit->user_id === $request->user()->id, 403);
+
+        $template = PlannedPayment::where('user_id', $credit->user_id)
+            ->whereIn('credit_installment_id', $credit->installments()->select('id'))
+            ->orderBy('period_month')
+            ->first();
+
+        if (! $template) {
+            return back()->with('warning', 'Primero vincula una mensualidad con su pago planeado.');
+        }
+
+        $count = $this->plannedSeries->linkFuture($template);
+
+        return back()->with('success', $count
+            ? "Se unificaron {$count} pagos futuros con sus mensualidades."
+            : 'Los pagos futuros de este crédito ya están unificados o no tienen una coincidencia única.');
     }
 
     /**
@@ -429,6 +442,7 @@ class CreditPurchaseController extends Controller
             'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'creditor_name' => ['nullable', 'string', 'max:255'],
             'paid_on' => ['nullable', 'date'],
+            'payment_account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
         ]);
 
         $accountId = $data['account_id'] ?? null;
@@ -445,7 +459,7 @@ class CreditPurchaseController extends Controller
         $paidCount = 0;
         $paidTotal = 0.0;
 
-        DB::transaction(function () use ($credits, $currentMonth, $paidOn, &$paidCount, &$paidTotal) {
+        DB::transaction(function () use ($credits, $currentMonth, $paidOn, $data, &$paidCount, &$paidTotal) {
             foreach ($credits as $credit) {
                 $touched = false;
                 $this->schedule->flush($credit->id);
@@ -463,23 +477,10 @@ class CreditPurchaseController extends Controller
                         continue;
                     }
 
-                    $movement = Movement::create([
-                        'user_id' => $installment->user_id,
-                        'happened_on' => $paidOn->toDateString(),
-                        'movement_type' => 'expense',
-                        'amount' => $remaining,
-                        'description' => 'Crédito: '.$credit->name.' '.$installment->installment_number.'/'.$credit->months,
-                        'account_id' => $credit->account_id,
-                        'category_id' => $credit->category_id,
-                        'source' => 'credit_installment',
-                    ]);
-
-                    $installment->update([
-                        'status' => 'paid',
-                        'paid_amount' => $this->settledPaidAmount($installment, $remaining),
-                        'paid_on' => $paidOn->toDateString(),
-                        'movement_id' => $movement->id,
-                    ]);
+                    $remaining = $this->payInstallment($installment, $paidOn, $data['payment_account_id'] ?? null);
+                    if ($remaining <= 0) {
+                        continue;
+                    }
 
                     $paidCount++;
                     $paidTotal = round($paidTotal + $remaining, 2);
@@ -519,6 +520,7 @@ class CreditPurchaseController extends Controller
             'installment_ids' => ['required', 'array', 'min:1'],
             'installment_ids.*' => ['integer'],
             'paid_on' => ['nullable', 'date'],
+            'payment_account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
         ]);
 
         $paidOn = isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today();
@@ -531,7 +533,7 @@ class CreditPurchaseController extends Controller
         $paidCount = 0;
         $paidTotal = 0.0;
 
-        DB::transaction(function () use ($installments, $paidOn, &$paidCount, &$paidTotal) {
+        DB::transaction(function () use ($installments, $paidOn, $data, &$paidCount, &$paidTotal) {
             $affected = [];
 
             foreach ($installments as $installment) {
@@ -547,23 +549,10 @@ class CreditPurchaseController extends Controller
                     continue;
                 }
 
-                $movement = Movement::create([
-                    'user_id' => $installment->user_id,
-                    'happened_on' => $paidOn->toDateString(),
-                    'movement_type' => 'expense',
-                    'amount' => $remaining,
-                    'description' => 'Crédito: '.$credit->name.' '.$installment->installment_number.'/'.$credit->months,
-                    'account_id' => $credit->account_id,
-                    'category_id' => $credit->category_id,
-                    'source' => 'credit_installment',
-                ]);
-
-                $installment->update([
-                    'status' => 'paid',
-                    'paid_amount' => $this->settledPaidAmount($installment, $remaining),
-                    'paid_on' => $paidOn->toDateString(),
-                    'movement_id' => $movement->id,
-                ]);
+                $remaining = $this->payInstallment($installment, $paidOn, $data['payment_account_id'] ?? null);
+                if ($remaining <= 0) {
+                    continue;
+                }
 
                 $paidCount++;
                 $paidTotal = round($paidTotal + $remaining, 2);
@@ -941,6 +930,63 @@ class CreditPurchaseController extends Controller
         $this->freePayments->syncCreditStatus($credit);
     }
 
+    /** Registra un solo egreso y, si existe, salda el pago planeado vinculado. */
+    private function payInstallment(CreditInstallment $installment, Carbon $paidOn, ?int $paymentAccountId): float
+    {
+        $installment = CreditInstallment::where('user_id', $installment->user_id)
+            ->whereKey($installment->id)->lockForUpdate()->firstOrFail();
+        if ($installment->status === 'paid') {
+            return 0.0;
+        }
+
+        $credit = $installment->creditPurchase()->firstOrFail();
+        $remaining = $this->effectiveRemaining($credit, $installment);
+        $planned = PlannedPayment::where('user_id', $installment->user_id)
+            ->where('credit_installment_id', $installment->id)
+            ->lockForUpdate()->first();
+
+        if ($planned && (! in_array($planned->status, ['pending', 'overdue'], true)
+            || $planned->movement_id || (float) $planned->paid_amount > 0
+            || ! $planned->period_month?->isSameMonth($installment->period_month)
+            || abs((float) $planned->amount - $remaining) >= 0.005)) {
+            throw ValidationException::withMessages([
+                'paid_on' => 'La mensualidad y su pago planeado ya no coinciden. Revisa el vínculo antes de pagar.',
+            ]);
+        }
+
+        $movement = $remaining > 0 ? Movement::create([
+            'user_id' => $installment->user_id,
+            'happened_on' => $paidOn->toDateString(),
+            'movement_type' => 'expense',
+            'amount' => $remaining,
+            'description' => 'Crédito: '.$credit->name.' '.$installment->installment_number.'/'.$credit->months,
+            'account_id' => $paymentAccountId ?? $credit->account_id,
+            'category_id' => $credit->category_id ?? $planned?->category_id,
+            'person_id' => $planned?->person_id,
+            'is_san_juan' => $planned?->is_san_juan ?? false,
+            'source' => 'credit_installment',
+        ]) : null;
+
+        $installment->update([
+            'status' => 'paid',
+            'paid_amount' => $this->settledPaidAmount($installment, $remaining),
+            'paid_on' => $paidOn->toDateString(),
+            'movement_id' => $movement?->id ?? $installment->movement_id,
+        ]);
+        $this->schedule->flush($credit->id);
+
+        if ($planned) {
+            $planned->update([
+                'status' => 'paid',
+                'paid_amount' => $planned->amount,
+                'paid_on' => $paidOn->toDateString(),
+                'movement_id' => $movement->id,
+            ]);
+        }
+
+        return $remaining;
+    }
+
     /**
      * Lo que falta pagar EN DINERO de una mensualidad: lo contratado, menos lo
      * ya pagado, menos los abonos libres que le tocaron. Es el importe del
@@ -1039,6 +1085,10 @@ class CreditPurchaseController extends Controller
                     ->values();
 
                 $account = $group->first()?->account;
+                $lastPaid = $group->flatMap->installments
+                    ->filter(fn (CreditInstallment $installment) => $installment->status === 'paid' && $installment->movement?->account_id)
+                    ->sortByDesc(fn (CreditInstallment $installment) => $installment->paid_on?->timestamp ?? 0)
+                    ->first();
                 $creditLimit = ($account && $account->credit_limit !== null) ? (float) $account->credit_limit : null;
                 $pending = round($items->sum('pending'), 2);
 
@@ -1071,6 +1121,7 @@ class CreditPurchaseController extends Controller
                     'name' => $creditorName,
                     'key' => str('creditor-'.$creditorName)->slug()->toString() ?: 'sin-acreedor',
                     'account_id' => $account?->id,
+                    'payment_account_id' => $lastPaid?->movement?->account_id ?? $account?->id,
                     'style' => $style,
                     'pending_installments' => $pendingInstallments,
                     'count' => $items->count(),

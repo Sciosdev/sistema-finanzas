@@ -87,6 +87,7 @@ class FinancePendingResolutionService
                 ->where(fn ($q) => $q->where('is_rent', true)->orWhere('is_san_juan', true))
                 ->count()),
             'planned_overdue' => PlannedPayment::where('user_id', $user->id)
+                ->whereNull('credit_installment_id')
                 ->whereIn('status', ['pending', 'overdue'])
                 ->whereNotNull('due_date')->whereDate('due_date', '<', $date)
                 ->whereColumn('amount', '>', 'paid_amount')->count(),
@@ -218,6 +219,7 @@ class FinancePendingResolutionService
     {
         return PlannedPayment::query()
             ->where('user_id', $user->id)
+            ->whereNull('credit_installment_id')
             ->whereIn('status', ['pending', 'overdue'])
             ->whereNotNull('due_date')
             ->whereDate('due_date', '<', $today->toDateString())

@@ -218,6 +218,12 @@
                                 @csrf
                                 <input type="hidden" name="account_id" value="{{ $creditor['account_id'] ?? '' }}">
                                 <input type="hidden" name="creditor_name" value="{{ $creditor['name'] }}">
+                                <label class="form-label small mb-1" for="pay-month-account-{{ $creditor['key'] }}">Cuenta de donde salió</label>
+                                <select id="pay-month-account-{{ $creditor['key'] }}" name="payment_account_id" class="form-select form-select-sm mb-2" required>
+                                    @foreach ($accounts as $account)
+                                        <option value="{{ $account->id }}" @selected(($creditor['payment_account_id'] ?? null) === $account->id)>{{ $account->name }}</option>
+                                    @endforeach
+                                </select>
                                 <button type="submit" class="btn btn-sm w-100" style="background: {{ $style['color'] }}; color: {{ $style['badge_text'] ?? '#111827' }};">
                                     <i data-lucide="check-check" class="me-1"></i>Pagar el mes ({{ $money($creditor['current_due']) }})
                                 </button>
@@ -252,6 +258,12 @@
                             </div>
                             <div class="modal-body">
                                 <p class="text-muted small mb-2">Solo mensualidades de <strong>este mes</strong>. Marca las que quieras pagar; el total se suma abajo. Cada una se marca pagada y crea su movimiento (no se parten mensualidades).</p>
+                                <label class="form-label small" for="pay-selected-account-{{ $creditor['key'] }}">Cuenta de donde salió</label>
+                                <select id="pay-selected-account-{{ $creditor['key'] }}" name="payment_account_id" class="form-select form-select-sm mb-3" required>
+                                    @foreach ($accounts as $account)
+                                        <option value="{{ $account->id }}" @selected(($creditor['payment_account_id'] ?? null) === $account->id)>{{ $account->name }}</option>
+                                    @endforeach
+                                </select>
                                 <div class="input-group input-group-sm mb-3">
                                     <span class="input-group-text">Auto hasta $</span>
                                     <input type="number" step="0.01" min="0" class="form-control" data-pay-select-target placeholder="Ej. 1500">
@@ -481,6 +493,12 @@
                 <span class="badge badge-soft-info">Abonos libres {{ $money($creditFreePaid) }}</span>
                 <span class="badge badge-soft-warning">Saldo real {{ $money($creditPending) }}</span>
                 <a href="#free-payments-{{ $credit->id }}" class="btn btn-sm btn-outline-primary">Ver abonos</a>
+                @if ($credit->installments->contains(fn ($installment) => $installment->plannedPayment !== null))
+                    <form method="POST" action="{{ route('finance.credits.sync-planned-series', $credit) }}">
+                        @csrf
+                        <button type="submit" class="btn btn-sm btn-outline-info">Unificar pagos futuros</button>
+                    </form>
+                @endif
                 <form method="POST" action="{{ route('finance.credits.destroy', $credit) }}">
                     @csrf
                     @method('DELETE')
@@ -810,9 +828,20 @@
                                                 {{-- El egreso se fecha el dia que el usuario declara haber pagado
                                                      (columna "Pagado" de la fila). Si la deja vacia, hoy. --}}
                                                 <input type="hidden" name="paid_on" data-paid-on-from="{{ $installmentFormId }}" value="{{ now()->toDateString() }}">
+                                                <select name="payment_account_id" class="form-select form-select-sm" aria-label="Cuenta de salida de mensualidad {{ $installment->installment_number }}">
+                                                    @foreach ($accounts as $account)
+                                                        <option value="{{ $account->id }}" @selected(($paymentAccountDefaults[$credit->id] ?? null) === $account->id)>{{ $account->name }}</option>
+                                                    @endforeach
+                                                </select>
                                                 <button type="submit" class="btn btn-sm btn-primary" title="Pagado y crear movimiento (usa la fecha de la columna Pagado)">
                                                     <i data-lucide="check"></i>
                                                 </button>
+                                            </form>
+                                        @endif
+                                        @if ($installment->plannedPayment)
+                                            <form method="POST" action="{{ route('finance.planned.unlink-installment', $installment->plannedPayment) }}">
+                                                @csrf
+                                                <button type="submit" class="btn btn-sm btn-outline-secondary" title="Desvincular pago planeado {{ $installment->plannedPayment->name }}">Desvincular</button>
                                             </form>
                                         @endif
                                         <form method="POST" action="{{ route('finance.credits.installments.destroy', $installment) }}">
@@ -893,9 +922,20 @@
                                     @csrf
                                     {{-- Misma regla que la tabla: manda la fecha de "Pagado el". --}}
                                     <input type="hidden" name="paid_on" data-paid-on-from="{{ $installmentFormId }}" value="{{ now()->toDateString() }}">
+                                    <select name="payment_account_id" class="form-select form-select-sm mb-2" aria-label="Cuenta de salida de mensualidad {{ $installment->installment_number }}">
+                                        @foreach ($accounts as $account)
+                                            <option value="{{ $account->id }}" @selected(($paymentAccountDefaults[$credit->id] ?? null) === $account->id)>{{ $account->name }}</option>
+                                        @endforeach
+                                    </select>
                                     <button type="submit" class="btn btn-sm btn-primary" title="Pagado y crear movimiento (usa la fecha de Pagado el)">
                                         <i data-lucide="check"></i>
                                     </button>
+                                </form>
+                            @endif
+                            @if ($installment->plannedPayment)
+                                <form method="POST" action="{{ route('finance.planned.unlink-installment', $installment->plannedPayment) }}">
+                                    @csrf
+                                    <button type="submit" class="btn btn-sm btn-outline-secondary">Desvincular</button>
                                 </form>
                             @endif
                             <form method="POST" action="{{ route('finance.credits.installments.destroy', $installment) }}">

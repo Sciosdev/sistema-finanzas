@@ -129,10 +129,17 @@
                         && abs((float) ($creditInstallmentDue[$installment->id] ?? 0) - (float) $payment->amount) < 0.005;
                 }
 
-                return in_array($payment->status, ['pending', 'overdue'], true)
+                if (in_array($payment->status, ['pending', 'overdue'], true)
                     && $installment->status === 'paid'
-                    && $installment->movement?->source === 'credit_installment'
-                    && abs((float) $installment->paid_amount - (float) $payment->amount) < 0.005;
+                    && $installment->movement?->source === 'credit_installment') {
+                    return abs((float) $installment->paid_amount - (float) $payment->amount) < 0.005;
+                }
+
+                return in_array($payment->status, ['pending', 'overdue'], true)
+                    && in_array($installment->status, ['pending', 'overdue'], true)
+                    && ! $payment->movement_id && ! $installment->movement_id
+                    && (float) $payment->paid_amount == 0 && (float) $installment->paid_amount == 0
+                    && abs((float) ($creditInstallmentDue[$installment->id] ?? 0) - (float) $payment->amount) < 0.005;
             })->values();
     @endphp
     <div class="modal fade" id="planned-payment-actions-{{ $payment->id }}" tabindex="-1" aria-labelledby="planned-payment-actions-{{ $payment->id }}-label" aria-hidden="true">
@@ -191,7 +198,7 @@
                         <form method="POST" action="{{ route('finance.planned.link-installment', $payment) }}" class="border border-info rounded p-3 mb-3">
                             @csrf
                             <h6 class="mb-1">Conciliar con una mensualidad</h6>
-                            <div class="text-muted small mb-2">Si este pago y la mensualidad son la misma obligación, vincúlalos. Se reutiliza el egreso registrado y no se crea otro.</div>
+                            <div class="text-muted small mb-2">Si este pago y la mensualidad son la misma obligación, vincúlalos. Las cuotas vinculadas se pagan desde Créditos con un solo egreso.</div>
                             <label class="form-label" for="planned-installment-{{ $payment->id }}">Mensualidad</label>
                             <select class="form-select mb-2" id="planned-installment-{{ $payment->id }}" name="credit_installment_id" required>
                                 <option value="">Selecciona la mensualidad correcta</option>
@@ -508,6 +515,7 @@
         </div>
     </div>
     <div class="card-body p-0">
+        <p class="text-muted small px-3 pt-3 mb-0">Las mensualidades de Créditos aparecen abajo automáticamente. Registra su pago desde Créditos; los pagos planeados vinculados se muestran como una sola obligación.</p>
         <div class="border-bottom p-3">
             <div class="d-flex flex-column flex-lg-row justify-content-between gap-2 mb-3">
                 <div>
@@ -821,10 +829,14 @@
                     @forelse ($creditInstallments as $installment)
                         @php
                             $credit = $installment->creditPurchase;
+                            $plannedDue = $installment->plannedPayment?->due_date;
+                            $effectiveDue = $plannedDue && $installment->due_date
+                                ? ($plannedDue->lt($installment->due_date) ? $plannedDue : $installment->due_date)
+                                : ($plannedDue ?? $installment->due_date);
                             $overdue = in_array($installment->status, ['pending', 'overdue'], true)
                                 && (
                                     $installment->status === 'overdue'
-                                    || ($installment->due_date && $installment->due_date->copy()->startOfDay()->lt(today()->startOfDay()))
+                                    || ($effectiveDue && $effectiveDue->copy()->startOfDay()->lt(today()->startOfDay()))
                                 );
                             $displayStatus = $overdue ? 'overdue' : $installment->status;
                             $originLabel = match (true) {
@@ -841,8 +853,12 @@
                             };
                         @endphp
                         <tr data-planned-row data-paid="{{ $installment->status === 'paid' ? '1' : '0' }}">
-                            <td>{{ $installment->due_date?->format('Y-m-d') ?? '-' }}</td>
-                            <td>{{ $credit?->name ?? '-' }}</td>
+                            <td>{{ $effectiveDue?->format('Y-m-d') ?? '-' }}</td>
+                            <td>{{ $credit?->name ?? '-' }}
+                                @if ($plannedDue)
+                                    <small class="d-block text-muted">{{ $installment->plannedPayment->name }} · cuota vence {{ $installment->due_date?->format('Y-m-d') ?? '-' }}</small>
+                                @endif
+                            </td>
                             <td>{{ $installment->installment_number }} / {{ $credit?->months ?? '-' }}</td>
                             <td>{{ $credit?->category?->name ?? '-' }}</td>
                             <td class="text-end">
@@ -853,8 +869,8 @@
                                 @endif
                             </td>
                             <td>
-                                <span class="badge {{ \App\Support\FinanceLabels::dueBadgeClass($installment->due_date, $displayStatus) }}">
-                                    {{ \App\Support\FinanceLabels::dueLabel($installment->due_date, $displayStatus) }}
+                                <span class="badge {{ \App\Support\FinanceLabels::dueBadgeClass($effectiveDue, $displayStatus) }}">
+                                    {{ \App\Support\FinanceLabels::dueLabel($effectiveDue, $displayStatus) }}
                                 </span>
                             </td>
                             <td>
@@ -890,10 +906,14 @@
             && $planned->movement?->source === 'planned_payment'
             && $planned->period_month?->isSameMonth($installment->period_month)
             && abs((float) $planned->amount - (float) $installment->amount) < 0.005);
+        $plannedDue = $installment->plannedPayment?->due_date;
+        $effectiveDue = $plannedDue && $installment->due_date
+            ? ($plannedDue->lt($installment->due_date) ? $plannedDue : $installment->due_date)
+            : ($plannedDue ?? $installment->due_date);
         $overdue = in_array($installment->status, ['pending', 'overdue'], true)
             && (
                 $installment->status === 'overdue'
-                || ($installment->due_date && $installment->due_date->copy()->startOfDay()->lt(today()->startOfDay()))
+                || ($effectiveDue && $effectiveDue->copy()->startOfDay()->lt(today()->startOfDay()))
             );
         $statusLabel = $installment->status === 'paid'
             ? 'Pagado'
@@ -905,9 +925,6 @@
             $overdue => 'Credito vencido',
             default => 'Credito',
         };
-        $defaultPaidOn = $installment->paid_on?->format('Y-m-d')
-            ?? $installment->due_date?->format('Y-m-d')
-            ?? now()->toDateString();
     @endphp
     <div class="modal fade" id="credit-installment-actions-{{ $installment->id }}" tabindex="-1" aria-labelledby="credit-installment-actions-{{ $installment->id }}-label" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -933,6 +950,9 @@
                             <div class="col-md-4">
                                 <span class="text-muted small d-block">Vencimiento</span>
                                 <span class="fw-semibold">{{ $installment->due_date?->format('Y-m-d') ?? '-' }}</span>
+                                @if ($plannedDue)
+                                    <small class="d-block text-info">Pago previsto {{ $plannedDue->format('Y-m-d') }}</small>
+                                @endif
                             </div>
                             <div class="col-md-4">
                                 <span class="text-muted small d-block">Estado</span>
@@ -960,36 +980,15 @@
                                 Antes de crear otro egreso, abre las acciones de ese pago y usa “Conciliar con una mensualidad” si corresponde a esta cuota.
                             </div>
                         @endif
-                        <div class="row g-3 mb-3">
-                            <div class="col-lg-6">
-                                <form method="POST" action="{{ route('finance.credits.installments.paid', $installment) }}" class="border rounded p-3 h-100">
-                                    @csrf
-                                    <label class="form-label">Fecha real de pago</label>
-                                    <input type="date" name="paid_on" class="form-control mb-3" value="{{ $defaultPaidOn }}">
-                                    <button type="submit" class="btn btn-success w-100">
-                                        <i data-lucide="check" class="me-1"></i>Marcar como pagado
-                                    </button>
-                                </form>
-                            </div>
-                            <div class="col-lg-6">
-                                <form method="POST" action="{{ route('finance.credits.installments.registered', $installment) }}" class="border rounded p-3 h-100">
-                                    @csrf
-                                    <label class="form-label">Fecha ya capturada</label>
-                                    <input type="date" name="paid_on" class="form-control mb-3" value="{{ $defaultPaidOn }}">
-                                    <button type="submit" class="btn btn-outline-success w-100">
-                                        <i data-lucide="link" class="me-1"></i>Ya lo capture como gasto
-                                    </button>
-                                </form>
-                            </div>
-                        </div>
+                        <p class="text-muted small">Esta cuota se paga en Créditos. Al pagarla, Flujo planeado se actualiza automáticamente.</p>
                     @else
                         <div class="alert alert-success mb-3">
                             Esta mensualidad ya esta marcada como pagada.
                         </div>
                     @endif
 
-                    <a href="{{ route('finance.credits.index') }}" class="btn btn-outline-primary w-100">
-                        <i data-lucide="credit-card" class="me-1"></i>Administrar credito
+                    <a href="{{ route('finance.credits.index') }}#credit-{{ $credit?->id }}" class="btn btn-outline-primary w-100">
+                        <i data-lucide="credit-card" class="me-1"></i>{{ $installment->status === 'paid' ? 'Ver en Créditos' : 'Pagar en Créditos' }}
                     </a>
                 </div>
             </div>

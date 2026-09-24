@@ -5,6 +5,7 @@ namespace App\Models\Finance;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class CreditInstallment extends Model
 {
@@ -48,5 +49,10 @@ class CreditInstallment extends Model
     public function movement(): BelongsTo
     {
         return $this->belongsTo(Movement::class);
+    }
+
+    public function plannedPayment(): HasOne
+    {
+        return $this->hasOne(PlannedPayment::class, 'credit_installment_id');
     }
 }

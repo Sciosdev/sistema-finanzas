@@ -377,6 +377,7 @@ class FinanceProjectionService
     {
         $payments = PlannedPayment::with('account')
             ->where('user_id', $user->id)
+            ->whereNull('credit_installment_id')
             ->whereIn('status', ['pending', 'overdue'])
             ->orderBy('due_date')
             ->orderBy('id')
@@ -503,7 +504,7 @@ class FinanceProjectionService
      */
     private function assignInstallments(User $user, array &$buckets, Carbon $start, Carbon $end, string $dayOneKey): void
     {
-        $installments = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.installments', 'creditPurchase.freePayments'])
+        $installments = CreditInstallment::with(['plannedPayment', 'creditPurchase.account', 'creditPurchase.installments', 'creditPurchase.freePayments'])
             ->where('user_id', $user->id)
             ->whereIn('status', ['pending', 'overdue'])
             ->orderBy('due_date')
@@ -518,7 +519,11 @@ class FinanceProjectionService
             }
 
             $credit = $installment->creditPurchase;
-            $due = $installment->due_date?->copy()->startOfDay();
+            $plannedDue = $installment->plannedPayment?->due_date?->copy()->startOfDay();
+            $creditDue = $installment->due_date?->copy()->startOfDay();
+            $due = $plannedDue && $creditDue
+                ? ($plannedDue->lt($creditDue) ? $plannedDue : $creditDue)
+                : ($plannedDue ?? $creditDue);
 
             if ($due === null) {
                 $period = $installment->period_month->copy()->startOfMonth();

@@ -11,6 +11,7 @@ use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
 use App\Services\Finance\CreditEffectiveScheduleService;
 use App\Services\Finance\CreditFreePaymentService;
+use App\Services\Finance\CreditPlannedSeriesService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceSummaryService;
@@ -31,6 +32,7 @@ class PlannedPaymentController extends Controller
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
         private readonly CreditEffectiveScheduleService $creditSchedule,
         private readonly CreditFreePaymentService $freePayments,
+        private readonly CreditPlannedSeriesService $plannedSeries,
     ) {}
 
     public function index(Request $request)
@@ -42,12 +44,13 @@ class PlannedPaymentController extends Controller
 
         $payments = PlannedPayment::with(['account', 'category', 'person', 'movement', 'creditPurchase.account', 'creditInstallment.creditPurchase'])
             ->where('user_id', $user->id)
+            ->whereNull('credit_installment_id')
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->orderByRaw('due_date is null, due_date asc')
             ->orderBy('name')
             ->get();
 
-        $creditInstallments = CreditInstallment::with(['movement', 'creditPurchase.account', 'creditPurchase.category', 'creditPurchase.installments', 'creditPurchase.freePayments'])
+        $creditInstallments = CreditInstallment::with(['movement', 'plannedPayment', 'creditPurchase.account', 'creditPurchase.category', 'creditPurchase.installments', 'creditPurchase.freePayments'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->orderByRaw('due_date is null, due_date asc')
@@ -120,7 +123,11 @@ class PlannedPaymentController extends Controller
                 $first = $rows->first()['installment'];
                 $account = $first->creditPurchase?->account;
                 $nextDueDate = $rows
-                    ->pluck('installment.due_date')
+                    ->map(fn (array $row) => $row['installment']->plannedPayment?->due_date
+                        && $row['installment']->due_date
+                            ? ($row['installment']->plannedPayment->due_date->lt($row['installment']->due_date)
+                                ? $row['installment']->plannedPayment->due_date : $row['installment']->due_date)
+                            : ($row['installment']->plannedPayment?->due_date ?? $row['installment']->due_date))
                     ->filter()
                     ->sortBy(fn (Carbon $date) => $date->timestamp)
                     ->first();
@@ -167,14 +174,18 @@ class PlannedPaymentController extends Controller
         $flags = $this->classifyFlags($user, $data);
         $automaticCharge = $this->automaticChargeData($data);
 
-        PlannedPayment::create(array_merge($data, $automaticCharge, [
+        $payment = PlannedPayment::create(array_merge($data, $automaticCharge, [
             'user_id' => $user->id,
             'period_month' => FinanceMonth::parse($data['period_month'])->toDateString(),
             'status' => 'pending',
             'is_san_juan' => $flags['is_san_juan'],
         ]));
 
-        return back()->with('success', 'Pago planeado agregado.');
+        $unified = $this->plannedSeries->linkNewCopy($payment);
+
+        return back()->with('success', $unified
+            ? 'La cuota ya aparece en Créditos; quedó unificada y se paga desde ahí.'
+            : 'Pago planeado agregado.');
     }
 
     public function update(Request $request, PlannedPayment $payment)
@@ -258,6 +269,13 @@ class PlannedPaymentController extends Controller
             ->get();
 
         foreach ($payments as $payment) {
+            // La mensualidad ya aparece por sí sola en Flujo planeado.
+            if ($payment->credit_installment_id) {
+                $skipped++;
+
+                continue;
+            }
+
             $exists = PlannedPayment::where('user_id', $user->id)
                 ->whereDate('period_month', $targetMonth->toDateString())
                 ->where('name', $payment->name)
@@ -276,7 +294,7 @@ class PlannedPaymentController extends Controller
                     ->toDateString();
             }
 
-            PlannedPayment::create([
+            $copy = PlannedPayment::create([
                 'user_id' => $user->id,
                 'period_month' => $targetMonth->toDateString(),
                 'due_date' => $dueDate,
@@ -296,12 +314,14 @@ class PlannedPaymentController extends Controller
                 'notes' => $payment->notes,
             ]);
 
+            $this->plannedSeries->linkNewCopy($copy);
+
             $copied++;
         }
 
         return redirect()
             ->route('finance.planned.index', ['month' => $targetMonth->format('Y-m')])
-            ->with('success', "Flujo copiado: {$copied} pagos agregados, {$skipped} ya existian.");
+            ->with('success', "Flujo copiado: {$copied} pagos agregados, {$skipped} omitidos (ya existían o están incluidos en Créditos).");
     }
 
     public function bulkAutomaticCharge(Request $request)
@@ -759,8 +779,24 @@ class PlannedPaymentController extends Controller
 
             $plannedPaid = $payment->status === 'paid';
             $creditPaid = $installment->status === 'paid';
-            if ($plannedPaid === $creditPaid) {
+            $bothPending = ! $plannedPaid && ! $creditPaid;
+            if ($plannedPaid && $creditPaid) {
                 return 'invalid';
+            }
+
+            if ($bothPending) {
+                if (! in_array($payment->status, ['pending', 'overdue'], true)
+                    || ! in_array($installment->status, ['pending', 'overdue'], true)
+                    || $payment->movement_id || $installment->movement_id
+                    || (float) $payment->paid_amount > 0 || (float) $installment->paid_amount > 0
+                    || abs((float) $payment->amount - (float) $installment->amount) >= 0.005
+                    || abs($this->creditSchedule->effectivePending($installment) - (float) $payment->amount) >= 0.005) {
+                    return 'invalid';
+                }
+
+                $payment->update(['credit_installment_id' => $installment->id]);
+
+                return 'linked_pending';
             }
 
             $movementId = $plannedPaid ? $payment->movement_id : $installment->movement_id;
@@ -810,11 +846,16 @@ class PlannedPaymentController extends Controller
             return 'linked';
         });
 
+        $future = in_array($result, ['linked', 'linked_pending', 'already_linked'], true)
+            ? $this->plannedSeries->linkFuture($payment)
+            : 0;
+
         return back()->with($result === 'invalid' ? 'error' : 'success', match ($result) {
             'linked' => 'Pago y mensualidad vinculados al mismo egreso; no se creó otro movimiento.',
+            'linked_pending' => 'Pago planeado y mensualidad unificados. Paga la cuota desde Créditos.',
             'already_linked' => 'Este pago ya está vinculado con la mensualidad.',
             default => 'No se pueden vincular: revisa mes, monto, estado y movimiento real de ambos registros.',
-        });
+        }.($future ? " También se unificaron {$future} pagos futuros." : ''));
     }
 
     public function unlinkInstallment(Request $request, PlannedPayment $payment)
@@ -828,7 +869,19 @@ class PlannedPaymentController extends Controller
                     ->whereKey($payment->credit_installment_id)->lockForUpdate()->first()
                 : null;
 
-            if (! $installment || ! $payment->movement_id || $payment->movement_id !== $installment->movement_id) {
+            if (! $installment) {
+                return false;
+            }
+
+            if (! $payment->movement_id && ! $installment->movement_id
+                && in_array($payment->status, ['pending', 'overdue'], true)
+                && in_array($installment->status, ['pending', 'overdue'], true)) {
+                $payment->update(['credit_installment_id' => null]);
+
+                return true;
+            }
+
+            if (! $payment->movement_id || $payment->movement_id !== $installment->movement_id) {
                 return false;
             }
 
