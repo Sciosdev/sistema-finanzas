@@ -524,7 +524,7 @@
                 <div class="col-auto">
                     <button type="submit" class="btn btn-sm btn-outline-primary">Guardar plan</button>
                 </div>
-                <div class="col-12 small text-muted">Se aplica a todas las mensualidades pendientes de este crédito, incluso después de diciembre. Deja vacío para usar el vencimiento. Paga siempre desde Créditos.</div>
+                <div class="col-12 small text-muted">Se aplica a todas las mensualidades pendientes de este crédito. Deja vacío para quitar la regla; las fechas antiguas ya vinculadas se conservan. Paga siempre desde Créditos.</div>
             </form>
             @if ($credit->is_manual_schedule)
             <form id="{{ $creditFormId }}" method="POST" action="{{ route('finance.credits.update', $credit) }}" class="row g-3 align-items-end">

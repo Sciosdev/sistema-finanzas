@@ -441,7 +441,7 @@ class CreditPurchaseController extends Controller
 
         return back()->with('success', $credit->planned_payment_day
             ? "El día {$credit->planned_payment_day} quedó como fecha prevista para todas las mensualidades pendientes de {$credit->name}. El pago se registra en Créditos."
-            : "Las mensualidades pendientes de {$credit->name} usarán su vencimiento registrado. El pago se registra en Créditos.");
+            : "Se quitó el día previsto recurrente de {$credit->name}. Se conservan las fechas de pagos planeados antiguos que ya estaban vinculados; las demás cuotas usan su vencimiento. El pago se registra en Créditos.");
     }
 
     /**
