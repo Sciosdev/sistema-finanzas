@@ -133,6 +133,8 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::post('flujo-planeado/{payment}/pagado-con-credito-nuevo', [PlannedPaymentController::class, 'markPaidWithNewCredit'])->name('planned.credit-new');
         Route::get('flujo-planeado/{payment}/vincular', [PlannedPaymentController::class, 'link'])->name('planned.link');
         Route::post('flujo-planeado/{payment}/vincular', [PlannedPaymentController::class, 'linkMovement'])->name('planned.link-movement');
+        Route::post('flujo-planeado/{payment}/vincular-mensualidad', [PlannedPaymentController::class, 'linkInstallment'])->name('planned.link-installment');
+        Route::post('flujo-planeado/{payment}/desvincular-mensualidad', [PlannedPaymentController::class, 'unlinkInstallment'])->name('planned.unlink-installment');
         Route::post('flujo-planeado/{payment}/registrado', [PlannedPaymentController::class, 'markRegistered'])->name('planned.registered');
         Route::post('flujo-planeado/{payment}/no-pagado', [PlannedPaymentController::class, 'skip'])->name('planned.skip');
         Route::post('flujo-planeado/{payment}/revertir', [PlannedPaymentController::class, 'revert'])->name('planned.revert');

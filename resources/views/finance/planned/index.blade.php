@@ -114,6 +114,26 @@
         $canActAsUnpaid = in_array($payment->status, ['pending', 'overdue', 'skipped'], true);
         $canLinkMovement = $payment->status !== 'paid' || (! $payment->movement_id && ! $payment->is_credit);
         $canUseCreditPayment = $payment->status !== 'paid' || (! $payment->movement_id && ! $payment->is_credit);
+        $linkedInstallment = $payment->creditInstallment;
+        $installmentCandidates = $payment->credit_installment_id || $payment->is_credit || $payment->credit_purchase_id
+            ? collect()
+            : $creditInstallments->filter(function ($installment) use ($payment, $linkedInstallmentIds, $creditInstallmentDue) {
+                if (in_array($installment->id, $linkedInstallmentIds, true)
+                    || abs((float) $installment->amount - (float) $payment->amount) >= 0.005) {
+                    return false;
+                }
+
+                if ($payment->status === 'paid' && $payment->movement?->source === 'planned_payment') {
+                    return in_array($installment->status, ['pending', 'overdue'], true)
+                        && (float) $installment->paid_amount == 0
+                        && abs((float) ($creditInstallmentDue[$installment->id] ?? 0) - (float) $payment->amount) < 0.005;
+                }
+
+                return in_array($payment->status, ['pending', 'overdue'], true)
+                    && $installment->status === 'paid'
+                    && $installment->movement?->source === 'credit_installment'
+                    && abs((float) $installment->paid_amount - (float) $payment->amount) < 0.005;
+            })->values();
     @endphp
     <div class="modal fade" id="planned-payment-actions-{{ $payment->id }}" tabindex="-1" aria-labelledby="planned-payment-actions-{{ $payment->id }}-label" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -154,6 +174,34 @@
                             </div>
                         </div>
                     </div>
+
+                    @if ($linkedInstallment)
+                        <div class="border border-success rounded p-3 mb-3">
+                            <h6 class="mb-1">Vinculado con mensualidad</h6>
+                            <div class="text-muted small mb-2">
+                                {{ $linkedInstallment->creditPurchase?->name ?? 'Crédito' }} · {{ $linkedInstallment->installment_number }} / {{ $linkedInstallment->creditPurchase?->months ?? '-' }}.
+                                Ambos registros comparten un solo egreso y se cuentan una vez en los totales.
+                            </div>
+                            <form method="POST" action="{{ route('finance.planned.unlink-installment', $payment) }}">
+                                @csrf
+                                <button type="submit" class="btn btn-sm btn-outline-secondary">Desvincular sin borrar el egreso</button>
+                            </form>
+                        </div>
+                    @elseif ($installmentCandidates->isNotEmpty())
+                        <form method="POST" action="{{ route('finance.planned.link-installment', $payment) }}" class="border border-info rounded p-3 mb-3">
+                            @csrf
+                            <h6 class="mb-1">Conciliar con una mensualidad</h6>
+                            <div class="text-muted small mb-2">Si este pago y la mensualidad son la misma obligación, vincúlalos. Se reutiliza el egreso registrado y no se crea otro.</div>
+                            <label class="form-label" for="planned-installment-{{ $payment->id }}">Mensualidad</label>
+                            <select class="form-select mb-2" id="planned-installment-{{ $payment->id }}" name="credit_installment_id" required>
+                                <option value="">Selecciona la mensualidad correcta</option>
+                                @foreach ($installmentCandidates as $candidate)
+                                    <option value="{{ $candidate->id }}">{{ $candidate->creditPurchase?->name ?? 'Crédito' }} · {{ $candidate->installment_number }} / {{ $candidate->creditPurchase?->months ?? '-' }} · vence {{ $candidate->due_date?->format('Y-m-d') ?? '-' }} · {{ $money($candidate->amount) }}</option>
+                                @endforeach
+                            </select>
+                            <button type="submit" class="btn btn-outline-info">Vincular y conciliar</button>
+                        </form>
+                    @endif
 
                     @if ($canActAsUnpaid || $canUseCreditPayment)
                         <div class="row g-3 mb-3">
@@ -283,7 +331,7 @@
                         </div>
                     @endif
 
-                    @if (in_array($payment->status, ['paid', 'skipped'], true))
+                    @if (in_array($payment->status, ['paid', 'skipped'], true) && ! $linkedInstallment)
                         <div class="border rounded p-3 mb-3">
                             <h6 class="mb-1">Revertir a pendiente</h6>
                             <div class="text-muted small mb-3">
@@ -314,20 +362,22 @@
                                 </form>
                             </div>
                         @endif
-                        <div class="col-md-4">
-                            <a href="{{ route('finance.planned.index', ['month' => $monthValue, 'edit' => $payment->id]) }}" class="btn btn-outline-primary w-100">
-                                <i data-lucide="pencil" class="me-1"></i>Editar pago
-                            </a>
-                        </div>
-                        <div class="col-md-4">
-                            <form method="POST" action="{{ route('finance.planned.destroy', $payment) }}">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit" class="btn btn-outline-danger w-100">
-                                    <i data-lucide="trash-2" class="me-1"></i>Eliminar del flujo
-                                </button>
-                            </form>
-                        </div>
+                        @if (! $linkedInstallment)
+                            <div class="col-md-4">
+                                <a href="{{ route('finance.planned.index', ['month' => $monthValue, 'edit' => $payment->id]) }}" class="btn btn-outline-primary w-100">
+                                    <i data-lucide="pencil" class="me-1"></i>Editar pago
+                                </a>
+                            </div>
+                            <div class="col-md-4">
+                                <form method="POST" action="{{ route('finance.planned.destroy', $payment) }}">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="btn btn-outline-danger w-100">
+                                        <i data-lucide="trash-2" class="me-1"></i>Eliminar del flujo
+                                    </button>
+                                </form>
+                            </div>
+                        @endif
                     </div>
                 </div>
             </div>
@@ -562,6 +612,7 @@
                 <tbody>
                     @forelse ($payments as $payment)
                         @php
+                            $linkedInstallment = $payment->creditInstallment;
                             $isCreditPaid = $payment->status === 'paid' && (bool) $payment->is_credit;
                             $linkedCredit = $payment->creditPurchase;
                             $isForcedChargeWindow = $payment->hasForcedChargeWindow();
@@ -598,6 +649,9 @@
                             <td>{{ $payment->due_date?->format('Y-m-d') ?? '-' }}</td>
                             <td>
                                 {{ $payment->name }}
+                                @if ($linkedInstallment)
+                                    <span class="badge badge-soft-info ms-1">Misma mensualidad; se cuenta una vez</span>
+                                @endif
                                 @if ($payment->is_san_juan)
                                     <span class="badge badge-soft-danger ms-1">SNJ</span>
                                 @endif
@@ -831,6 +885,11 @@
 @foreach ($creditInstallments as $installment)
     @php
         $credit = $installment->creditPurchase;
+        $possiblePlannedPayment = $payments->first(fn ($planned) => ! $planned->credit_installment_id
+            && $planned->status === 'paid'
+            && $planned->movement?->source === 'planned_payment'
+            && $planned->period_month?->isSameMonth($installment->period_month)
+            && abs((float) $planned->amount - (float) $installment->amount) < 0.005);
         $overdue = in_array($installment->status, ['pending', 'overdue'], true)
             && (
                 $installment->status === 'overdue'
@@ -895,6 +954,12 @@
                     </div>
 
                     @if (in_array($installment->status, ['pending', 'overdue'], true))
+                        @if ($possiblePlannedPayment)
+                            <div class="alert alert-info mb-3">
+                                Posible pago ya registrado en Flujo planeado: <strong>{{ $possiblePlannedPayment->name }}</strong> ({{ $money($possiblePlannedPayment->amount) }}).
+                                Antes de crear otro egreso, abre las acciones de ese pago y usa “Conciliar con una mensualidad” si corresponde a esta cuota.
+                            </div>
+                        @endif
                         <div class="row g-3 mb-3">
                             <div class="col-lg-6">
                                 <form method="POST" action="{{ route('finance.credits.installments.paid', $installment) }}" class="border rounded p-3 h-100">

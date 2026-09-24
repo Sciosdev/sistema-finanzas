@@ -152,6 +152,7 @@ class FinanceSummaryService
     {
         $planned = PlannedPayment::with(['account', 'category', 'person', 'movement', 'creditPurchase.account'])
             ->where('user_id', $user->id)
+            ->whereNull('credit_installment_id')
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->get()
             ->map(fn (PlannedPayment $payment) => $this->plannedObligation($payment))

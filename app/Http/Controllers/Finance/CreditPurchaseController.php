@@ -9,6 +9,7 @@ use App\Models\Finance\CreditFreePayment;
 use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
+use App\Models\Finance\PlannedPayment;
 use App\Services\Finance\CreditEffectiveScheduleService;
 use App\Services\Finance\CreditFreePaymentService;
 use App\Services\Finance\FinanceCatalogService;
@@ -232,6 +233,10 @@ class CreditPurchaseController extends Controller
             return back()->with('success', 'Datos generales actualizados; el calendario manual quedó intacto.');
         }
 
+        if (PlannedPayment::whereIn('credit_installment_id', $credit->installments()->select('id'))->exists()) {
+            return back()->with('error', 'Desvincula los pagos planeados de las mensualidades antes de cambiar el calendario del crédito.');
+        }
+
         $data = $this->applyCardCycle($user, $this->creditData($request, $user));
         $amounts = $this->creditAmounts($data);
 
@@ -275,6 +280,10 @@ class CreditPurchaseController extends Controller
         DB::transaction(function () use ($credits, &$details) {
             foreach ($credits as $credit) {
                 if ($credit->is_manual_schedule) {
+                    continue;
+                }
+
+                if (PlannedPayment::whereIn('credit_installment_id', $credit->installments()->select('id'))->exists()) {
                     continue;
                 }
 
@@ -362,6 +371,10 @@ class CreditPurchaseController extends Controller
     public function markInstallmentPaid(Request $request, CreditInstallment $installment)
     {
         abort_unless($installment->user_id === $request->user()->id, 403);
+
+        if (PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
+            return back()->with('error', 'Esta mensualidad ya está vinculada con un pago planeado.');
+        }
 
         $data = $request->validate([
             'paid_on' => ['nullable', 'date'],
@@ -574,6 +587,10 @@ class CreditPurchaseController extends Controller
     {
         abort_unless($installment->user_id === $request->user()->id, 403);
 
+        if (PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
+            return back()->with('error', 'Esta mensualidad ya está vinculada con un pago planeado.');
+        }
+
         $data = $request->validate([
             'paid_on' => ['nullable', 'date'],
         ]);
@@ -596,6 +613,10 @@ class CreditPurchaseController extends Controller
     public function updateInstallment(Request $request, CreditInstallment $installment)
     {
         abort_unless($installment->user_id === $request->user()->id, 403);
+
+        if (PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
+            return back()->with('error', 'Desvincula primero el pago planeado de esta mensualidad.');
+        }
 
         $data = $request->validate([
             'period_month' => ['required', 'date_format:Y-m'],
@@ -702,6 +723,10 @@ class CreditPurchaseController extends Controller
     public function destroyInstallment(Request $request, CreditInstallment $installment)
     {
         abort_unless($installment->user_id === $request->user()->id, 403);
+
+        if (PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
+            return back()->with('error', 'Desvincula primero el pago planeado de esta mensualidad.');
+        }
 
         $snapshot = DB::transaction(function () use ($request, $installment) {
             $credit = $installment->creditPurchase()->firstOrFail();

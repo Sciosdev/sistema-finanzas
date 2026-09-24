@@ -10,6 +10,7 @@ use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
 use App\Services\Finance\CreditEffectiveScheduleService;
+use App\Services\Finance\CreditFreePaymentService;
 use App\Services\Finance\FinanceCatalogService;
 use App\Services\Finance\FinanceDeletionSnapshotService;
 use App\Services\Finance\FinanceSummaryService;
@@ -29,6 +30,7 @@ class PlannedPaymentController extends Controller
         private readonly FinanceSummaryService $summaryService,
         private readonly FinanceDeletionSnapshotService $deleteSnapshots,
         private readonly CreditEffectiveScheduleService $creditSchedule,
+        private readonly CreditFreePaymentService $freePayments,
     ) {}
 
     public function index(Request $request)
@@ -38,14 +40,14 @@ class PlannedPaymentController extends Controller
 
         [$start, $end] = $this->summaryService->monthRange($request->query('month', now()->format('Y-m')));
 
-        $payments = PlannedPayment::with(['account', 'category', 'person', 'movement', 'creditPurchase.account'])
+        $payments = PlannedPayment::with(['account', 'category', 'person', 'movement', 'creditPurchase.account', 'creditInstallment.creditPurchase'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->orderByRaw('due_date is null, due_date asc')
             ->orderBy('name')
             ->get();
 
-        $creditInstallments = CreditInstallment::with(['creditPurchase.account', 'creditPurchase.category', 'creditPurchase.installments', 'creditPurchase.freePayments'])
+        $creditInstallments = CreditInstallment::with(['movement', 'creditPurchase.account', 'creditPurchase.category', 'creditPurchase.installments', 'creditPurchase.freePayments'])
             ->where('user_id', $user->id)
             ->whereBetween('period_month', [$start->toDateString(), $end->toDateString()])
             ->orderByRaw('due_date is null, due_date asc')
@@ -82,6 +84,10 @@ class PlannedPaymentController extends Controller
         return view('finance.planned.index', [
             'payments' => $payments,
             'creditInstallments' => $creditInstallments,
+            'linkedInstallmentIds' => PlannedPayment::where('user_id', $user->id)
+                ->whereNotNull('credit_installment_id')
+                ->pluck('credit_installment_id')
+                ->all(),
             'creditInstallmentSummaries' => $this->creditInstallmentSummaries($creditInstallments),
             // Pendiente efectivo por mensualidad (ya descontados los abonos
             // libres), para no mostrar la mensualidad original inflada.
@@ -174,6 +180,10 @@ class PlannedPaymentController extends Controller
     public function update(Request $request, PlannedPayment $payment)
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
+
+        if ($payment->credit_installment_id) {
+            return back()->with('error', 'Desvincula la mensualidad antes de editar este pago.');
+        }
 
         $user = $request->user();
         $this->catalogs->ensureForUser($user);
@@ -352,6 +362,10 @@ class PlannedPaymentController extends Controller
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
 
+        if ($payment->credit_installment_id) {
+            return back()->with('error', 'Este pago ya está vinculado con una mensualidad.');
+        }
+
         $data = $request->validate([
             'paid_on' => ['nullable', 'date'],
             'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where('user_id', $payment->user_id)],
@@ -396,6 +410,10 @@ class PlannedPaymentController extends Controller
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
 
+        if ($payment->credit_installment_id) {
+            return back()->with('error', 'Desvincula primero la mensualidad de este pago.');
+        }
+
         if ($payment->movement_id) {
             return back()->with('error', 'Este pago ya tiene un movimiento real vinculado; no lo marque con credito para evitar duplicar egresos.');
         }
@@ -431,6 +449,10 @@ class PlannedPaymentController extends Controller
     public function markPaidWithNewCredit(Request $request, PlannedPayment $payment)
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
+
+        if ($payment->credit_installment_id) {
+            return back()->with('error', 'Desvincula primero la mensualidad de este pago.');
+        }
 
         if ($payment->movement_id) {
             return back()->with('error', 'Este pago ya tiene un movimiento real vinculado; no lo pagues con credito para evitar duplicar egresos.');
@@ -676,6 +698,10 @@ class PlannedPaymentController extends Controller
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
 
+        if ($payment->credit_installment_id) {
+            return back()->with('error', 'Desvincula primero la mensualidad de este pago.');
+        }
+
         $data = $request->validate([
             'movement_id' => [
                 'required',
@@ -704,9 +730,140 @@ class PlannedPaymentController extends Controller
             ->with('success', 'Pago vinculado con el movimiento real.');
     }
 
+    public function linkInstallment(Request $request, PlannedPayment $payment)
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+
+        $data = $request->validate([
+            'credit_installment_id' => ['required', 'integer', Rule::exists('finance_credit_installments', 'id')
+                ->where(fn ($query) => $query->where('user_id', $request->user()->id))],
+        ]);
+
+        $result = DB::transaction(function () use ($payment, $data) {
+            $payment = PlannedPayment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
+            $installment = CreditInstallment::with('creditPurchase')
+                ->where('user_id', $payment->user_id)
+                ->whereKey($data['credit_installment_id'])
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            if ($payment->credit_installment_id === $installment->id) {
+                return 'already_linked';
+            }
+
+            if ($payment->credit_installment_id || $payment->is_credit || $payment->credit_purchase_id
+                || ! $payment->period_month?->isSameMonth($installment->period_month)
+                || PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
+                return 'invalid';
+            }
+
+            $plannedPaid = $payment->status === 'paid';
+            $creditPaid = $installment->status === 'paid';
+            if ($plannedPaid === $creditPaid) {
+                return 'invalid';
+            }
+
+            $movementId = $plannedPaid ? $payment->movement_id : $installment->movement_id;
+            $movement = $movementId ? Movement::where('user_id', $payment->user_id)
+                ->whereKey($movementId)->lockForUpdate()->first() : null;
+            $expectedSource = $plannedPaid ? 'planned_payment' : 'credit_installment';
+
+            if (! $movement || $movement->movement_type !== 'expense' || $movement->source !== $expectedSource
+                || abs((float) $movement->amount - (float) $payment->amount) >= 0.005
+                || abs((float) $installment->amount - (float) $payment->amount) >= 0.005
+                || ($plannedPaid && abs((float) $payment->paid_amount - (float) $payment->amount) >= 0.005)
+                || ($plannedPaid && (float) $installment->paid_amount > 0)
+                || ($creditPaid && abs((float) $installment->paid_amount - (float) $installment->amount) >= 0.005)) {
+                return 'invalid';
+            }
+
+            if (CreditInstallment::where('movement_id', $movement->id)->whereKeyNot($installment->id)->exists()
+                || PlannedPayment::where('movement_id', $movement->id)->whereKeyNot($payment->id)->exists()) {
+                return 'invalid';
+            }
+
+            if ($plannedPaid) {
+                $this->creditSchedule->flush($installment->credit_purchase_id);
+                if (abs($this->creditSchedule->effectivePending($installment) - (float) $payment->amount) >= 0.005) {
+                    return 'invalid';
+                }
+
+                $installment->update([
+                    'status' => 'paid',
+                    'paid_amount' => $installment->amount,
+                    'paid_on' => $movement->happened_on->toDateString(),
+                    'movement_id' => $movement->id,
+                ]);
+                $this->creditSchedule->flush($installment->credit_purchase_id);
+                $this->freePayments->syncCreditStatus($installment->creditPurchase);
+            } else {
+                $payment->update([
+                    'status' => 'paid',
+                    'paid_amount' => $payment->amount,
+                    'paid_on' => $movement->happened_on->toDateString(),
+                    'movement_id' => $movement->id,
+                ]);
+            }
+
+            $payment->update(['credit_installment_id' => $installment->id]);
+
+            return 'linked';
+        });
+
+        return back()->with($result === 'invalid' ? 'error' : 'success', match ($result) {
+            'linked' => 'Pago y mensualidad vinculados al mismo egreso; no se creó otro movimiento.',
+            'already_linked' => 'Este pago ya está vinculado con la mensualidad.',
+            default => 'No se pueden vincular: revisa mes, monto, estado y movimiento real de ambos registros.',
+        });
+    }
+
+    public function unlinkInstallment(Request $request, PlannedPayment $payment)
+    {
+        abort_unless($payment->user_id === $request->user()->id, 403);
+
+        $result = DB::transaction(function () use ($payment) {
+            $payment = PlannedPayment::whereKey($payment->id)->lockForUpdate()->firstOrFail();
+            $installment = $payment->credit_installment_id
+                ? CreditInstallment::where('user_id', $payment->user_id)
+                    ->whereKey($payment->credit_installment_id)->lockForUpdate()->first()
+                : null;
+
+            if (! $installment || ! $payment->movement_id || $payment->movement_id !== $installment->movement_id) {
+                return false;
+            }
+
+            $movement = Movement::where('user_id', $payment->user_id)->find($payment->movement_id);
+            if (! $movement) {
+                return false;
+            }
+
+            if ($movement->source === 'planned_payment') {
+                $installment->update(['status' => 'pending', 'paid_amount' => 0, 'paid_on' => null, 'movement_id' => null]);
+                $this->creditSchedule->flush($installment->credit_purchase_id);
+                $this->freePayments->syncCreditStatus($installment->creditPurchase);
+            } elseif ($movement->source === 'credit_installment') {
+                $payment->update(['status' => 'pending', 'paid_amount' => 0, 'paid_on' => null, 'movement_id' => null]);
+            } else {
+                return false;
+            }
+
+            $payment->update(['credit_installment_id' => null]);
+
+            return true;
+        });
+
+        return back()->with($result ? 'success' : 'error', $result
+            ? 'Vínculo quitado; el egreso original se conserva en su origen.'
+            : 'No se pudo desvincular sin alterar un registro de pago.');
+    }
+
     public function markRegistered(Request $request, PlannedPayment $payment)
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
+
+        if ($payment->credit_installment_id) {
+            return back()->with('error', 'Este pago ya está vinculado con una mensualidad.');
+        }
 
         $data = $request->validate([
             'paid_on' => ['nullable', 'date'],
@@ -728,6 +885,10 @@ class PlannedPaymentController extends Controller
     public function revert(Request $request, PlannedPayment $payment)
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
+
+        if ($payment->credit_installment_id) {
+            return back()->with('error', 'Desvincula primero la mensualidad; así conservas el egreso original.');
+        }
 
         if (! in_array($payment->status, ['paid', 'skipped'], true)) {
             return back()->with('error', 'Este pago ya esta pendiente; no hay nada que revertir.');
@@ -793,6 +954,10 @@ class PlannedPaymentController extends Controller
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
 
+        if ($payment->credit_installment_id) {
+            return back()->with('error', 'Desvincula primero la mensualidad de este pago.');
+        }
+
         $payment->update(['status' => 'skipped']);
 
         return back()->with('success', 'Pago marcado como no pagado.');
@@ -801,6 +966,10 @@ class PlannedPaymentController extends Controller
     public function destroy(Request $request, PlannedPayment $payment)
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
+
+        if ($payment->credit_installment_id) {
+            return back()->with('error', 'Desvincula primero la mensualidad de este pago.');
+        }
 
         $snapshot = DB::transaction(function () use ($request, $payment) {
             $snapshot = $this->deleteSnapshots->captureBeforeDelete($request->user(), $payment, 'planned_payment');
