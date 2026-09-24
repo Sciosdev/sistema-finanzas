@@ -298,6 +298,90 @@ it('can link an imported credit-category payment before it is paid', function ()
         ->and(Movement::where('user_id', $user->id)->count())->toBe(0);
 });
 
+it('plans one credit obligation for every month of a 33-month schedule', function () {
+    $user = User::factory()->create();
+    app(FinanceCatalogService::class)->ensureForUser($user);
+    $account = Account::where('user_id', $user->id)->where('name', 'NU')->firstOrFail();
+    $credit = CreditPurchase::create([
+        'user_id' => $user->id,
+        'purchase_date' => '2026-06-10',
+        'name' => 'Compra Onix',
+        'total_amount' => 165000,
+        'months' => 33,
+        'first_due_month' => '2026-06-01',
+        'due_day' => 26,
+        'account_id' => $account->id,
+        'status' => 'active',
+    ]);
+
+    foreach (range(1, 33) as $number) {
+        $month = Carbon::parse('2026-06-01')->addMonths($number - 1);
+        $installment = CreditInstallment::create([
+            'user_id' => $user->id,
+            'credit_purchase_id' => $credit->id,
+            'period_month' => $month->toDateString(),
+            'due_date' => $month->copy()->day(26)->toDateString(),
+            'installment_number' => $number,
+            'amount' => 5000,
+            'paid_amount' => 0,
+            'status' => 'pending',
+        ]);
+
+        if ($number >= 5 && $number <= 7) {
+            PlannedPayment::create([
+                'user_id' => $user->id,
+                'period_month' => $month->toDateString(),
+                'due_date' => $month->copy()->day(20)->toDateString(),
+                'name' => 'Coca - Onix',
+                'amount' => 5000,
+                'status' => 'pending',
+                'credit_installment_id' => $installment->id,
+            ]);
+        }
+    }
+
+    $this->actingAs($user)
+        ->post(route('finance.credits.payment-plan', $credit), ['planned_payment_day' => 20])
+        ->assertSessionHas('success');
+
+    $installments = $credit->installments()->with(['creditPurchase', 'plannedPayment'])->orderBy('installment_number')->get();
+    expect($installments)->toHaveCount(33);
+    foreach ($installments as $installment) {
+        expect($installment->effectiveDueDate()?->day)->toBe(20);
+    }
+
+    $this->actingAs($user)
+        ->post(route('finance.planned.copy'), ['source_month' => '2026-12', 'target_month' => '2027-01'])
+        ->assertSessionHas('success');
+    expect(PlannedPayment::where('user_id', $user->id)->count())->toBe(3);
+
+    foreach (['2027-01', '2029-02'] as $month) {
+        $obligations = app(FinanceSummaryService::class)
+            ->monthObligations($user, Carbon::parse($month.'-01'), Carbon::parse($month.'-01')->endOfMonth());
+        expect($obligations->where('source', 'credit')->count())->toBe(1)
+            ->and($obligations->firstWhere('source', 'credit')['due_date']->format('Y-m-d'))->toBe($month.'-20');
+
+        $this->actingAs($user)
+            ->get(route('finance.planned.index', ['month' => $month]))
+            ->assertOk()
+            ->assertSee($month.'-20')
+            ->assertSee('Compra Onix');
+    }
+
+    $projection = app(FinanceProjectionService::class)->projectUntil($user, Carbon::parse('2027-01-31'));
+    expect(collect($projection['days'])->firstWhere('date', '2027-01-20')['installments'])->toHaveCount(1);
+
+    $january = $installments->firstWhere('installment_number', 8);
+    $this->actingAs($user)
+        ->post(route('finance.credits.installments.paid', $january), [
+            'paid_on' => '2027-01-20',
+            'payment_account_id' => $account->id,
+        ])
+        ->assertSessionHas('success');
+    expect(Movement::where('user_id', $user->id)->count())->toBe(1)
+        ->and($january->fresh()->status)->toBe('paid');
+});
+
 it('reconciles a credit installment already paid with a pending planned payment', function () {
     [$user, , $installment, $planned] = reconciliationFixture();
 

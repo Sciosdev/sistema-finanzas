@@ -830,10 +830,8 @@
                     @forelse ($creditInstallments as $installment)
                         @php
                             $credit = $installment->creditPurchase;
-                            $plannedDue = $installment->plannedPayment?->due_date;
-                            $effectiveDue = $plannedDue && $installment->due_date
-                                ? ($plannedDue->lt($installment->due_date) ? $plannedDue : $installment->due_date)
-                                : ($plannedDue ?? $installment->due_date);
+                            $plannedDue = $installment->plannedPaymentDate();
+                            $effectiveDue = $installment->effectiveDueDate();
                             $overdue = in_array($installment->status, ['pending', 'overdue'], true)
                                 && (
                                     $installment->status === 'overdue'
@@ -857,7 +855,7 @@
                             <td>{{ $effectiveDue?->format('Y-m-d') ?? '-' }}</td>
                             <td>{{ $credit?->name ?? '-' }}
                                 @if ($plannedDue)
-                                    <small class="d-block text-muted">{{ $installment->plannedPayment->name }} · cuota vence {{ $installment->due_date?->format('Y-m-d') ?? '-' }}</small>
+                                    <small class="d-block text-muted">Pago previsto {{ $plannedDue->format('Y-m-d') }} · cuota vence {{ $installment->due_date?->format('Y-m-d') ?? '-' }}</small>
                                 @endif
                             </td>
                             <td>{{ $installment->installment_number }} / {{ $credit?->months ?? '-' }}</td>
@@ -907,10 +905,8 @@
             && $planned->movement?->source === 'planned_payment'
             && $planned->period_month?->isSameMonth($installment->period_month)
             && abs((float) $planned->amount - (float) $installment->amount) < 0.005);
-        $plannedDue = $installment->plannedPayment?->due_date;
-        $effectiveDue = $plannedDue && $installment->due_date
-            ? ($plannedDue->lt($installment->due_date) ? $plannedDue : $installment->due_date)
-            : ($plannedDue ?? $installment->due_date);
+        $plannedDue = $installment->plannedPaymentDate();
+        $effectiveDue = $installment->effectiveDueDate();
         $overdue = in_array($installment->status, ['pending', 'overdue'], true)
             && (
                 $installment->status === 'overdue'

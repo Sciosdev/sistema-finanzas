@@ -458,6 +458,8 @@ class FinanceAdvisorSnapshotService
                     'pending_installments' => $pending->count(),
                     'overdue_amount' => $this->money((float) $overdue),
                     'next_due_date' => ($next?->due_date ?? $next?->period_month)?->toDateString(),
+                    'planned_payment_day' => $credit->planned_payment_day,
+                    'next_planned_payment_date' => $next?->effectiveDueDate()?->toDateString(),
                     'next_due_amount' => $next
                         ? $this->installmentResidual($next, $credit)
                         : 0.0,

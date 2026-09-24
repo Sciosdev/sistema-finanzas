@@ -419,10 +419,8 @@ class FinanceSummaryService
     private function creditObligation(CreditInstallment $installment): array
     {
         $credit = $installment->creditPurchase;
-        $plannedDue = $installment->plannedPayment?->due_date;
-        $dueDate = $plannedDue && $installment->due_date
-            ? ($plannedDue->lt($installment->due_date) ? $plannedDue : $installment->due_date)
-            : ($plannedDue ?? $installment->due_date);
+        $plannedDue = $installment->plannedPaymentDate();
+        $dueDate = $installment->effectiveDueDate();
         $amount = (float) $installment->amount;
         $paidAmount = (float) $installment->paid_amount;
         $isSkipped = $installment->status === 'skipped';

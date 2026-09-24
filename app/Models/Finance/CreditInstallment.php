@@ -3,6 +3,7 @@
 namespace App\Models\Finance;
 
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -54,5 +55,33 @@ class CreditInstallment extends Model
     public function plannedPayment(): HasOne
     {
         return $this->hasOne(PlannedPayment::class, 'credit_installment_id');
+    }
+
+    public function plannedPaymentDate(): ?Carbon
+    {
+        // Las cuotas ya pagadas conservan su fecha histórica; la regla del
+        // crédito gobierna todas las cuotas que aún quedan por pagar.
+        if ($this->status === 'paid') {
+            return $this->plannedPayment?->due_date?->copy();
+        }
+
+        $day = $this->creditPurchase?->planned_payment_day;
+        if ($day && $this->period_month) {
+            $period = $this->period_month->copy()->startOfMonth();
+
+            return $period->day(min((int) $day, $period->daysInMonth));
+        }
+
+        return $this->plannedPayment?->due_date?->copy();
+    }
+
+    public function effectiveDueDate(): ?Carbon
+    {
+        $planned = $this->plannedPaymentDate();
+        $contractual = $this->due_date?->copy();
+
+        return $planned && $contractual
+            ? ($planned->lt($contractual) ? $planned : $contractual)
+            : ($planned ?? $contractual);
     }
 }

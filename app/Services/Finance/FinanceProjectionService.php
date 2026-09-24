@@ -519,11 +519,7 @@ class FinanceProjectionService
             }
 
             $credit = $installment->creditPurchase;
-            $plannedDue = $installment->plannedPayment?->due_date?->copy()->startOfDay();
-            $creditDue = $installment->due_date?->copy()->startOfDay();
-            $due = $plannedDue && $creditDue
-                ? ($plannedDue->lt($creditDue) ? $plannedDue : $creditDue)
-                : ($plannedDue ?? $creditDue);
+            $due = $installment->effectiveDueDate()?->startOfDay();
 
             if ($due === null) {
                 $period = $installment->period_month->copy()->startOfMonth();

@@ -302,7 +302,7 @@ class FinancePeriodPlanService
                     return false;
                 }
 
-                $due = $installment->due_date?->copy()->startOfDay()
+                $due = $installment->effectiveDueDate()?->startOfDay()
                     ?? $installment->period_month?->copy()->endOfMonth()->startOfDay();
 
                 return $due !== null && $due->betweenIncluded($monthStart, $monthEnd);
@@ -317,7 +317,7 @@ class FinancePeriodPlanService
                 $account = $first->creditPurchase?->account;
                 $total = $this->money($items->sum(fn (CreditInstallment $i) => $this->creditSchedule->effectivePending($i)));
                 $nextDue = $items
-                    ->map(fn (CreditInstallment $i) => $i->due_date?->copy()->startOfDay())
+                    ->map(fn (CreditInstallment $i) => $i->effectiveDueDate()?->startOfDay())
                     ->filter()
                     ->sortBy(fn (Carbon $d) => $d->timestamp)
                     ->first();

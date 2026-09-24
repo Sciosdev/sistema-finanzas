@@ -137,6 +137,7 @@ class CreditPurchaseController extends Controller
             'months' => $data['months'],
             'first_due_month' => FinanceMonth::parse($data['first_due_month'])->toDateString(),
             'due_day' => $data['due_day'] ?? null,
+            'planned_payment_day' => $data['planned_payment_day'] ?? null,
             'account_id' => $data['account_id'] ?? null,
             'category_id' => $data['category_id'] ?? null,
             'notes' => $data['notes'] ?? null,
@@ -426,6 +427,21 @@ class CreditPurchaseController extends Controller
         return back()->with('success', $count
             ? "Se unificaron {$count} pagos futuros con sus mensualidades."
             : 'Los pagos futuros de este crédito ya están unificados o no tienen una coincidencia única.');
+    }
+
+    public function updatePaymentPlan(Request $request, CreditPurchase $credit)
+    {
+        abort_unless($credit->user_id === $request->user()->id, 403);
+
+        $data = $request->validate([
+            'planned_payment_day' => ['nullable', 'integer', 'min:1', 'max:31'],
+        ]);
+
+        $credit->update(['planned_payment_day' => $data['planned_payment_day'] ?? null]);
+
+        return back()->with('success', $credit->planned_payment_day
+            ? "El día {$credit->planned_payment_day} quedó como fecha prevista para todas las mensualidades pendientes de {$credit->name}. El pago se registra en Créditos."
+            : "Las mensualidades pendientes de {$credit->name} usarán su vencimiento registrado. El pago se registra en Créditos.");
     }
 
     /**
@@ -781,6 +797,7 @@ class CreditPurchaseController extends Controller
             'months' => ['required', 'integer', 'min:1', 'max:60'],
             'first_due_month' => ['nullable', 'date_format:Y-m'],
             'due_day' => ['nullable', 'integer', 'min:1', 'max:31'],
+            'planned_payment_day' => ['nullable', 'integer', 'min:1', 'max:31'],
             'account_id' => ['nullable', 'integer', Rule::exists('finance_accounts', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'category_id' => ['nullable', 'integer', Rule::exists('finance_categories', 'id')->where(fn ($query) => $query->where('user_id', $user->id))],
             'notes' => ['nullable', 'string'],

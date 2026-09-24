@@ -985,7 +985,7 @@ class FinanceDecisionPlanService
 
     private function installmentEffectiveDate(CreditInstallment $installment): ?Carbon
     {
-        return $installment->due_date?->copy()->startOfDay()
+        return $installment->effectiveDueDate()?->startOfDay()
             ?? $installment->period_month?->copy()->startOfMonth();
     }
 

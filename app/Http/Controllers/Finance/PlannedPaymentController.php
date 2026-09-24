@@ -123,11 +123,7 @@ class PlannedPaymentController extends Controller
                 $first = $rows->first()['installment'];
                 $account = $first->creditPurchase?->account;
                 $nextDueDate = $rows
-                    ->map(fn (array $row) => $row['installment']->plannedPayment?->due_date
-                        && $row['installment']->due_date
-                            ? ($row['installment']->plannedPayment->due_date->lt($row['installment']->due_date)
-                                ? $row['installment']->plannedPayment->due_date : $row['installment']->due_date)
-                            : ($row['installment']->plannedPayment?->due_date ?? $row['installment']->due_date))
+                    ->map(fn (array $row) => $row['installment']->effectiveDueDate())
                     ->filter()
                     ->sortBy(fn (Carbon $date) => $date->timestamp)
                     ->first();

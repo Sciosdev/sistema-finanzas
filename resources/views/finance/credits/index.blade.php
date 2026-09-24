@@ -350,8 +350,13 @@
                     <input type="month" name="first_due_month" class="form-control" value="{{ old('first_due_month', now()->format('Y-m')) }}">
                 </div>
                 <div class="col-md-2 js-cycle-field">
-                    <label class="form-label">Día pago</label>
+                    <label class="form-label">Vence día</label>
                     <input type="number" name="due_day" class="form-control" min="1" max="31" value="{{ old('due_day') }}">
+                </div>
+                <div class="col-md-2">
+                    <label class="form-label">Día previsto</label>
+                    <input type="number" name="planned_payment_day" class="form-control" min="1" max="31" value="{{ old('planned_payment_day') }}" placeholder="Opcional">
+                    <small class="text-muted">Para planear el pago antes del vencimiento.</small>
                 </div>
                 <div class="col-md-3">
                     <label class="form-label">Cuenta</label>
@@ -479,6 +484,7 @@
                 @if ($nextInstallment)
                     <p class="mb-0 mt-1 small">
                         <span class="text-muted">Siguiente mensualidad ({{ $nextInstallment->period_month?->format('Y-m') }}):</span>
+                        <span class="ms-1">en flujo {{ $nextInstallment->effectiveDueDate()?->format('Y-m-d') ?? '-' }}</span>
                         <span class="ms-1">original {{ $money($nextOriginal) }}</span>
                         @if ($nextFreeApplied > 0)
                             <span class="ms-1 text-info">- abonos libres {{ $money($nextFreeApplied) }}</span>
@@ -509,6 +515,17 @@
             </div>
         </div>
         <div class="card-body border-bottom">
+            <form method="POST" action="{{ route('finance.credits.payment-plan', $credit) }}" class="row g-2 align-items-end mb-3">
+                @csrf
+                <div class="col-auto">
+                    <label class="form-label small mb-1" for="planned-payment-day-{{ $credit->id }}">Día previsto de pago cada mes</label>
+                    <input id="planned-payment-day-{{ $credit->id }}" type="number" name="planned_payment_day" class="form-control form-control-sm" min="1" max="31" value="{{ $credit->planned_payment_day }}" placeholder="Vencimiento" style="width: 130px">
+                </div>
+                <div class="col-auto">
+                    <button type="submit" class="btn btn-sm btn-outline-primary">Guardar plan</button>
+                </div>
+                <div class="col-12 small text-muted">Se aplica a todas las mensualidades pendientes de este crédito, incluso después de diciembre. Deja vacío para usar el vencimiento. Paga siempre desde Créditos.</div>
+            </form>
             @if ($credit->is_manual_schedule)
             <form id="{{ $creditFormId }}" method="POST" action="{{ route('finance.credits.update', $credit) }}" class="row g-3 align-items-end">
                 @csrf
@@ -589,7 +606,7 @@
                     <input type="month" name="first_due_month" class="form-control form-control-sm" value="{{ $credit->first_due_month->format('Y-m') }}">
                 </div>
                 <div class="col-md-1 js-cycle-field">
-                    <label class="form-label">Día</label>
+                    <label class="form-label">Vence día</label>
                     <input type="number" name="due_day" class="form-control form-control-sm" min="1" max="31" value="{{ $credit->due_day }}">
                 </div>
                 <div class="col-md-2">
@@ -769,6 +786,7 @@
                             <th>#</th>
                             <th>Mes</th>
                             <th>Vence</th>
+                            <th>En flujo</th>
                             <th class="text-end">Monto</th>
                             <th class="text-end">Pendiente</th>
                             <th>Estado</th>
@@ -796,6 +814,7 @@
                                 <td style="min-width: 150px;">
                                     <input form="{{ $installmentFormId }}" type="date" name="due_date" class="form-control form-control-sm" value="{{ $installment->due_date?->format('Y-m-d') }}">
                                 </td>
+                                <td>{{ $installment->effectiveDueDate()?->format('Y-m-d') ?? '-' }}</td>
                                 <td style="min-width: 130px;">
                                     <input form="{{ $installmentFormId }}" type="number" name="amount" class="form-control form-control-sm text-end" step="0.01" min="0.01" value="{{ $installment->amount }}" required>
                                 </td>
@@ -893,6 +912,7 @@
                                 <label class="form-label small mb-1">Vence</label>
                                 <input form="{{ $installmentFormId }}" type="date" name="due_date" class="form-control form-control-sm" value="{{ $installment->due_date?->format('Y-m-d') }}">
                             </div>
+                            <div class="col-12 small text-info">En flujo: {{ $installment->effectiveDueDate()?->format('Y-m-d') ?? '-' }}</div>
                             <div class="col-6">
                                 <label class="form-label small mb-1">Monto</label>
                                 <input form="{{ $installmentFormId }}" type="number" name="amount" class="form-control form-control-sm text-end" step="0.01" min="0.01" value="{{ $installment->amount }}" required>

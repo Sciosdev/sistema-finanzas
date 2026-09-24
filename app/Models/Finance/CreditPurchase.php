@@ -19,6 +19,7 @@ class CreditPurchase extends Model
         'months',
         'first_due_month',
         'due_day',
+        'planned_payment_day',
         'is_manual_schedule',
         'account_id',
         'category_id',
