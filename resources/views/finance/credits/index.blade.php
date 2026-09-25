@@ -449,17 +449,22 @@
         $creditCardItem = $creditorSummary ? collect($creditorSummary['credits'])->firstWhere('id', $credit->id) : null;
         $creditCurrentDue = (float) ($creditCardItem['current_due'] ?? 0);
         $creditorKey = $creditorSummary['key'] ?? 'sin-acreedor';
-        // Calendario efectivo: mensualidades contratadas menos los abonos libres
-        // ya repartidos. El calendario original no se toca.
+        // El calendario combina abonos y devoluciones; mostrar por separado
+        // las devoluciones fijadas a cada mensualidad y los abonos de efectivo.
         $schedule = $creditSchedules[$credit->id] ?? ['free_applied' => [], 'effective' => [], 'next_installment_id' => null, 'max_free_payment' => 0.0];
         $freeApplied = $schedule['free_applied'];
+        $refundApplied = $credit->freePayments->where('payment_type', 'refund')
+            ->groupBy('target_installment_id')
+            ->map(fn ($payments) => round((float) $payments->sum('amount_applied'), 2));
         $effectiveDue = $schedule['effective'];
         $maxFreePayment = (float) $schedule['max_free_payment'];
         $nextInstallment = $schedule['next_installment_id']
             ? $credit->installments->firstWhere('id', $schedule['next_installment_id'])
             : null;
         $nextOriginal = $nextInstallment ? (float) $nextInstallment->amount : 0.0;
-        $nextFreeApplied = $nextInstallment ? (float) ($freeApplied[$nextInstallment->id] ?? 0) : 0.0;
+        $nextApplied = $nextInstallment ? (float) ($freeApplied[$nextInstallment->id] ?? 0) : 0.0;
+        $nextRefundApplied = $nextInstallment ? min($nextApplied, (float) $refundApplied->get($nextInstallment->id, 0)) : 0.0;
+        $nextFreeApplied = round(max(0, $nextApplied - $nextRefundApplied), 2);
         $nextEffective = $nextInstallment ? (float) ($effectiveDue[$nextInstallment->id] ?? 0) : 0.0;
     @endphp
     <div class="card finance-credit-card" id="credit-{{ $credit->id }}" style="border-left: 4px solid {{ $creditorStyle['color'] }};" data-creditor-key="{{ $creditorKey }}" data-current-due="{{ $creditCurrentDue }}" data-balance="{{ $creditPending }}">
@@ -488,7 +493,10 @@
                         <span class="ms-1">en flujo {{ $nextInstallment->effectiveDueDate()?->format('Y-m-d') ?? '-' }}</span>
                         <span class="ms-1">original {{ $money($nextOriginal) }}</span>
                         @if ($nextFreeApplied > 0)
-                            <span class="ms-1 text-info">- abonos y devoluciones {{ $money($nextFreeApplied) }}</span>
+                            <span class="ms-1 text-info">- abonos libres {{ $money($nextFreeApplied) }}</span>
+                        @endif
+                        @if ($nextRefundApplied > 0)
+                            <span class="ms-1 text-info">- devoluciones {{ $money($nextRefundApplied) }}</span>
                         @endif
                         <span class="ms-1 fw-semibold text-warning">= pendiente efectivo {{ $money($nextEffective) }}</span>
                     </p>
@@ -814,7 +822,9 @@
                         @foreach ($credit->installments as $installment)
                             @php
                                 $installmentFormId = 'installment-form-' . $installment->id;
-                                $rowFreeApplied = (float) ($freeApplied[$installment->id] ?? 0);
+                                $rowApplied = (float) ($freeApplied[$installment->id] ?? 0);
+                                $rowRefundApplied = min($rowApplied, (float) $refundApplied->get($installment->id, 0));
+                                $rowFreeApplied = round(max(0, $rowApplied - $rowRefundApplied), 2);
                                 $rowEffective = (float) ($effectiveDue[$installment->id] ?? 0);
                             @endphp
                             <tr>
@@ -837,6 +847,9 @@
                                     <span class="fw-semibold">{{ $money($rowEffective) }}</span>
                                     @if ($rowFreeApplied > 0)
                                         <small class="d-block text-info">-{{ $money($rowFreeApplied) }} abono libre</small>
+                                    @endif
+                                    @if ($rowRefundApplied > 0)
+                                        <small class="d-block text-info">-{{ $money($rowRefundApplied) }} devolución de tarjeta</small>
                                     @endif
                                 </td>
                                 <td style="min-width: 130px;">
@@ -898,7 +911,9 @@
                 @foreach ($credit->installments as $installment)
                     @php
                         $installmentFormId = 'installment-form-m-' . $installment->id;
-                        $rowFreeApplied = (float) ($freeApplied[$installment->id] ?? 0);
+                        $rowApplied = (float) ($freeApplied[$installment->id] ?? 0);
+                        $rowRefundApplied = min($rowApplied, (float) $refundApplied->get($installment->id, 0));
+                        $rowFreeApplied = round(max(0, $rowApplied - $rowRefundApplied), 2);
                         $rowEffective = (float) ($effectiveDue[$installment->id] ?? 0);
                     @endphp
                     <div class="finance-mobile-row px-3 py-3 border-bottom">
@@ -915,7 +930,10 @@
                         <div class="small text-muted mb-2">
                             Pendiente efectivo <span class="fw-semibold text-warning">{{ $money($rowEffective) }}</span>
                             @if ($rowFreeApplied > 0)
-                                <span class="text-info">(ya abonaste {{ $money($rowFreeApplied) }})</span>
+                                <span class="text-info">(abono libre {{ $money($rowFreeApplied) }})</span>
+                            @endif
+                            @if ($rowRefundApplied > 0)
+                                <span class="text-info">(devolución de tarjeta {{ $money($rowRefundApplied) }})</span>
                             @endif
                         </div>
                         <div class="row g-2">

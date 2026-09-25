@@ -149,6 +149,36 @@ it('combines a real advance a refund and a later payment without double counting
         ->and(round((float) Movement::sum('amount'), 2))->toBe(85.0);
 });
 
+it('labels refunds separately from cash advances in desktop mobile and next installment views', function (int $advance) {
+    $user = User::factory()->create();
+    $card = refundAccount($user, 'Tarjeta de ejemplo');
+    $credit = refundCredit($user, $card, ['2026-10' => 100]);
+    if ($advance > 0) {
+        app(CreditFreePaymentService::class)->createFreePayment($credit, Carbon::parse('2026-09-25'), $advance);
+    }
+    app(CardRefundService::class)->create(
+        $user, $card, Carbon::parse('2026-09-25'), Carbon::parse('2026-10-01'),
+        17, 'Devolución de ejemplo', 'Referencia sintética para verificar las etiquetas.', 'example-refund-labels',
+    );
+
+    $response = $this->actingAs($user)->get(route('finance.credits.index'))->assertOk()
+        ->assertSee('-$17.00 devolución de tarjeta', false)
+        ->assertSee('(devolución de tarjeta $17.00)', false)
+        ->assertSee('- devoluciones $17.00', false)
+        ->assertDontSee('-$'.number_format($advance + 17, 2).' abono libre', false)
+        ->assertDontSee('(ya abonaste $'.number_format($advance + 17, 2).')', false);
+    if ($advance > 0) {
+        $response->assertSee('-$23.00 abono libre', false)
+            ->assertSee('(abono libre $23.00)', false)
+            ->assertSee('- abonos libres $23.00', false);
+    } else {
+        $response->assertDontSee('abono libre</small>', false)
+            ->assertDontSee('(abono libre ', false);
+    }
+    expect(Movement::count())->toBe($advance > 0 ? 1 : 0)
+        ->and(refundDues($credit))->toBe([round(83.0 - $advance, 2)]);
+})->with([0, 23]);
+
 it('returns the same refund on an identical retry and rejects changed data for its reference', function () {
     $user = User::factory()->create();
     $nu = refundAccount($user);
