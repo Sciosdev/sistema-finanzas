@@ -18,6 +18,9 @@ class CreditFreePayment extends Model
         'paid_on',
         'payment_type',
         'notes',
+        'card_refund_id',
+        'target_installment_id',
+        'allocation_snapshot',
     ];
 
     protected function casts(): array
@@ -25,6 +28,7 @@ class CreditFreePayment extends Model
         return [
             'amount_applied' => 'decimal:2',
             'paid_on' => 'date',
+            'allocation_snapshot' => 'array',
         ];
     }
 
@@ -41,5 +45,15 @@ class CreditFreePayment extends Model
     public function movement(): BelongsTo
     {
         return $this->belongsTo(Movement::class);
+    }
+
+    public function cardRefund(): BelongsTo
+    {
+        return $this->belongsTo(CardRefund::class);
+    }
+
+    public function targetInstallment(): BelongsTo
+    {
+        return $this->belongsTo(CreditInstallment::class, 'target_installment_id');
     }
 }

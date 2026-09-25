@@ -5,12 +5,15 @@ namespace App\Http\Controllers\Finance;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Finance\Concerns\PreparesFinanceData;
 use App\Models\Finance\Account;
+use App\Models\Finance\CardRefund;
+use App\Models\Finance\CreditPaymentCorrection;
 use App\Models\Finance\CreditFreePayment;
 use App\Models\Finance\CreditInstallment;
 use App\Models\Finance\CreditPurchase;
 use App\Models\Finance\Movement;
 use App\Models\Finance\PlannedPayment;
 use App\Services\Finance\CreditEffectiveScheduleService;
+use App\Services\Finance\CardRefundService;
 use App\Services\Finance\CreditFreePaymentService;
 use App\Services\Finance\CreditPlannedSeriesService;
 use App\Services\Finance\FinanceCatalogService;
@@ -34,6 +37,7 @@ class CreditPurchaseController extends Controller
         private readonly FinanceCutSuggestionService $cutSuggestions,
         private readonly CreditEffectiveScheduleService $schedule,
         private readonly CreditPlannedSeriesService $plannedSeries,
+        private readonly CardRefundService $cardRefunds,
     ) {}
 
     public function index(Request $request)
@@ -106,6 +110,9 @@ class CreditPurchaseController extends Controller
 
         return view('finance.credits.index', [
             'credits' => $credits,
+            'cardRefunds' => CardRefund::with(['account', 'originalPurchase', 'allocations.targetInstallment.creditPurchase'])
+                ->where('user_id', $user->id)->orderByDesc('received_on')->get(),
+            'paymentCorrections' => CreditPaymentCorrection::where('user_id', $user->id)->latest()->get(),
             'creditTotals' => $creditTotals,
             'creditSchedules' => $creditSchedules,
             'creditorSummaries' => $creditorSummaries,
@@ -233,6 +240,9 @@ class CreditPurchaseController extends Controller
 
         if ($credit->is_manual_schedule) {
             $data = $this->manualCreditMetadataData($request, $user);
+            if ((int) $data['account_id'] !== (int) $credit->account_id) {
+                $this->guardRefundedCredit($credit);
+            }
 
             $credit->update([
                 'purchase_date' => $data['purchase_date'],
@@ -249,6 +259,7 @@ class CreditPurchaseController extends Controller
             return back()->with('error', 'Desvincula los pagos planeados de las mensualidades antes de cambiar el calendario del crédito.');
         }
 
+        $this->guardRefundedCredit($credit);
         $data = $this->applyCardCycle($user, $this->creditData($request, $user));
         $amounts = $this->creditAmounts($data);
 
@@ -292,6 +303,9 @@ class CreditPurchaseController extends Controller
         DB::transaction(function () use ($credits, &$details) {
             foreach ($credits as $credit) {
                 if ($credit->is_manual_schedule) {
+                    continue;
+                }
+                if ($credit->freePayments()->where('payment_type', 'refund')->exists()) {
                     continue;
                 }
 
@@ -362,6 +376,7 @@ class CreditPurchaseController extends Controller
     public function destroy(Request $request, CreditPurchase $credit)
     {
         abort_unless($credit->user_id === $request->user()->id, 403);
+        $this->guardRefundedCredit($credit);
 
         $snapshot = DB::transaction(function () use ($request, $credit) {
             $snapshot = $this->deleteSnapshots->captureBeforeDelete($request->user(), $credit, 'credit_purchase');
@@ -601,16 +616,24 @@ class CreditPurchaseController extends Controller
         ]);
 
         $paidOn = isset($data['paid_on']) ? Carbon::parse($data['paid_on']) : today();
-        $credit = $installment->creditPurchase()->firstOrFail();
-
-        $installment->update([
-            'status' => 'paid',
-            'paid_amount' => $this->settledPaidAmount($installment, $this->effectiveRemaining($credit, $installment)),
-            'paid_on' => $paidOn->toDateString(),
-        ]);
-
-        $this->schedule->flush($credit->id);
-        $this->refreshCreditStatus($credit);
+        DB::transaction(function () use ($installment, $paidOn) {
+            $credit = CreditPurchase::whereKey($installment->credit_purchase_id)->lockForUpdate()->firstOrFail();
+            $installment = CreditInstallment::whereKey($installment->id)->lockForUpdate()->firstOrFail();
+            if ($installment->status === 'paid') {
+                return;
+            }
+            if (PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
+                throw ValidationException::withMessages(['paid_on' => 'Esta mensualidad ya está vinculada con un pago planeado.']);
+            }
+            $this->schedule->flush($credit->id);
+            $installment->update([
+                'status' => 'paid',
+                'paid_amount' => $this->settledPaidAmount($installment, $this->effectiveRemaining($credit, $installment)),
+                'paid_on' => $paidOn->toDateString(),
+            ]);
+            $this->schedule->flush($credit->id);
+            $this->refreshCreditStatus($credit);
+        }, 3);
 
         return back()->with('success', 'Mensualidad marcada como ya registrada.');
     }
@@ -632,15 +655,43 @@ class CreditPurchaseController extends Controller
             'notes' => ['nullable', 'string'],
         ]);
 
-        $amount = round((float) $data['amount'], 2);
-        $isPaid = $data['status'] === 'paid';
-        $credit = $installment->creditPurchase()->firstOrFail();
-        // Al marcarla pagada a mano, el dinero registrado es el importe menos lo
-        // que ya cubrió un abono libre: si no, el crédito quedaría sobrepagado.
-        $freeApplied = $this->schedule->allocationFor($credit)[$installment->id] ?? 0.0;
+        DB::transaction(function () use ($installment, $data) {
+            $credit = CreditPurchase::whereKey($installment->credit_purchase_id)->lockForUpdate()->firstOrFail();
+            $installment = CreditInstallment::whereKey($installment->id)->lockForUpdate()->firstOrFail();
+            if (PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
+                throw ValidationException::withMessages(['amount' => 'Desvincula primero el pago planeado de esta mensualidad.']);
+            }
 
-        DB::transaction(function () use ($installment, $credit, $data, $amount, $isPaid, $freeApplied) {
-            if (! $isPaid && $installment->movement_id) {
+            $amount = round((float) $data['amount'], 2);
+            $period = FinanceMonth::parse($data['period_month'])->toDateString();
+            $dueDate = ! empty($data['due_date']) ? Carbon::parse($data['due_date'])->toDateString() : null;
+            $calendarChanged = $installment->period_month?->toDateString() !== $period
+                || $installment->due_date?->toDateString() !== $dueDate
+                || abs((float) $installment->amount - $amount) >= 0.005;
+            $statusChanged = $installment->status !== $data['status'];
+            $isPaid = $data['status'] === 'paid';
+            if ($calendarChanged || ($statusChanged && ! $isPaid)) {
+                $this->guardRefundedCredit($credit);
+            }
+            $this->schedule->flush($credit->id);
+            $credit->load(['installments', 'freePayments']);
+            $allocationBefore = $this->schedule->allocationFor($credit);
+            $freeApplied = $allocationBefore[$installment->id] ?? 0.0;
+
+            // Changing a date or contractual amount is not a new cash payment.
+            // Keep existing partial payments and their movements unless the
+            // user explicitly changes the payment status.
+            $paidAmount = $statusChanged
+                ? ($isPaid ? round(max(0, $amount - $freeApplied), 2) : 0)
+                : (float) $installment->paid_amount;
+            if ($amount + 0.004 < $paidAmount + $freeApplied) {
+                throw ValidationException::withMessages([
+                    'amount' => 'El importe no puede quedar por debajo del dinero y los abonos ya aplicados. Revisa primero los pagos.',
+                ]);
+            }
+            $status = $isPaid && $paidAmount + $freeApplied + 0.004 < $amount ? 'pending' : $data['status'];
+
+            if ($statusChanged && ! $isPaid && $installment->movement_id) {
                 $movement = Movement::where('user_id', $installment->user_id)
                     ->whereKey($installment->movement_id)
                     ->lockForUpdate()
@@ -652,19 +703,33 @@ class CreditPurchaseController extends Controller
             }
 
             $installment->update([
-                'period_month' => FinanceMonth::parse($data['period_month'])->toDateString(),
-                'due_date' => $data['due_date'] ?? null,
+                'period_month' => $period,
+                'due_date' => $dueDate,
                 'amount' => $amount,
-                'status' => $data['status'],
-                'paid_amount' => $isPaid ? round(max(0, $amount - $freeApplied), 2) : 0,
-                'paid_on' => $isPaid ? ($data['paid_on'] ?? today()->toDateString()) : null,
-                'movement_id' => $isPaid ? $installment->movement_id : null,
+                'status' => $status,
+                'paid_amount' => $paidAmount,
+                'paid_on' => $statusChanged
+                    ? ($isPaid ? ($data['paid_on'] ?? today()->toDateString()) : null)
+                    : ($data['paid_on'] ?? $installment->paid_on),
+                'movement_id' => $statusChanged && ! $isPaid ? null : $installment->movement_id,
                 'notes' => $data['notes'] ?? null,
             ]);
 
+            if ($calendarChanged) {
+                $credit->update(['is_manual_schedule' => true, 'due_day' => null]);
+                $this->renumberInstallments($credit);
+                $credit->unsetRelation('installments');
+                $this->schedule->flush($credit->id);
+                if ($this->schedule->allocationFor($credit) != $allocationBefore) {
+                    throw ValidationException::withMessages([
+                        'period_month' => 'Este cambio movería abonos libres a otra mensualidad. Revisa sus abonos antes de cambiar el calendario.',
+                    ]);
+                }
+            }
+
             $this->schedule->flush($credit->id);
             $this->refreshCreditFromInstallments($credit);
-        });
+        }, 3);
 
         return back()->with('success', 'Mensualidad actualizada.');
     }
@@ -707,6 +772,10 @@ class CreditPurchaseController extends Controller
     public function destroyFreePayment(Request $request, CreditFreePayment $payment)
     {
         abort_unless($payment->user_id === $request->user()->id, 403);
+        if ($payment->payment_type === 'refund') {
+            return back()->with('error', 'Gestiona esta aplicación desde Devoluciones de tarjeta.');
+        }
+        $this->guardRefundedCredit($payment->creditPurchase()->firstOrFail());
 
         $snapshot = DB::transaction(function () use ($request, $payment) {
             $snapshot = $this->deleteSnapshots->captureBeforeDelete($request->user(), $payment, 'credit_free_payment');
@@ -728,6 +797,7 @@ class CreditPurchaseController extends Controller
     public function destroyInstallment(Request $request, CreditInstallment $installment)
     {
         abort_unless($installment->user_id === $request->user()->id, 403);
+        $this->guardRefundedCredit($installment->creditPurchase()->firstOrFail());
 
         if (PlannedPayment::where('credit_installment_id', $installment->id)->exists()) {
             return back()->with('error', 'Desvincula primero el pago planeado de esta mensualidad.');
@@ -916,6 +986,15 @@ class CreditPurchaseController extends Controller
         return $amounts;
     }
 
+    private function guardRefundedCredit(CreditPurchase $credit): void
+    {
+        try {
+            $this->cardRefunds->assertCreditCanBeChanged($credit);
+        } catch (\RuntimeException $exception) {
+            throw ValidationException::withMessages(['credit' => $exception->getMessage()]);
+        }
+    }
+
     private function renumberInstallments(CreditPurchase $credit): void
     {
         $credit->installments()
@@ -957,6 +1036,7 @@ class CreditPurchaseController extends Controller
         }
 
         $credit = $installment->creditPurchase()->firstOrFail();
+        $this->schedule->flush($credit->id);
         $remaining = $this->effectiveRemaining($credit, $installment);
         $planned = PlannedPayment::where('user_id', $installment->user_id)
             ->where('credit_installment_id', $installment->id)
@@ -1032,7 +1112,7 @@ class CreditPurchaseController extends Controller
     private function creditSummary($credits, $creditTotals, Carbon $currentMonth, Carbon $nextMonth): array
     {
         $installments = $credits->flatMap->installments;
-        $freePayments = $credits->flatMap->freePayments;
+        $freePayments = $credits->flatMap->freePayments->where('payment_type', '!=', 'refund');
         $creditIds = $credits->pluck('id');
         $filteredTotals = $creditTotals->only($creditIds->all());
 
@@ -1078,6 +1158,7 @@ class CreditPurchaseController extends Controller
                             ->filter(fn (CreditInstallment $installment) => $installment->paid_on?->isSameMonth($currentMonth))
                             ->sum(fn (CreditInstallment $installment) => (float) $installment->paid_amount);
                         $freePaidThisMonth = $credit->freePayments
+                            ->where('payment_type', '!=', 'refund')
                             ->filter(fn (CreditFreePayment $payment) => $payment->paid_on?->isSameMonth($currentMonth))
                             ->sum(fn (CreditFreePayment $payment) => (float) $payment->amount_applied);
                         $paidThisMonth = round($installmentPaidThisMonth + $freePaidThisMonth, 2);

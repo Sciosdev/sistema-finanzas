@@ -104,8 +104,14 @@ class CreditFreePaymentService
 
     public function deleteFreePayment(CreditFreePayment $payment): void
     {
+        if ($payment->payment_type === 'refund') {
+            throw new RuntimeException('Elimina la devolución completa desde Devoluciones de tarjeta, no su aplicación individual.');
+        }
         DB::transaction(function () use ($payment) {
             $credit = CreditPurchase::whereKey($payment->credit_purchase_id)->lockForUpdate()->firstOrFail();
+            if ($credit->freePayments()->where('payment_type', 'refund')->exists()) {
+                throw new RuntimeException('Este crédito tiene una devolución aplicada. Revísala antes de eliminar abonos para conservar los pagos y el saldo correctos.');
+            }
             $movement = $payment->movement;
 
             $payment->delete();
@@ -123,10 +129,12 @@ class CreditFreePaymentService
     {
         $installmentPaid = round($credit->installments()->sum('paid_amount'), 2);
         $installmentTotal = round($credit->installments()->sum('amount'), 2);
-        $freePaid = round($credit->freePayments()->sum('amount_applied'), 2);
+        $freePaid = round($credit->freePayments()->where('payment_type', '!=', 'refund')->sum('amount_applied'), 2);
+        $refunded = round($credit->freePayments()->where('payment_type', 'refund')->sum('amount_applied'), 2);
         $total = round((float) $credit->total_amount, 2);
         $totalPaid = round($installmentPaid + $freePaid, 2);
-        $pending = round(max(0, $total - $totalPaid), 2);
+        $settled = round($totalPaid + $refunded, 2);
+        $pending = round(max(0, $total - $settled), 2);
 
         return [
             'total_original' => $total,
@@ -135,8 +143,10 @@ class CreditFreePaymentService
             'free_paid' => $freePaid,
             'total_paid' => min($total, $totalPaid),
             'total_paid_raw' => $totalPaid,
+            'refunded' => $refunded,
+            'settled_total' => min($total, $settled),
             'balance_due' => $pending,
-            'status' => $this->statusFor($total, $totalPaid),
+            'status' => $this->statusFor($total, $settled),
         ];
     }
 

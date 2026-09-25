@@ -420,9 +420,10 @@ class FinanceAdvisorSnapshotService
             ->get()
             ->map(function (CreditPurchase $credit) use ($today) {
                 $installmentPaid = (float) $credit->installments->sum('paid_amount');
-                $freePaid = (float) $credit->freePayments->sum('amount_applied');
+                $freePaid = (float) $credit->freePayments->where('payment_type', '!=', 'refund')->sum('amount_applied');
+                $refunded = (float) $credit->freePayments->where('payment_type', 'refund')->sum('amount_applied');
                 $totalPaid = $this->money($installmentPaid + $freePaid);
-                $balanceDue = $this->money(max(0, (float) $credit->total_amount - $totalPaid));
+                $balanceDue = $this->money(max(0, (float) $credit->total_amount - $totalPaid - $refunded));
                 $pending = $credit->installments
                     ->filter(fn (CreditInstallment $installment) => ! in_array(
                         $installment->status,
@@ -452,6 +453,7 @@ class FinanceAdvisorSnapshotService
                     'purchase_date' => $credit->purchase_date?->toDateString(),
                     'total_amount' => $this->money((float) $credit->total_amount),
                     'total_paid' => $totalPaid,
+                    'refunded' => $this->money($refunded),
                     'balance_due' => $balanceDue,
                     'months' => (int) $credit->months,
                     'manual_schedule' => (bool) $credit->is_manual_schedule,

@@ -1,7 +1,9 @@
 <?php
 
 use App\Http\Controllers\Finance\AccountController;
+use App\Http\Controllers\Finance\CardRefundController;
 use App\Http\Controllers\Finance\CategoryController;
+use App\Http\Controllers\Finance\CreditPaymentCorrectionController;
 use App\Http\Controllers\Finance\CreditPurchaseController;
 use App\Http\Controllers\Finance\DailyCutController;
 use App\Http\Controllers\Finance\ExpectedIncomeController;
@@ -164,6 +166,10 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::post('creditos/manual', [CreditPurchaseController::class, 'storeManual'])->name('credits.manual.store');
         Route::post('creditos/recalcular-fechas', [CreditPurchaseController::class, 'recalculateDueDates'])->name('credits.recalculate-dates');
         Route::post('creditos/acreedores/pagar-mes', [CreditPurchaseController::class, 'payCreditorMonth'])->name('credits.creditors.pay-month');
+        Route::post('creditos/pagos/correccion', [CreditPaymentCorrectionController::class, 'store'])->name('credits.payment-corrections.store');
+        Route::delete('creditos/pagos/correccion/{correction}', [CreditPaymentCorrectionController::class, 'destroy'])->whereNumber('correction')->name('credits.payment-corrections.destroy');
+        Route::post('creditos/devoluciones', [CardRefundController::class, 'store'])->name('credits.card-refunds.store');
+        Route::delete('creditos/devoluciones/{refund}', [CardRefundController::class, 'destroy'])->whereNumber('refund')->name('credits.card-refunds.destroy');
         Route::post('creditos/{credit}/unificar-pagos', [CreditPurchaseController::class, 'syncPlannedSeries'])->name('credits.sync-planned-series');
         Route::post('creditos/{credit}/plan-de-pago', [CreditPurchaseController::class, 'updatePaymentPlan'])->name('credits.payment-plan');
         Route::post('creditos/mensualidades/pagar-seleccion', [CreditPurchaseController::class, 'payInstallmentsSelection'])->name('credits.installments.pay-selected');

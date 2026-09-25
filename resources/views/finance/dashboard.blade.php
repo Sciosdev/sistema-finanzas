@@ -1217,6 +1217,9 @@
                                                                 @if (($payment['credit_free_paid'] ?? 0) > 0)
                                                                     <br>Abonos libres aplicados: {{ $money($payment['credit_free_paid']) }}
                                                                 @endif
+                                                                @if (($payment['credit_refunded'] ?? 0) > 0)
+                                                                    <br>Devoluciones aplicadas: {{ $money($payment['credit_refunded']) }}
+                                                                @endif
                                                             </div>
                                                         @elseif (! empty($payment['detail']))
                                                             <div class="text-muted small">{{ $payment['detail'] }}</div>

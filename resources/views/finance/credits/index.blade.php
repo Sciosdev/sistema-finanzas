@@ -431,7 +431,8 @@
         $totals = $creditTotals[$credit->id] ?? [
             'total_original' => (float) $credit->total_amount,
             'installment_paid' => round($credit->installments->sum(fn ($installment) => (float) $installment->paid_amount), 2),
-            'free_paid' => round($credit->freePayments->sum(fn ($payment) => (float) $payment->amount_applied), 2),
+            'free_paid' => round($credit->freePayments->where('payment_type', '!=', 'refund')->sum(fn ($payment) => (float) $payment->amount_applied), 2),
+            'refunded' => round($credit->freePayments->where('payment_type', 'refund')->sum(fn ($payment) => (float) $payment->amount_applied), 2),
             'total_paid' => 0,
             'balance_due' => 0,
         ];
@@ -487,7 +488,7 @@
                         <span class="ms-1">en flujo {{ $nextInstallment->effectiveDueDate()?->format('Y-m-d') ?? '-' }}</span>
                         <span class="ms-1">original {{ $money($nextOriginal) }}</span>
                         @if ($nextFreeApplied > 0)
-                            <span class="ms-1 text-info">- abonos libres {{ $money($nextFreeApplied) }}</span>
+                            <span class="ms-1 text-info">- abonos y devoluciones {{ $money($nextFreeApplied) }}</span>
                         @endif
                         <span class="ms-1 fw-semibold text-warning">= pendiente efectivo {{ $money($nextEffective) }}</span>
                     </p>
@@ -497,6 +498,9 @@
                 <span class="badge badge-soft-success">Pagado total {{ $money($creditPaid) }}</span>
                 <span class="badge badge-soft-primary">Mensualidades {{ $money($creditInstallmentPaid) }}</span>
                 <span class="badge badge-soft-info">Abonos libres {{ $money($creditFreePaid) }}</span>
+                @if (($totals['refunded'] ?? 0) > 0)
+                    <span class="badge badge-soft-info">Devoluciones {{ $money($totals['refunded']) }}</span>
+                @endif
                 <span class="badge badge-soft-warning">Saldo real {{ $money($creditPending) }}</span>
                 <a href="#free-payments-{{ $credit->id }}" class="btn btn-sm btn-outline-primary">Ver abonos</a>
                 @if ($credit->installments->contains(fn ($installment) => $installment->plannedPayment !== null))
@@ -700,7 +704,7 @@
                 </div>
                 <div class="col-lg-7">
                     <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h5 class="mb-0">Ver abonos libres</h5>
+                        <h5 class="mb-0">Abonos y devoluciones aplicados</h5>
                         <span class="badge badge-soft-info">{{ $money($creditFreePaid) }}</span>
                     </div>
                     <div class="table-responsive d-none d-md-block">
@@ -719,7 +723,10 @@
                                     <tr>
                                         <td>{{ $payment->paid_on->format('Y-m-d') }}</td>
                                         <td>
-                                            @if ($payment->movement)
+                                            @if ($payment->payment_type === 'refund')
+                                                <a href="#card-refunds">Devolución de tarjeta</a>
+                                                <div class="text-muted small">Aplicación al saldo · sin salida de dinero</div>
+                                            @elseif ($payment->movement)
                                                 {{ $payment->movement->description }}
                                                 <div class="text-muted small">{{ $payment->movement->account?->name ?? $credit->account?->name ?? 'Sin cuenta' }}</div>
                                             @else
@@ -729,6 +736,7 @@
                                         <td class="text-end text-danger">{{ $money($payment->amount_applied) }}</td>
                                         <td>{{ $payment->notes ?? '-' }}</td>
                                         <td class="text-end">
+                                            @if ($payment->payment_type !== 'refund')
                                             <form method="POST" action="{{ route('finance.credits.free-payments.destroy', $payment) }}" onsubmit="return confirm('¿Eliminar este abono libre? Podrás deshacerlo durante 2 minutos.')">
                                                 @csrf
                                                 @method('DELETE')
@@ -736,6 +744,9 @@
                                                     <i data-lucide="trash-2"></i>
                                                 </button>
                                             </form>
+                                            @else
+                                                <a href="#card-refunds" class="small">Ver devolución</a>
+                                            @endif
                                         </td>
                                     </tr>
                                 @empty
@@ -755,7 +766,9 @@
                                         <span class="text-danger ms-1">{{ $money($payment->amount_applied) }}</span>
                                     </div>
                                     <div class="text-muted small">
-                                        @if ($payment->movement)
+                                        @if ($payment->payment_type === 'refund')
+                                            <a href="#card-refunds">Devolución de tarjeta · sin salida de dinero</a>
+                                        @elseif ($payment->movement)
                                             {{ $payment->movement->description }} · {{ $payment->movement->account?->name ?? $credit->account?->name ?? 'Sin cuenta' }}
                                         @else
                                             <span class="badge badge-soft-warning">Sin movimiento ligado</span>
@@ -763,6 +776,7 @@
                                         @if ($payment->notes) · {{ $payment->notes }} @endif
                                     </div>
                                 </div>
+                                @if ($payment->payment_type !== 'refund')
                                 <form method="POST" action="{{ route('finance.credits.free-payments.destroy', $payment) }}" onsubmit="return confirm('¿Eliminar este abono libre? Podrás deshacerlo durante 2 minutos.')">
                                     @csrf
                                     @method('DELETE')
@@ -770,6 +784,7 @@
                                         <i data-lucide="trash-2"></i>
                                     </button>
                                 </form>
+                                @endif
                             </div>
                         @empty
                             <p class="text-center text-muted py-3 mb-0">Sin abonos libres</p>
@@ -983,6 +998,9 @@
     ]);
     $manualFormHasErrors = $errors->has('manual.*');
 @endphp
+@include('finance.credits.card-refunds')
+@include('finance.credits.payment-corrections')
+
 <div class="card mt-4" id="carga-manual-creditos">
     <div class="card-header d-flex flex-column flex-md-row align-items-md-center justify-content-between gap-2">
         <div>

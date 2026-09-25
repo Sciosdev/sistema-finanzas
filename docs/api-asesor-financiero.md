@@ -23,6 +23,11 @@ los datos debe leer primero el manual canónico:
 - hasta 60 movimientos recientes con descripción;
 - señales priorizadas para flujo, vencimientos y gasto acelerado.
 
+Desde la versión 2.18.0, cada crédito distingue `refunded` (devoluciones
+aplicadas al saldo) de `total_paid` y `free_paid` (dinero pagado). Las
+devoluciones reducen `balance_due` sin crear ingresos ni egresos de efectivo.
+No se deben sumar a los pagos reales al conciliar movimientos.
+
 La API siempre consulta al usuario definido por `FINANCE_OWNER_EMAIL`. No acepta
 `user_id`, instrucciones, comandos ni operaciones de escritura.
 

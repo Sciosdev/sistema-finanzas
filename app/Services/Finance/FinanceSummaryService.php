@@ -436,7 +436,8 @@ class FinanceSummaryService
         );
         $status = $isOverdue ? 'overdue' : $installment->status;
         $months = $credit?->months ?? '-';
-        $creditFreePaid = $credit ? (float) $credit->freePayments->sum('amount_applied') : 0.0;
+        $creditFreePaid = $credit ? (float) $credit->freePayments->where('payment_type', '!=', 'refund')->sum('amount_applied') : 0.0;
+        $creditRefunded = $credit ? (float) $credit->freePayments->where('payment_type', 'refund')->sum('amount_applied') : 0.0;
         $creditInstallmentPaid = $credit
             ? (float) $credit->installments->sum(fn (CreditInstallment $row) => (float) $row->paid_amount)
             : $paidAmount;
@@ -467,6 +468,7 @@ class FinanceSummaryService
             'credit_total_amount' => $this->money((float) ($credit?->total_amount ?? $amount)),
             'credit_installment_paid' => $this->money($creditInstallmentPaid),
             'credit_free_paid' => $this->money($creditFreePaid),
+            'credit_refunded' => $this->money($creditRefunded),
             'credit_total_paid' => $creditTotalPaid,
             'credit_balance_due' => $creditBalanceDue,
             'kind' => 'Crédito',

@@ -462,6 +462,12 @@ class FinanceDeletionSnapshotService
                 'message' => 'No se pudo restaurar porque el crédito ya no existe.',
             ];
         }
+        if ($credit->freePayments()->where('payment_type', 'refund')->exists()) {
+            return [
+                'ok' => false,
+                'message' => 'Este crédito tiene una devolución aplicada. Revísala antes de restaurar el abono para no descontar dos veces su saldo.',
+            ];
+        }
 
         $movementPayload = $snapshot->relations_payload['movement'] ?? null;
         $movementId = $payload['movement_id'] ?? null;

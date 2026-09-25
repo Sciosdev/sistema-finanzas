@@ -234,7 +234,18 @@ class CreditEffectiveScheduleService
             $holes[$installment->id] = $this->holeCents($installment);
         }
 
-        foreach ($this->orderedFreePayments($credit) as $payment) {
+        // Refunds stay on their original month's installment, including after
+        // the remaining cash is paid. They never become a later-month advance.
+        foreach ($this->orderedFreePayments($credit)->where('payment_type', 'refund') as $payment) {
+            $target = (int) $payment->target_installment_id;
+            if (! array_key_exists($target, $holes)) {
+                continue;
+            }
+            $room = max(0, $holes[$target] - $allocated[$target]);
+            $allocated[$target] += min($room, max(0, $this->cents($payment->amount_applied)));
+        }
+
+        foreach ($this->orderedFreePayments($credit)->where('payment_type', '!=', 'refund') as $payment) {
             $pool = $this->cents($payment->amount_applied);
 
             if ($pool <= 0) {

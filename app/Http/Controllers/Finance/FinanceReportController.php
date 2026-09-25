@@ -284,6 +284,7 @@ class FinanceReportController extends Controller
         $byCard = [];
         $totalPaid = 0.0;
         $totalPending = 0.0;
+        $totalRefunded = 0.0;
 
         foreach ($credits as $credit) {
             $totals = $this->freePayments->totals($credit);
@@ -291,6 +292,7 @@ class FinanceReportController extends Controller
             $pending = (float) ($totals['balance_due'] ?? 0);
             $totalPaid += $paid;
             $totalPending += $pending;
+            $totalRefunded += (float) ($totals['refunded'] ?? 0);
 
             $card = $credit->account?->name ?? 'Sin acreedor';
             if (! isset($byCard[$card])) {
@@ -333,6 +335,7 @@ class FinanceReportController extends Controller
                 'title' => 'Avance de créditos',
                 'rows' => collect([
                     ['name' => 'Pagado', 'amount' => round($totalPaid, 2), 'color' => '#22c55e'],
+                    ['name' => 'Devoluciones', 'amount' => round($totalRefunded, 2), 'color' => '#06b6d4'],
                     ['name' => 'Pendiente', 'amount' => round($totalPending, 2), 'color' => '#f59e0b'],
                 ])->filter(fn (array $row) => $row['amount'] > 0)->values(),
             ],
