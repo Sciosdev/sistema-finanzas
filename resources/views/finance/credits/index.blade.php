@@ -5,6 +5,10 @@
     $money = fn ($value) => '$' . number_format((float) $value, 2);
     $creditorSummaries = collect($creditorSummaries ?? []);
     $summaryWithoutOnix = $summaryWithoutOnix ?? [];
+    $paySelectionMonths = [
+        $currentMonthLabel => 'Este mes · '.\App\Support\FinanceMonth::parse($currentMonthLabel)->locale('es')->translatedFormat('F Y'),
+        $nextMonthLabel => 'Adelantar próximo mes · '.\App\Support\FinanceMonth::parse($nextMonthLabel)->locale('es')->translatedFormat('F Y'),
+    ];
 @endphp
 
 @include('finance.partials.flash')
@@ -244,20 +248,31 @@
 
     @foreach ($creditorSummaries as $creditor)
         @if (! empty($creditor['pending_installments']))
+            @php
+                $selectionMonth = collect($creditor['pending_installments'])->contains('period_label', $currentMonthLabel)
+                    ? $currentMonthLabel : $nextMonthLabel;
+            @endphp
             <div class="modal fade" id="pay-select-{{ $creditor['key'] }}" tabindex="-1" aria-hidden="true">
                 <div class="modal-dialog modal-dialog-centered modal-lg">
                     <div class="modal-content">
                         <form method="POST" action="{{ route('finance.credits.installments.pay-selected') }}"
                               data-pay-select-form
                               data-available-cash="{{ number_format($availableCash ?? 0, 2, '.', '') }}"
+                              data-credit-available="{{ $creditor['available'] !== null ? number_format($creditor['available'], 2, '.', '') : '' }}"
                               onsubmit="return confirm('¿Pagar las mensualidades seleccionadas? Se crearán los movimientos y se marcarán como pagadas.');">
                             @csrf
                             <div class="modal-header">
-                                <h5 class="modal-title">Pagar selección de este mes · {{ $creditor['name'] }}</h5>
+                                <h5 class="modal-title">Seleccionar y pagar · {{ $creditor['name'] }}</h5>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
                             </div>
                             <div class="modal-body">
-                                <p class="text-muted small mb-2">Solo mensualidades de <strong>este mes</strong>. Marca las que quieras pagar; el total se suma abajo. Cada una se marca pagada y crea su movimiento (no se parten mensualidades).</p>
+                                <p class="text-muted small mb-2">Elige mensualidades de este mes o adelanta las del próximo para liberar crédito disponible. Cada cuota se paga completa y el dinero se registra como salida de hoy, aunque corresponda al próximo mes.</p>
+                                <label class="form-label small" for="pay-selected-month-{{ $creditor['key'] }}">Mes de las mensualidades</label>
+                                <select id="pay-selected-month-{{ $creditor['key'] }}" class="form-select form-select-sm mb-3" data-pay-select-month>
+                                    @foreach ($paySelectionMonths as $month => $label)
+                                        <option value="{{ $month }}" @selected($selectionMonth === $month)>{{ $label }}</option>
+                                    @endforeach
+                                </select>
                                 <label class="form-label small" for="pay-selected-account-{{ $creditor['key'] }}">Cuenta de donde salió</label>
                                 <select id="pay-selected-account-{{ $creditor['key'] }}" name="payment_account_id" class="form-select form-select-sm mb-3" required>
                                     @foreach ($accounts as $account)
@@ -279,12 +294,20 @@
                                         <span>Te quedas con:</span>
                                         <span class="fw-semibold fs-6" data-pay-select-remaining>$0.00</span>
                                     </div>
+                                    @if ($creditor['credit_limit'] !== null)
+                                        <div class="d-flex justify-content-between align-items-center mt-1">
+                                            <span>Disponible en tarjeta después del pago:</span>
+                                            <span class="fw-semibold text-success" data-pay-select-credit-available>{{ $money($creditor['available']) }}</span>
+                                        </div>
+                                    @endif
                                 </div>
+                                <p class="text-muted small d-none" data-pay-select-empty>No hay mensualidades pendientes en el mes elegido.</p>
                                 <div class="d-flex flex-column gap-1" style="max-height: 45vh; overflow-y: auto;">
                                     @foreach ($creditor['pending_installments'] as $inst)
-                                        <label class="d-flex align-items-center justify-content-between gap-2 border rounded p-2 mb-0">
+                                        <label class="d-flex align-items-center justify-content-between gap-2 border rounded p-2 mb-0 {{ $inst['period_label'] !== $selectionMonth ? 'd-none' : '' }}"
+                                            data-pay-select-row data-period="{{ $inst['period_label'] }}">
                                             <span class="d-flex align-items-center gap-2">
-                                                <input type="checkbox" class="form-check-input mt-0" name="installment_ids[]" value="{{ $inst['id'] }}" data-amount="{{ $inst['amount'] }}" data-pay-select-check>
+                                                <input type="checkbox" class="form-check-input mt-0" name="installment_ids[]" value="{{ $inst['id'] }}" data-amount="{{ $inst['amount'] }}" data-pay-select-check @disabled($inst['period_label'] !== $selectionMonth)>
                                                 <span>
                                                     <span class="fw-semibold">{{ $inst['credit_name'] }}</span>
                                                     <span class="text-muted small d-block">#{{ $inst['installment_number'] }}/{{ $inst['months'] }} · {{ $inst['period_label'] }}@if ($inst['due_date']) · vence {{ $inst['due_date'] }}@endif</span>
@@ -1285,8 +1308,13 @@
             var totalEls = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-total]'));
             var countEls = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-count]'));
             var remainingEls = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-remaining]'));
+            var creditAvailableEls = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-credit-available]'));
             var submitEl = form.querySelector('[data-pay-select-submit]');
             var availableCash = parseFloat(form.getAttribute('data-available-cash')) || 0;
+            var creditAvailable = parseFloat(form.getAttribute('data-credit-available')) || 0;
+            var monthEl = form.querySelector('[data-pay-select-month]');
+            var rows = Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-row]'));
+            var emptyEl = form.querySelector('[data-pay-select-empty]');
 
             function money(value) {
                 var sign = value < 0 ? '-' : '';
@@ -1294,12 +1322,13 @@
             }
 
             function recalc() {
-                var total = 0;
+                var totalCents = 0;
                 var count = 0;
-                Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-check]:checked')).forEach(function (cb) {
-                    total += parseFloat(cb.getAttribute('data-amount')) || 0;
+                Array.prototype.slice.call(form.querySelectorAll('[data-pay-select-check]:checked:not(:disabled)')).forEach(function (cb) {
+                    totalCents += Math.round((parseFloat(cb.getAttribute('data-amount')) || 0) * 100);
                     count++;
                 });
+                var total = totalCents / 100;
                 totalEls.forEach(function (el) { el.textContent = money(total); });
                 countEls.forEach(function (el) { el.textContent = count; });
 
@@ -1308,12 +1337,29 @@
                     el.textContent = money(remaining);
                     el.classList.toggle('text-danger', remaining < 0);
                 });
+                creditAvailableEls.forEach(function (el) { el.textContent = money(creditAvailable + total); });
 
                 if (submitEl) { submitEl.disabled = count === 0; }
             }
 
+            function filterMonth() {
+                var visibleCount = 0;
+                rows.forEach(function (row) {
+                    var visible = row.getAttribute('data-period') === monthEl.value;
+                    var check = row.querySelector('[data-pay-select-check]');
+                    row.classList.toggle('d-none', !visible);
+                    check.disabled = !visible;
+                    if (!visible) { check.checked = false; }
+                    if (visible) { visibleCount++; }
+                });
+                if (emptyEl) { emptyEl.classList.toggle('d-none', visibleCount > 0); }
+                recalc();
+            }
+
             form.addEventListener('change', function (e) {
-                if (e.target && e.target.matches('[data-pay-select-check]')) {
+                if (e.target === monthEl) {
+                    filterMonth();
+                } else if (e.target && e.target.matches('[data-pay-select-check]')) {
                     recalc();
                 }
             });
@@ -1332,7 +1378,7 @@
                 var running = 0;
                 checks.forEach(function (cb) {
                     var amount = parseFloat(cb.getAttribute('data-amount')) || 0;
-                    if (running + amount <= budget + 0.005) {
+                    if (!cb.disabled && running + amount <= budget + 0.005) {
                         cb.checked = true;
                         running += amount;
                     } else {
@@ -1354,7 +1400,7 @@
                 });
             }
 
-            recalc();
+            filterMonth();
         });
     })();
 

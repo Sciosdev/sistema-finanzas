@@ -539,7 +539,7 @@ class CreditPurchaseController extends Controller
 
     /**
      * Pago por selección manual: paga exactamente las mensualidades marcadas por
-     * el usuario (de cualquier crédito, típicamente del mismo acreedor). El total
+     * el usuario, incluidas cuotas adelantadas (típicamente del mismo acreedor). El total
      * es la suma de las seleccionadas. Cada una se marca pagada y crea su
      * movimiento, igual que el check verde. Todo en una transacción.
      */
@@ -1190,16 +1190,17 @@ class CreditPurchaseController extends Controller
                 $creditLimit = ($account && $account->credit_limit !== null) ? (float) $account->credit_limit : null;
                 $pending = round($items->sum('pending'), 2);
 
-                // Mensualidades pendientes del acreedor DE ESTE MES (de todos sus
-                // créditos), para el pago por selección manual con suma en vivo.
+                // Cuotas del mes actual y del siguiente para pagar por selección
+                // o adelantar un mes y liberar disponible en la tarjeta.
                 $pendingInstallments = $group
-                    ->flatMap(function (CreditPurchase $credit) use ($currentMonth) {
+                    ->flatMap(function (CreditPurchase $credit) use ($currentMonth, $nextMonth) {
                         $effective = $this->schedule->effectivePendingFor($credit);
 
                         return $credit->installments
                             ->filter(fn (CreditInstallment $installment) => $installment->status !== 'paid'
                                 && $installment->period_month
-                                && $installment->period_month->isSameMonth($currentMonth)
+                                && ($installment->period_month->isSameMonth($currentMonth)
+                                    || $installment->period_month->isSameMonth($nextMonth))
                                 && ($effective[$installment->id] ?? 0) > 0.005)
                             ->map(fn (CreditInstallment $installment) => [
                                 'id' => $installment->id,
@@ -1211,7 +1212,7 @@ class CreditPurchaseController extends Controller
                                 'period_label' => $installment->period_month?->format('Y-m'),
                             ]);
                     })
-                    ->sortBy(fn (array $installment) => $installment['due_date'] ?? '9999-99-99')
+                    ->sortBy(fn (array $installment) => $installment['period_label'].'|'.($installment['due_date'] ?? '9999-99-99'))
                     ->values()
                     ->all();
 
