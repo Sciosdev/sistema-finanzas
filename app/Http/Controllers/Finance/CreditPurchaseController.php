@@ -55,8 +55,10 @@ class CreditPurchaseController extends Controller
             ->orderByDesc('purchase_date')
             ->get();
 
+        $this->attachInstallmentParents($credits);
+
         $creditTotals = $credits->mapWithKeys(fn (CreditPurchase $credit) => [
-            $credit->id => $this->freePayments->totals($credit),
+            $credit->id => $this->freePayments->totals($credit, true),
         ]);
         $currentMonth = now()->startOfMonth();
         $nextMonth = $currentMonth->copy()->addMonth();
@@ -123,9 +125,47 @@ class CreditPurchaseController extends Controller
             'availableCash' => $availableCash,
             'currentMonthLabel' => $currentMonth->format('Y-m'),
             'nextMonthLabel' => $nextMonth->format('Y-m'),
+            'expandedCreditId' => $credits->contains('id', $request->integer('credit')) ? $request->integer('credit') : null,
             'accounts' => $this->accountsFor($user),
             'categories' => $this->categoriesFor($user, 'expense'),
         ]);
+    }
+
+    public function details(Request $request, CreditPurchase $credit)
+    {
+        abort_unless($credit->user_id === $request->user()->id, 403);
+
+        $credit->load([
+            'account', 'category', 'freePayments.movement.account',
+            'installments' => fn ($query) => $query->with(['movement', 'plannedPayment'])->orderBy('installment_number'),
+        ]);
+        $this->attachInstallmentParents(collect([$credit]));
+        $lastPaid = $credit->installments
+            ->filter(fn (CreditInstallment $installment) => $installment->status === 'paid' && $installment->movement?->account_id)
+            ->sortByDesc(fn (CreditInstallment $installment) => $installment->paid_on?->timestamp ?? 0)
+            ->first();
+
+        return response()->view('finance.credits.details', [
+            'credit' => $credit,
+            'accounts' => $this->accountsFor($request->user()),
+            'categories' => $this->categoriesFor($request->user(), 'expense'),
+            'paymentAccountDefaults' => [$credit->id => $lastPaid?->movement?->account_id ?? $credit->account_id],
+            'creditSchedules' => [$credit->id => [
+                'free_applied' => $this->schedule->allocationFor($credit),
+                'effective' => $this->schedule->effectivePendingFor($credit),
+                'max_free_payment' => $this->schedule->maxFreePayment($credit),
+            ]],
+        ])->header('X-Finance-Credit-Details', (string) $credit->id)
+            ->header('Cache-Control', 'private, no-store');
+    }
+
+    private function attachInstallmentParents($credits): void
+    {
+        foreach ($credits as $credit) {
+            foreach ($credit->installments as $installment) {
+                $installment->setRelation('creditPurchase', $credit);
+            }
+        }
     }
 
     public function store(Request $request)

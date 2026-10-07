@@ -161,7 +161,7 @@ it('labels refunds separately from cash advances in desktop mobile and next inst
         17, 'Devolución de ejemplo', 'Referencia sintética para verificar las etiquetas.', 'example-refund-labels',
     );
 
-    $response = $this->actingAs($user)->get(route('finance.credits.index'))->assertOk()
+    $response = $this->actingAs($user)->get(route('finance.credits.index', ['credit' => $credit->id]))->assertOk()
         ->assertSee('-$17.00 devolución de tarjeta', false)
         ->assertSee('(devolución de tarjeta $17.00)', false)
         ->assertSee('- devoluciones $17.00', false)

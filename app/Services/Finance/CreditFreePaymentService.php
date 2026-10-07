@@ -125,12 +125,22 @@ class CreditFreePaymentService
         });
     }
 
-    public function totals(CreditPurchase $credit): array
+    public function totals(CreditPurchase $credit, bool $useLoadedRelations = false): array
     {
-        $installmentPaid = round($credit->installments()->sum('paid_amount'), 2);
-        $installmentTotal = round($credit->installments()->sum('amount'), 2);
-        $freePaid = round($credit->freePayments()->where('payment_type', '!=', 'refund')->sum('amount_applied'), 2);
-        $refunded = round($credit->freePayments()->where('payment_type', 'refund')->sum('amount_applied'), 2);
+        // Read screens can reuse their eager-loaded snapshot. Writes retain fresh
+        // aggregates, since relations may predate a payment in the same request.
+        if ($useLoadedRelations) {
+            $credit->loadMissing(['installments', 'freePayments']);
+            $installmentPaid = round((float) $credit->installments->sum('paid_amount'), 2);
+            $installmentTotal = round((float) $credit->installments->sum('amount'), 2);
+            $freePaid = round((float) $credit->freePayments->where('payment_type', '!=', 'refund')->sum('amount_applied'), 2);
+            $refunded = round((float) $credit->freePayments->where('payment_type', 'refund')->sum('amount_applied'), 2);
+        } else {
+            $installmentPaid = round($credit->installments()->sum('paid_amount'), 2);
+            $installmentTotal = round($credit->installments()->sum('amount'), 2);
+            $freePaid = round($credit->freePayments()->where('payment_type', '!=', 'refund')->sum('amount_applied'), 2);
+            $refunded = round($credit->freePayments()->where('payment_type', 'refund')->sum('amount_applied'), 2);
+        }
         $total = round((float) $credit->total_amount, 2);
         $totalPaid = round($installmentPaid + $freePaid, 2);
         $settled = round($totalPaid + $refunded, 2);

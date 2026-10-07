@@ -29,8 +29,9 @@ class FinanceCatalogService
             ['name' => 'Onix', 'type' => 'bank', 'color' => '#0f766e', 'display_order' => 70],
         ];
 
+        $existing = Account::where('user_id', $user->id)->get()->keyBy('name');
         foreach ($accounts as $account) {
-            $record = Account::firstOrCreate(
+            $record = $existing->get($account['name']) ?? Account::firstOrCreate(
                 ['user_id' => $user->id, 'name' => $account['name']],
                 $account + ['user_id' => $user->id]
             );
@@ -67,11 +68,15 @@ class FinanceCatalogService
             ['name' => 'Desconocido', 'type' => 'expense', 'group' => 'Revision', 'color' => '#111827', 'keywords' => '?,desconocido,no recuerdo'],
         ];
 
+        $existing = Category::where('user_id', $user->id)->get()
+            ->keyBy(fn (Category $category) => $category->type.'|'.$category->name);
         foreach ($categories as $category) {
-            Category::firstOrCreate(
-                ['user_id' => $user->id, 'name' => $category['name'], 'type' => $category['type']],
-                $category + ['user_id' => $user->id]
-            );
+            if (! $existing->has($category['type'].'|'.$category['name'])) {
+                Category::firstOrCreate(
+                    ['user_id' => $user->id, 'name' => $category['name'], 'type' => $category['type']],
+                    $category + ['user_id' => $user->id]
+                );
+            }
         }
     }
 
@@ -88,13 +93,15 @@ class FinanceCatalogService
             ['name' => 'Oswaldo', 'type' => 'tenant', 'is_tenant' => true],
         ];
 
+        $existing = Person::where('user_id', $user->id)->get()->keyBy('name');
+        $contracts = RentalContract::where('user_id', $user->id)->pluck('person_id')->flip();
         foreach ($people as $personData) {
-            $person = Person::firstOrCreate(
+            $person = $existing->get($personData['name']) ?? Person::firstOrCreate(
                 ['user_id' => $user->id, 'name' => $personData['name']],
                 $personData + ['user_id' => $user->id]
             );
 
-            if ($person->is_tenant) {
+            if ($person->is_tenant && ! $contracts->has($person->id)) {
                 RentalContract::firstOrCreate(
                     ['user_id' => $user->id, 'person_id' => $person->id],
                     [

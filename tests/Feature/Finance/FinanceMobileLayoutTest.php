@@ -103,7 +103,7 @@ it('keeps the desktop tables but adds mobile cards on credits', function () {
     ]);
 
     $this->actingAs($user)
-        ->get(route('finance.credits.index'))
+        ->get(route('finance.credits.details', $credit))
         ->assertOk()
         ->assertSee('finance-mobile-list', false)
         ->assertSee('installment-form-m-' . $installment->id, false)

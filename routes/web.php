@@ -162,6 +162,7 @@ Route::group(['prefix' => '/', 'middleware' => 'auth'], function () {
         Route::post('recordatorios/{reminder}/omitir', [ReminderController::class, 'skip'])->name('reminders.skip');
 
         Route::get('creditos', [CreditPurchaseController::class, 'index'])->name('credits.index');
+        Route::get('creditos/{credit}/detalle', [CreditPurchaseController::class, 'details'])->whereNumber('credit')->name('credits.details');
         Route::post('creditos', [CreditPurchaseController::class, 'store'])->name('credits.store');
         Route::post('creditos/manual', [CreditPurchaseController::class, 'storeManual'])->name('credits.manual.store');
         Route::post('creditos/recalcular-fechas', [CreditPurchaseController::class, 'recalculateDueDates'])->name('credits.recalculate-dates');

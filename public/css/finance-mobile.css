@@ -103,10 +103,92 @@
     height: 24px;
 }
 
+/* Credit details are rendered only when opened. Constrain long names and
+   nested form controls instead of letting their intrinsic width stretch cards. */
+.finance-credit-header > div,
+.finance-credit-details,
+.finance-credit-details [data-credit-detail-content] {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.finance-credit-header .card-title,
+.finance-credit-header p {
+    overflow-wrap: anywhere;
+}
+
+.finance-credit-details > summary {
+    cursor: pointer;
+    color: var(--bs-primary);
+    scroll-margin-top: 5rem;
+}
+
+.finance-credit-details > summary:hover,
+.finance-credit-details > summary:focus-visible {
+    background: var(--bs-tertiary-bg);
+}
+
+.finance-credit-card,
+[id^="free-payments-"] {
+    scroll-margin-top: 5rem;
+}
+
+/* Keep absolute accessibility labels inside their table, including a table
+   wider than its scroll container. Otherwise they widen the entire document. */
+.page-content .table-responsive {
+    position: relative;
+    max-width: 100%;
+    min-width: 0;
+    overscroll-behavior-x: contain;
+}
+
 /* =========================================================================
    Ajustes solo para teléfono.
    ========================================================================= */
 @media (max-width: 767.98px) {
+    .finance-credit-balances {
+        width: 100%;
+    }
+
+    .finance-credit-balances .badge {
+        max-width: 100%;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        text-align: left;
+    }
+
+    .finance-credit-details input,
+    .finance-credit-details select,
+    .finance-credit-details textarea,
+    .finance-credit-details .input-group {
+        min-width: 0;
+        max-width: 100%;
+    }
+
+    .finance-credit-details input[type="date"],
+    .finance-credit-details input[type="month"] {
+        width: 100%;
+    }
+
+    .finance-credit-details .d-flex.flex-wrap > form {
+        max-width: 100%;
+    }
+
+    [data-pay-select-form] .modal-footer,
+    [data-pay-select-form] .modal-footer > div {
+        width: 100%;
+        min-width: 0;
+    }
+
+    [data-pay-select-form] .modal-footer > .d-flex {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
+
+    [data-pay-select-form] .modal-footer .btn {
+        flex: 1 1 auto;
+    }
+
     /* Que la barra inferior no tape el contenido ni el footer. */
     .page-content {
         padding-bottom: 5.25rem !important;
